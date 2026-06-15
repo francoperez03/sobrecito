@@ -26,8 +26,9 @@ test.describe('Landing page smoke tests', () => {
     await expect(page.getByText('Protocol')).toBeVisible()
   })
 
-  test('differentiation mentions Zarf', async ({ page }) => {
-    await expect(page.getByText('Zarf')).toBeVisible()
+  test('differentiation focuses on sobrecito', async ({ page }) => {
+    await expect(page.getByText('Prove the total without showing a single salary.')).toBeVisible()
+    await expect(page.getByText('Only the auditor can open it.')).toBeVisible()
   })
 
   test('nav links have valid href attributes', async ({ page }) => {

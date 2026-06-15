@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- bg: oklch(0.15 0.030 262) -->
+  <rect width="32" height="32" rx="6" fill="#0e1425"/>
+  <!-- envelope body: outlined in electric blue -->
+  <rect x="4" y="9" width="24" height="16" rx="2" fill="#1a2240" stroke="#5b8ef5" stroke-width="1.5"/>
+  <!-- flap crease (V) -->
+  <polyline points="4,9 16,19.5 28,9" fill="none" stroke="#5b8ef5" stroke-width="1.5" stroke-linejoin="round"/>
+  <!-- seal dot — white, center of flap -->
+  <circle cx="16" cy="20" r="1.5" fill="#eef0fa"/>
+</svg>

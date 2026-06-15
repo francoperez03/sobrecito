@@ -18,6 +18,9 @@ export const metadata: Metadata = {
   title: 'sobrecito · payroll that doesn\'t dox your team',
   description:
     'Pay salaries in USDC on-chain. Keep every amount private. Still prove the totals to your auditor.',
+  icons: {
+    icon: '/icon.svg',
+  },
 }
 
 export default function RootLayout({

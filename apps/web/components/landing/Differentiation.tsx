@@ -8,10 +8,10 @@ export function Differentiation() {
         <DoubleBezel>
           <div className="p-8 md:p-10">
             <p className="font-sans font-[900] text-ink text-h3 leading-[1.15] tracking-[-0.01em]">
-              Every Stellar payroll tool sells transparency. Sobrecito is the only one that proves the total without showing a single salary.
+              Prove the total without showing a single salary.
             </p>
             <p className="mt-4 font-sans font-[400] text-ink-muted text-base leading-[1.6] max-w-[65ch]">
-              The private+provable seat in Stellar's ecosystem has been empty (by accident, not by design).
+              The public sees one verified number: the batch adds up. Every individual amount stays sealed.
             </p>
           </div>
         </DoubleBezel>
@@ -20,10 +20,10 @@ export function Differentiation() {
         <DoubleBezel outerClassName="md:ml-8 ring-1 ring-white/12">
           <div className="p-8 md:p-10">
             <p className="font-sans font-[900] text-ink text-h3 leading-[1.15] tracking-[-0.01em]">
-              Zarf hides payments. Sobrecito hides payments AND proves the total to the one auditor entitled to see it.
+              Only the auditor can open it.
             </p>
             <p className="mt-4 font-sans font-[400] text-ink-muted text-base leading-[1.6] max-w-[65ch]">
-              Hiding is easy. Proving what you hid, without showing it, is the hard part.
+              A view-key scoped to one period rebuilds the per-employee detail. Everyone else gets the proof, never the amounts.
             </p>
           </div>
         </DoubleBezel>
