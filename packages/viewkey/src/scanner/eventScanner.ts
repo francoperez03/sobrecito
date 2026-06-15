@@ -38,8 +38,15 @@ export interface ScannedEvent {
   ledger: number;
 }
 
-/** Topic symbol the `#[contractevent] NewCommitmentEvent` macro emits. */
-const NEW_COMMITMENT_TOPIC = "new_commitment";
+/**
+ * Topic symbol the `#[contractevent] NewCommitmentEvent` macro emits.
+ *
+ * Confirmed against the live pool (deploy 04-03): the macro derives the topic
+ * from the full struct name in snake_case, so it is `new_commitment_event` (NOT
+ * the shorter `new_commitment`). Verified by scanning the deployed pool's event
+ * histogram on testnet.
+ */
+const NEW_COMMITMENT_TOPIC = "new_commitment_event";
 
 /**
  * Scan `NewCommitmentEvent`s emitted by the pool over `[fromLedger, toLedger]`.
