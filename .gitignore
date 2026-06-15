@@ -8,6 +8,7 @@ node_modules/
 .turbo/
 *.tsbuildinfo
 .vercel/
+dist/
 playwright-report/
 test-results/
 
@@ -19,6 +20,11 @@ test-results/
 
 # OS
 .DS_Store
+
+# Live testnet batch manifest: holds the auditor X25519 PRIVATE key and the
+# exact (non-deterministic) dual-blob bytes for the live reconstruction run.
+# Secret material must never be committed.
+ops/testnet-batch/
 
 # PoC trusted-setup proving keys (regenerables). Solo se versiona la PK del
 # circuito desplegado (policy_tx_1_8), cuyo par PK/VK debe matchear el verifier.
