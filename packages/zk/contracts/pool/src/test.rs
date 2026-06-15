@@ -554,6 +554,87 @@ fn transact_rejects_bad_public_amount() {
     assert!(pool.try_transact(&proof, &ext, &sender).is_err());
 }
 
+/// PROOF-05 (A3 doble conteo): un batch que reusa un nullifier ya gastado
+/// revierte con `AlreadySpentNullifier` antes del verify ZK. La invocacion
+/// Soroban es atomica: el revert deja el estado intacto (ningun commitment se
+/// inserta), garantizando el all-or-nothing del batch.
+///
+/// Pre-marcamos el nullifier 0xABCD via `env.as_contract` (simula una primera
+/// transaccion exitosa) y luego intentamos gastarlo de nuevo. El mock proof
+/// basta: el check de nullifier (paso 2 de internal_transact, pool.rs:580-585)
+/// corre ANTES del verify ZK (paso 5).
+#[test]
+fn transact_rejects_reused_nullifier() {
+    let env = test_env();
+    let setup = setup_test_contracts(&env);
+    let maximum_deposit_amount = U256::from_u32(&env, 1000);
+    let levels = 3u32;
+    let pool_id = env.register(
+        PoolContract,
+        (
+            setup.admin.clone(),
+            setup.token.clone(),
+            setup.verifier.clone(),
+            setup.asp_membership_address.clone(),
+            setup.asp_non_membership_address.clone(),
+            maximum_deposit_amount.clone(),
+            levels,
+        ),
+    );
+    let pool = PoolContractClient::new(&env, &pool_id);
+
+    env.mock_all_auths();
+    let sender = Address::generate(&env);
+
+    // Pre-marcar el nullifier como gastado (simula una primera transaccion exitosa).
+    let used_nullifier = U256::from_u32(&env, 0xABCD);
+    env.as_contract(&pool_id, || {
+        let mut nulls: soroban_sdk::Map<U256, bool> = env
+            .storage()
+            .persistent()
+            .get(&crate::pool::DataKey::Nullifiers)
+            .unwrap();
+        nulls.set(used_nullifier.clone(), true);
+        env.storage()
+            .persistent()
+            .set(&crate::pool::DataKey::Nullifiers, &nulls);
+    });
+
+    let root = pool.get_root();
+    let ext = mk_ext_data(&env, Address::generate(&env), 0);
+    let ext_hash = compute_ext_hash(&env, &ext);
+    let asp_membership_root = setup.asp_membership_client.get_root();
+    let asp_non_membership_root = setup.asp_non_membership_client.get_root();
+
+    // Snapshot del root antes del intento: debe quedar intacto tras el revert.
+    let root_before = pool.get_root();
+
+    let proof = Proof {
+        proof: mk_mock_groth16_proof(&env),
+        root,
+        input_nullifiers: {
+            let mut v: Vec<U256> = Vec::new(&env);
+            v.push_back(used_nullifier.clone());
+            v
+        },
+        output_commitments: mk_commitments(&env, &[1, 2, 3, 4, 5, 6, 7, 8]),
+        public_amount: U256::from_u32(&env, 0),
+        ext_data_hash: ext_hash,
+        asp_membership_root,
+        asp_non_membership_root,
+    };
+
+    // Segundo gasto del mismo nullifier: rebota con AlreadySpentNullifier.
+    assert!(matches!(
+        pool.try_transact(&proof, &ext, &sender),
+        Err(Ok(Error::AlreadySpentNullifier))
+    ));
+
+    // All-or-nothing: tras el revert atomico el arbol no inserto ningun
+    // commitment; el root permanece intacto.
+    assert_eq!(pool.get_root(), root_before);
+}
+
 #[test]
 fn transact_rejects_non_canonical_nullifier() {
     let env = test_env();
