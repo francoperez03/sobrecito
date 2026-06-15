@@ -163,13 +163,24 @@ fn main() -> Result<()> {
         bail!("unexpected membership Merkle depth: {mem_depth} != {LEVELS}");
     }
 
-    // Non-membership proof
-    let override_key = Scalar::from(100_001u64); // 1 * 100_000 + 1
-    let override_leaf = poseidon2_hash2(pk_field, Scalar::zero(), Some(Scalar::from(1u64)));
-    let overrides: Vec<(BigInt, BigInt)> = vec![(
-        scalar_to_bigint(override_key),
-        scalar_to_bigint(override_leaf),
-    )];
+    // Non-membership proof.
+    // --zero-input: el contrato ASP non-membership on-chain es un SMT vacío
+    // (get_root() == 0). El proof debe generarse contra ese mismo SMT vacío
+    // (sin overrides) para que nonMembershipRoots[0] == 0 e is_old0 == true,
+    // coincidiendo con el public input que el pool pasa al verifier
+    // (proof.asp_non_membership_root, leído vía cross-contract de get_root()).
+    // Default (local proving test): inserta un override para ejercitar la
+    // verificación de no-inclusión contra un SMT poblado (root != 0).
+    let overrides: Vec<(BigInt, BigInt)> = if zero_input {
+        vec![]
+    } else {
+        let override_key = Scalar::from(100_001u64); // 1 * 100_000 + 1
+        let override_leaf = poseidon2_hash2(pk_field, Scalar::zero(), Some(Scalar::from(1u64)));
+        vec![(
+            scalar_to_bigint(override_key),
+            scalar_to_bigint(override_leaf),
+        )]
+    };
     let non_mem_proof =
         prepare_smt_proof_with_overrides(&scalar_to_bigint(pk_field), &overrides, LEVELS);
 
