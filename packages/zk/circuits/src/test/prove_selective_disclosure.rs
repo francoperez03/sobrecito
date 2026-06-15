@@ -91,7 +91,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_selective_disclosure_valid_note() -> Result<()> {
         let (wasm, r1cs) = load_artifacts("selectiveDisclosure_1")
             .expect("Cannot find selectiveDisclosure_1 artifacts");
@@ -107,7 +106,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_selective_disclosure_wrong_private_key_fails() {
         let (wasm, r1cs) = load_artifacts("selectiveDisclosure_1")
             .expect("Cannot find selectiveDisclosure_1 artifacts");
@@ -126,7 +124,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_selective_disclosure_wrong_amount_fails() {
         let (wasm, r1cs) = load_artifacts("selectiveDisclosure_1")
             .expect("Cannot find selectiveDisclosure_1 artifacts");
@@ -145,7 +142,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_selective_disclosure_wrong_blinding_fails() {
         let (wasm, r1cs) = load_artifacts("selectiveDisclosure_1")
             .expect("Cannot find selectiveDisclosure_1 artifacts");
@@ -164,7 +160,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_selective_disclosure_wrong_path_fails() {
         let (wasm, r1cs) = load_artifacts("selectiveDisclosure_1")
             .expect("Cannot find selectiveDisclosure_1 artifacts");
@@ -184,7 +179,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_selective_disclosure_wrong_root_fails() {
         let (wasm, r1cs) = load_artifacts("selectiveDisclosure_1")
             .expect("Cannot find selectiveDisclosure_1 artifacts");
@@ -203,7 +197,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_selective_disclosure_wrong_note_commitment_fails() {
         let (wasm, r1cs) = load_artifacts("selectiveDisclosure_1")
             .expect("Cannot find selectiveDisclosure_1 artifacts");
