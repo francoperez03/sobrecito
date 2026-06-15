@@ -8,6 +8,7 @@ use ark_std::rand::{SeedableRng, rngs::StdRng};
 use contract_types::PROOF_SIZE;
 use soroban_sdk::{Bytes, BytesN, Env, Vec};
 use soroban_utils::{g1_bytes_from_ark, g2_bytes_from_ark, vk_bytes_from_ark};
+use contract_types;
 
 /// Simple circuit that exposes eleven public inputs (as many as a tx circuit).
 ///
@@ -53,6 +54,23 @@ fn groth16_proof_from_ark(env: &Env, proof: &Proof<Bn254>) -> Groth16Proof {
         a: G1Affine::from_bytes(BytesN::from_array(env, &g1_bytes_from_ark(proof.a))),
         b: G2Affine::from_bytes(BytesN::from_array(env, &g2_bytes_from_ark(proof.b))),
         c: G1Affine::from_bytes(BytesN::from_array(env, &g1_bytes_from_ark(proof.c))),
+    }
+}
+
+fn groth16_proof_from_ark_circuit_keys(env: &Env, proof: &Proof<Bn254>) -> Groth16Proof {
+    Groth16Proof {
+        a: G1Affine::from_bytes(BytesN::from_array(
+            env,
+            &circuit_keys::g1_to_soroban_bytes(&proof.a),
+        )),
+        b: G2Affine::from_bytes(BytesN::from_array(
+            env,
+            &circuit_keys::g2_to_soroban_bytes(&proof.b),
+        )),
+        c: G1Affine::from_bytes(BytesN::from_array(
+            env,
+            &circuit_keys::g1_to_soroban_bytes(&proof.c),
+        )),
     }
 }
 
@@ -165,4 +183,93 @@ fn groth16_proof_parsing_checks_size() {
         Groth16Proof::try_from(truncated),
         Err(Groth16Error::MalformedProof)
     ));
+}
+
+/// Verify that `circuit_keys::g1_to_soroban_bytes` and
+/// `soroban_utils::g1_bytes_from_ark` produce identical bytes for G1 points,
+/// and likewise for G2. These are the two serialization paths: production
+/// uses `circuit_keys`, the existing unit tests use `soroban_utils`.
+#[test]
+fn serialization_equivalence_circuit_keys_vs_soroban_utils() {
+    let mut rng = seeded_rng();
+    let inputs = [ArkFr::from(33u64); 11];
+    let circuit = ElevenInputCircuit { inputs };
+    let params = Groth16::<Bn254, CircomReduction>::generate_random_parameters_with_reduction(
+        circuit.clone(),
+        &mut rng,
+    )
+    .expect("params failed to generate");
+    let proof = Groth16::<Bn254, CircomReduction>::create_random_proof_with_reduction(
+        circuit, &params, &mut rng,
+    )
+    .expect("proof failed");
+
+    // Compare G1 serialization (proof.a and proof.c)
+    let a_circuit_keys = circuit_keys::g1_to_soroban_bytes(&proof.a);
+    let a_soroban_utils = g1_bytes_from_ark(proof.a);
+    assert_eq!(
+        a_circuit_keys, a_soroban_utils,
+        "G1 proof.a serialization differs between circuit_keys and soroban_utils"
+    );
+
+    let c_circuit_keys = circuit_keys::g1_to_soroban_bytes(&proof.c);
+    let c_soroban_utils = g1_bytes_from_ark(proof.c);
+    assert_eq!(
+        c_circuit_keys, c_soroban_utils,
+        "G1 proof.c serialization differs between circuit_keys and soroban_utils"
+    );
+
+    // Compare G2 serialization (proof.b)
+    let b_circuit_keys = circuit_keys::g2_to_soroban_bytes(&proof.b);
+    let b_soroban_utils = g2_bytes_from_ark(proof.b);
+    assert_eq!(
+        b_circuit_keys, b_soroban_utils,
+        "G2 proof.b serialization differs between circuit_keys and soroban_utils"
+    );
+}
+
+/// Verify that a proof serialized with `circuit_keys` (the production path used
+/// by `payroll-proof-gen`) passes the Soroban verifier, just as the proof
+/// serialized with `soroban_utils` does.
+#[test]
+fn verifies_valid_proof_with_circuit_keys_serialization() {
+    let env = test_env();
+    let mut rng = seeded_rng();
+    let inputs = [ArkFr::from(33u64); 11];
+    let circuit = ElevenInputCircuit { inputs };
+    let params = Groth16::<Bn254, CircomReduction>::generate_random_parameters_with_reduction(
+        circuit.clone(),
+        &mut rng,
+    )
+    .expect("params failed to generate");
+    let proof = Groth16::<Bn254, CircomReduction>::create_random_proof_with_reduction(
+        circuit, &params, &mut rng,
+    )
+    .expect("proof failed");
+
+    // Build VK bytes using soroban_utils (same as existing test)
+    let vk_bytes_ext = vk_bytes_from_ark(&env, &params.vk);
+    let vk_bytes = contract_types::VerificationKeyBytes {
+        alpha: vk_bytes_ext.alpha,
+        beta: vk_bytes_ext.beta,
+        gamma: vk_bytes_ext.gamma,
+        delta: vk_bytes_ext.delta,
+        ic: vk_bytes_ext.ic,
+    };
+    let vk = verification_key_from_bytes(&env, &vk_bytes);
+
+    // Build proof using circuit_keys (the production path)
+    let soroban_proof = groth16_proof_from_ark_circuit_keys(&env, &proof);
+
+    let mut public_inputs: Vec<Bn254Fr> = Vec::new(&env);
+    for value in inputs {
+        public_inputs.push_back(fr_from_ark(&env, value));
+    }
+
+    let result = CircomGroth16Verifier::verify_with_vk(&env, &vk, soroban_proof, public_inputs);
+    assert_eq!(
+        result,
+        Ok(true),
+        "proof serialized via circuit_keys should verify in the Soroban verifier"
+    );
 }

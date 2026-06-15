@@ -1518,23 +1518,3 @@ fn print_employer_mem_leaf() {
     println!("mem_leaf (poseidon2(pubkey, 0, 1)): {}", scalar_to_bigint(mem_leaf));
 }
 
-#[test]
-#[ignore]
-fn print_asp_membership_roots() {
-    use crate::test::utils::{general::{poseidon2_hash2, scalar_to_bigint}, merkle_tree::merkle_root};
-    use zkhash::{ark_ff::Zero, fields::bn256::FpBN256 as Scalar};
-    // 8 leaves from output pub keys (1000..1007) inserted during deploy
-    let mut leaves = vec![Scalar::zero(); 1 << 10];
-    for i in 0..8usize {
-        let pub_key = Scalar::from(1000u64 + i as u64);
-        leaves[i] = poseidon2_hash2(pub_key, Scalar::zero(), Some(Scalar::from(1u64)));
-    }
-    let root_8 = merkle_root(leaves.clone());
-    println!("root after 8 employee leaves: {}", scalar_to_bigint(root_8));
-    // Add employer at index 8
-    let employer_pub = Scalar::from(430441881861402007315334860956977145795171156495387641622836002198432238715u128); // truncated - need full
-    // Use the mem_leaf directly
-    leaves[8] = Scalar::from(6799258402115901949608087973981428867466362583773158470615191365995989285381u128); // truncated
-    let root_9 = merkle_root(leaves.clone());
-    println!("root after employer at idx 8: {}", scalar_to_bigint(root_9));
-}
