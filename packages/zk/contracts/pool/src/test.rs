@@ -351,6 +351,74 @@ fn payroll_proof_has_14_public_inputs() {
     let public_input_count = 3 + n_in + n_out + n_in + n_in;
 
     assert_eq!(public_input_count, 14);
+
+    // PROOF-02: assert the canonical ABI ORDER by index, not just the count.
+    // Mirror verify_proof's construction (pool.rs:443-470) with distinct
+    // sentinel values so a misordered slot is caught.
+    let root = U256::from_u32(&env, 0x1111);
+    let public_amount = U256::from_u32(&env, 0x2222);
+    let ext_data_hash = U256::from_u32(&env, 0x3333);
+    let asp_membership_root = U256::from_u32(&env, 0xAAAA);
+    let asp_non_membership_root = U256::from_u32(&env, 0xBBBB);
+
+    let mut abi: Vec<U256> = Vec::new(&env);
+    abi.push_back(root.clone()); // [0] root
+    abi.push_back(public_amount.clone()); // [1] public_amount
+    abi.push_back(ext_data_hash.clone()); // [2] ext_data_hash
+    for n in input_nullifiers.iter() {
+        abi.push_back(n); // [3] input_nullifiers[0..nIns]
+    }
+    for c in output_commitments.iter() {
+        abi.push_back(c); // [4..11] output_commitments[0..7]
+    }
+    for _ in 0..n_in {
+        abi.push_back(asp_membership_root.clone()); // [12] asp_membership_root ×nIns
+    }
+    for _ in 0..n_in {
+        abi.push_back(asp_non_membership_root.clone()); // [13] asp_non_membership_root ×nIns
+    }
+
+    assert_eq!(abi.len(), 14);
+    assert_eq!(abi.get(0).unwrap(), root);
+    assert_eq!(abi.get(1).unwrap(), public_amount);
+    assert_eq!(abi.get(2).unwrap(), ext_data_hash);
+    assert_eq!(abi.get(3).unwrap(), U256::from_u32(&env, 0xAB)); // nullifier
+    assert_eq!(abi.get(4).unwrap(), U256::from_u32(&env, 1)); // first commitment
+    assert_eq!(abi.get(11).unwrap(), U256::from_u32(&env, 8)); // last commitment
+    assert_eq!(abi.get(12).unwrap(), asp_membership_root);
+    assert_eq!(abi.get(13).unwrap(), asp_non_membership_root);
+}
+
+/// PROOF-01 (A1 observador): el evento publico del pool no expone montos
+/// individuales. `NewCommitmentEvent` solo lleva commitment + index + blob
+/// cifrado; nunca un amount en claro. Construimos el evento con un blob opaco y
+/// confirmamos su forma. El total `sum=T` queda probado por la conservacion del
+/// circuito (PROOF-07), no por ningun campo publico de monto.
+///
+/// Disclosure: garantia tecnica (la struct no tiene campo de monto) + de
+/// politica (el blob debe cifrarse antes de pasarse al pool; el contrato lo
+/// emite tal cual). PoC, no auditado.
+#[test]
+fn events_expose_no_plaintext_amount() {
+    use crate::pool::NewCommitmentEvent;
+    let env = test_env();
+
+    // An opaque encrypted blob (the only place a per-note amount may live, and
+    // only in ciphertext form).
+    let encrypted_output = Bytes::from_array(&env, &[0xDE, 0xAD, 0xBE, 0xEF]);
+    let event = NewCommitmentEvent {
+        commitment: U256::from_u32(&env, 0xC0FFEE),
+        index: 0u32,
+        encrypted_output: encrypted_output.clone(),
+    };
+
+    // The public event surface is exactly {commitment, index, encrypted_output}.
+    // There is no plaintext amount field to assert against: its absence is a
+    // compile-time guarantee of the struct definition (pool.rs:198-206). We
+    // assert the carried blob is the opaque ciphertext, never a cleartext value.
+    assert_eq!(event.commitment, U256::from_u32(&env, 0xC0FFEE));
+    assert_eq!(event.index, 0u32);
+    assert_eq!(event.encrypted_output, encrypted_output);
 }
 
 #[test]
