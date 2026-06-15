@@ -916,3 +916,71 @@ fn print_demo_ext_data_hash() {
         .join("");
     std::println!("ext_data_hash_hex={hex}");
 }
+
+/// Computes the `ext_data_hash` for a REAL payroll batch carrying 8 dual ECIES
+/// blobs in `encrypted_outputs` (Nivel A — live auditor reconstruction).
+///
+/// Reads the 8 frozen dual-blob hexes from the env var `SOBRE_BLOBS_HEX` (comma
+/// separated, no `0x` prefix), builds the exact `ExtData { recipient: mikey,
+/// ext_amount: 0, encrypted_outputs: [the 8 Bytes] }` the deployer will SUBMIT,
+/// and prints `keccak256(ext_data.to_xdr(env))` reduced mod BN254 as hex32. This
+/// is the bulletproof way to match the contract's XDR encoding: the same
+/// `ExtData.to_xdr` path the pool runs in `hash_ext_data` (pool.rs:126-134).
+///
+/// The printed value is passed to `payroll-proof-gen --ext-data-hash`, so the
+/// on-chain check `hash_ext_data(submitted_ext_data) == proof.ext_data_hash`
+/// holds for the byte-identical ext_data submitted in the transact.
+///
+/// Run with:
+///   SOBRE_BLOBS_HEX="<hex0>,<hex1>,...,<hex7>" \
+///     cargo test -p pool print_real_batch_ext_data_hash -- --nocapture --ignored
+#[test]
+#[ignore]
+fn print_real_batch_ext_data_hash() {
+    extern crate std;
+    let env = test_env();
+
+    // recipient = deployer (mikey); ext_amount = 0 (no USDC moves, reshield path).
+    let deployer_strkey = "GBWJZZ3XSNAY3WLFNLXUZXEEYMZCYVG4TW6Z5VSASJS2TOWF7GGPPKMW";
+    let recipient = Address::from_str(&env, deployer_strkey);
+
+    let blobs_hex = std::env::var("SOBRE_BLOBS_HEX")
+        .expect("set SOBRE_BLOBS_HEX to 8 comma-separated blob hexes");
+    let parts: std::vec::Vec<&str> = blobs_hex.split(',').collect();
+    assert_eq!(parts.len(), 8, "expected exactly 8 blob hexes");
+
+    let mut encrypted_outputs: Vec<Bytes> = Vec::new(&env);
+    for part in parts {
+        let part = part.trim().trim_start_matches("0x");
+        assert!(part.len() % 2 == 0, "blob hex must have even length");
+        let mut bytes = Bytes::new(&env);
+        let chars: std::vec::Vec<char> = part.chars().collect();
+        let mut i = 0;
+        while i < chars.len() {
+            let byte = u8::from_str_radix(
+                &std::format!("{}{}", chars[i], chars[i + 1]),
+                16,
+            )
+            .expect("invalid hex byte in SOBRE_BLOBS_HEX");
+            bytes.push_back(byte);
+            i += 2;
+        }
+        encrypted_outputs.push_back(bytes);
+    }
+
+    let ext = ExtData {
+        recipient,
+        ext_amount: I256::from_i32(&env, 0),
+        encrypted_outputs,
+    };
+
+    let hash = compute_ext_hash(&env, &ext);
+    let mut hash_bytes = [0u8; 32];
+    hash.copy_into_slice(&mut hash_bytes);
+    let hex: std::string::String = hash_bytes
+        .iter()
+        .map(|b| std::format!("{b:02x}"))
+        .collect::<std::vec::Vec<_>>()
+        .join("");
+    std::println!("ext_data_hash_hex={hex}");
+}
