@@ -94,6 +94,10 @@ if [[ ! -f "$PROOF_GEN" ]]; then
 fi
 
 step "Generando proof (puede tardar ~30s)..."
+# --blinding se varía por timestamp para evitar colisión de nullifier con runs anteriores.
+# El priv_key (424242) se mantiene fijo para que pk_field coincida con el employer leaf
+# en el árbol ASP membership on-chain (leaf[8] = poseidon2_hash2(pk_424242, 0, 1)).
+FRESH_BLINDING=$(($(date +%s) % 1000000000 + 1000000))
 "$PROOF_GEN" \
   --wasm "$WASM" \
   --r1cs "$R1CS" \
@@ -102,6 +106,7 @@ step "Generando proof (puede tardar ~30s)..."
   --asp-non-member-root "$ASP_NM_ROOT" \
   --pool-root "$POOL_ROOT" \
   --zero-input \
+  --blinding "$FRESH_BLINDING" \
   --out "$PROOF_OUT" 2>&1 >&2
 
 VERIFIED_LOCAL="$(jq -r '.verified_locally' "$PROOF_OUT")"
@@ -117,11 +122,15 @@ EXT_DATA_ARG="$(jq -c '.ext_data_arg' "$PROOF_OUT")"
 step "=== Midiendo verify cost via simulateTransaction ==="
 step "(pool.transact completa: root check + nullifier + ext_hash + public_amount + ASP + pairing)"
 
-# Intentar con --simulate-only del CLI de Stellar 25.2.0
+# Usar --send=no para obtener el resultado de la simulacion sin enviar la tx real.
+# La salida del CLI incluye el JSON con cost.cpuInsns cuando hay ledger writes.
+CPU_INSNS=""
+
 SIMULATE_OUTPUT="$(stellar contract invoke \
   --network "$NETWORK" \
   --source-account "$DEPLOYER" \
   --id "$POOL_ID" \
+  --send=no \
   -- transact \
   --proof "$PROOF_ARG" \
   --ext_data "$EXT_DATA_ARG" \
@@ -129,19 +138,16 @@ SIMULATE_OUTPUT="$(stellar contract invoke \
 
 echo "$SIMULATE_OUTPUT" >&2
 
-# Intentar extraer cpuInsns del output del CLI
-CPU_INSNS=""
+# El CLI con --send=no emite JSON de simulacion que incluye cpuInsns
+CPU_INSNS="$(echo "$SIMULATE_OUTPUT" | grep -oE '"cpuInsns":"[0-9]+"' | grep -oE '[0-9]+' | head -1 || true)"
 
-# El CLI 25.2.0 puede reportar las instructions en el output de diagnostico
-if echo "$SIMULATE_OUTPUT" | grep -qi "cpuInsns\|cpu_insns\|instructions"; then
-  CPU_INSNS="$(echo "$SIMULATE_OUTPUT" | grep -oE '"cpuInsns":"[0-9]+"' | grep -oE '[0-9]+' | head -1 || true)"
-fi
-
-# Fallback: RPC directo via curl para obtener el XDR de la transaccion y simularla
+# Fallback: construir el XDR con --build-only y simular via RPC directo.
+# El RPC Soroban moderno expone cpuInsns en result.transactionData (SorobanTransactionData XDR)
+# decodificado como .resources.instructions, no en result.cost.cpuInsns.
 if [[ -z "$CPU_INSNS" ]]; then
-  step "CLI no reporto cpuInsns directamente. Intentando RPC directo via curl..."
+  step "CLI no reporto cpuInsns en --send=no. Intentando RPC directo via curl..."
 
-  # Construir el XDR de la transaccion usando el CLI con --build-only
+  # --build-only escribe el XDR a stdout (sin ninguna otra salida en stdout)
   TX_XDR="$(stellar contract invoke \
     --network "$NETWORK" \
     --source-account "$DEPLOYER" \
@@ -150,18 +156,27 @@ if [[ -z "$CPU_INSNS" ]]; then
     -- transact \
     --proof "$PROOF_ARG" \
     --ext_data "$EXT_DATA_ARG" \
-    --sender "$DEPLOYER" 2>&1 | grep -v '^[A-Za-z]' | tr -d '\n' || true)"
+    --sender "$DEPLOYER" 2>/dev/null || true)"
 
   if [[ -n "$TX_XDR" ]]; then
-    step "XDR de transaccion obtenido. Enviando a simulateTransaction RPC..."
+    step "XDR obtenido (${#TX_XDR} chars). Enviando a simulateTransaction RPC..."
 
     RPC_RESPONSE="$(curl -s -X POST "$RPC_URL" \
       -H "Content-Type: application/json" \
       -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"simulateTransaction\",\"params\":{\"transaction\":\"$TX_XDR\"}}" 2>/dev/null || true)"
 
     if [[ -n "$RPC_RESPONSE" ]]; then
-      echo "RPC response: $RPC_RESPONSE" >&2
-      CPU_INSNS="$(echo "$RPC_RESPONSE" | jq -r '.result.cost.cpuInsns // empty' 2>/dev/null || true)"
+      # Nuevo Soroban RPC: cpuInsns en transactionData.resources.instructions (XDR decodificado)
+      TX_DATA_XDR="$(echo "$RPC_RESPONSE" | jq -r '.result.transactionData // empty' 2>/dev/null || true)"
+      if [[ -n "$TX_DATA_XDR" ]]; then
+        CPU_INSNS="$(echo "$TX_DATA_XDR" | stellar xdr decode --type SorobanTransactionData --output json 2>/dev/null \
+          | jq -r '.resources.instructions // empty' 2>/dev/null || true)"
+      fi
+      # Fallback legacy: result.cost.cpuInsns
+      if [[ -z "$CPU_INSNS" ]]; then
+        CPU_INSNS="$(echo "$RPC_RESPONSE" | jq -r '.result.cost.cpuInsns // empty' 2>/dev/null || true)"
+      fi
+      step "CPU insns extraidos del RPC: ${CPU_INSNS:-NO ENCONTRADO}"
     fi
   fi
 fi
@@ -197,24 +212,9 @@ if [[ -n "$CPU_INSNS" && "$CPU_INSNS" =~ ^[0-9]+$ ]]; then
   exit "$EXIT_CODE"
 else
   # No se pudo obtener cpuInsns del CLI/RPC.
-  # El error observado (UnknownRoot = Error #8) ocurre ANTES del pairing_check.
-  # El pairing check del precompile BN254 de Soroban es el costo dominante.
-  # Segun el de-risk de Enclave Phase 0 (stellar-private-payments upstream):
-  # el verify BN254 paso el umbral de 400M (veredicto GREEN registrado).
-  # La medicion exacta del circuito policy_tx_1_8 requiere que el pool_root
-  # del proof coincida con el root on-chain (bootstrap problem documentado
-  # en 04-03-SUMMARY.md bajo Deviaciones).
-  ESTIMATED_CPU="~100000000-200000000"
-  echo "║  CPU insns:   NO MEDIDO (UnknownRoot antes del pairing)         ║"
-  echo "║  Estimado:    $ESTIMATED_CPU (basado en de-risk Enclave)          ║"
-  echo "║  Veredicto:   PENDIENTE - Ver nota en SUMMARY.md                ║"
+  echo "║  CPU insns:   NO MEDIDO (fallo de extraccion del RPC)           ║"
+  echo "║  Veredicto:   PENDIENTE - revisar salida del RPC arriba         ║"
   echo "╚══════════════════════════════════════════════════════════════════╝"
-  echo ""
-  echo "NOTA: El pool.transact falla en UnknownRoot (Error #8) antes del" >&2
-  echo "pairing_check porque el proof usa un pool root diferente al del" >&2
-  echo "pool vacio en testnet. El pairing BN254 es el costo dominante y" >&2
-  echo "el de-risk de Enclave (stellar-private-payments) confirmo GREEN." >&2
-  echo "El dato duro requiere que el pool tenga la nota de entrada insertada." >&2
   rm -f "$PROOF_OUT"
-  exit 0  # No es un fallo del harness, es una limitacion de bootstrap
+  exit 1
 fi

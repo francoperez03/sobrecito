@@ -10,6 +10,7 @@
 //!     --asp-non-member-root <decimal_u256> \
 //!     --pool-root <decimal_u256>       (actual on-chain root) \
 //!     [--zero-input]                   (usa inAmount=0; el circuito desactiva merkle-check; root on-chain pasa is_known_root)
+//!     [--blinding <u64>]               (semilla del blinding de la nota de entrada; default: 515151. Variar para generar nullifiers frescos sin cambiar pk_field)
 //!     [--ext-data-hash <hex32>]        (default: hash for ext_amount=0, deployer=mikey) \
 //!     [--out <path/to/output.json>]    (default: stdout)
 
@@ -23,7 +24,7 @@ use ark_snark::SNARK;
 use circuit_keys::{g1_to_soroban_bytes, g2_to_soroban_bytes};
 use circuits::test::utils::{
     circom_tester::{InputValue, Inputs, load_keys},
-    general::{poseidon2_hash2, scalar_to_bigint},
+    general::{poseidon2_hash2, poseidon2_hash3, scalar_to_bigint},
     keypair::{derive_public_key, sign},
     merkle_tree::{merkle_proof, merkle_root},
     sparse_merkle_tree::prepare_smt_proof_with_overrides,
@@ -55,6 +56,10 @@ fn main() -> Result<()> {
     });
     let out_path = get_arg(&args, "--out").ok();
     let zero_input = args.iter().any(|a| a == "--zero-input");
+    let blinding_seed: u64 = get_arg(&args, "--blinding")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(515151);
 
     // Load proving key using circom_tester helper (loads PK + extracts VK + pvk)
     eprintln!("==> Loading proving key from {pk_path}");
@@ -85,7 +90,7 @@ fn main() -> Result<()> {
         vec![InputNote {
             leaf_index: 11,
             priv_key: Scalar::from(424242u64),
-            blinding: Scalar::from(515151u64),
+            blinding: Scalar::from(blinding_seed),
             amount: Scalar::from(in_amount),
         }],
         outputs,
@@ -139,8 +144,17 @@ fn main() -> Result<()> {
     let mem_leaf = poseidon2_hash2(pk_field, Scalar::zero(), Some(Scalar::from(1u64)));
     let (mem_root, mem_siblings, mem_path_idx, mem_depth) = if zero_input {
         // Estado on-chain conocido: leaves[0..7] = 1..8, leaves[8] = employer_mem_leaf
+        // Los slots vacíos del árbol on-chain usan zeroes[0] = poseidon2("XLM") = poseidon2(88,76,77)
+        // (misma función de compresión t=4, r=3, domain_sep=0 que define get_zeroes() en soroban-utils).
+        // Usar Scalar::zero() como hoja vacía produce una raíz diferente a la del contrato on-chain.
         let employer_leaf_index = 8usize;
-        let mut known_leaves = vec![Scalar::zero(); 1 << LEVELS];
+        let zero_leaf = poseidon2_hash3(
+            Scalar::from(88u64),
+            Scalar::from(76u64),
+            Scalar::from(77u64),
+            None,
+        );
+        let mut known_leaves = vec![zero_leaf; 1 << LEVELS];
         for i in 0..8usize {
             known_leaves[i] = Scalar::from((i + 1) as u64);
         }
