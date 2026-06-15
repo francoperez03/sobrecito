@@ -6,6 +6,7 @@ import { ArrowRight, GithubLogo } from '@phosphor-icons/react'
 
 const GITHUB_REPO_URL = 'https://github.com/francoperez03/sobrecito'
 const DEMO_VIDEO_URL = '#demo'
+const EASE_OUT = [0.16, 1, 0.3, 1] as const
 const EASE_BRAND = [0.32, 0.72, 0, 1] as const
 
 const NAV_LINKS = [
@@ -19,9 +20,9 @@ export function FloatingNav() {
   return (
     <>
       <nav className="flex justify-center pt-6 px-4 relative z-50">
-        <div className="flex items-center gap-4 h-12 px-5 bg-surface ring-1 ring-white/8 rounded-full backdrop-blur-sm">
+        <div className="flex items-center gap-4 h-12 pl-5 pr-2 bg-surface/80 ring-1 ring-hairline rounded-full backdrop-blur-md">
           {/* Wordmark */}
-          <span className="font-sans font-[900] text-ink tracking-[-0.02em] text-base">
+          <span className="font-display font-light text-ink tracking-[-0.02em] text-lg">
             sobrecito
           </span>
 
@@ -30,7 +31,7 @@ export function FloatingNav() {
           {/* Desktop: Watch the demo CTA */}
           <a
             href={DEMO_VIDEO_URL}
-            className="hidden md:flex items-center gap-1.5 px-4 h-[44px] bg-accent-fill text-white font-sans font-[900] text-sm rounded-full transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:opacity-90 active:scale-[0.98]"
+            className="hidden md:flex items-center gap-1.5 px-4 h-9 bg-accent-fill text-white font-sans font-medium text-sm rounded-full transition-colors duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:bg-accent active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
             rel="noopener noreferrer"
           >
             Watch the demo
@@ -42,7 +43,7 @@ export function FloatingNav() {
             href={GITHUB_REPO_URL}
             target="_blank"
             rel="noopener noreferrer"
-            className="hidden md:flex items-center gap-1.5 px-3 h-[44px] text-ink-muted font-sans text-sm rounded-full transition-opacity duration-200 hover:opacity-70 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:outline-none"
+            className="hidden md:flex items-center gap-1.5 px-3 h-9 text-ink-muted font-sans text-sm rounded-full transition-colors duration-200 hover:text-ink focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface focus-visible:outline-none"
           >
             <GithubLogo size={16} weight="light" />
             View on GitHub
@@ -94,7 +95,7 @@ export function FloatingNav() {
                 href={href}
                 target={external ? '_blank' : undefined}
                 rel={external ? 'noopener noreferrer' : undefined}
-                className={`font-sans font-[900] text-2xl tracking-[-0.02em] transition-opacity hover:opacity-70 ${
+                className={`font-display font-light text-3xl tracking-[-0.02em] transition-opacity hover:opacity-70 ${
                   primary ? 'text-accent-soft' : 'text-ink-muted'
                 }`}
                 initial={{ opacity: 0, y: 24 }}
@@ -102,7 +103,7 @@ export function FloatingNav() {
                 exit={{ opacity: 0, y: 16 }}
                 transition={{
                   duration: 0.3,
-                  ease: EASE_BRAND,
+                  ease: EASE_OUT,
                   delay: 0.05 + i * 0.08,
                 }}
                 onClick={() => setMenuOpen(false)}

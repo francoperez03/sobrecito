@@ -22,13 +22,14 @@ test.describe('Landing page smoke tests', () => {
   })
 
   test('why stellar section renders', async ({ page }) => {
-    await expect(page.getByText('Built for the moment Stellar made it possible.')).toBeVisible()
-    await expect(page.getByText('Protocol')).toBeVisible()
+    await expect(page.getByText('Paid in the dollars your treasury already holds.')).toBeVisible()
+    await expect(page.getByText("Circle's Stellar Asset Contract")).toBeVisible()
   })
 
-  test('differentiation focuses on sobrecito', async ({ page }) => {
-    await expect(page.getByText('Prove the total without showing a single salary.')).toBeVisible()
-    await expect(page.getByText('Only the auditor can open it.')).toBeVisible()
+  test('trust model section renders', async ({ page }) => {
+    await expect(page.getByText('Verifiable by anyone. Owned by no one.')).toBeVisible()
+    await expect(page.getByText('Sobrecito never touches your funds or your keys.')).toBeVisible()
+    await expect(page.getByText('If Crisol disappears tomorrow', { exact: false })).toBeVisible()
   })
 
   test('nav links have valid href attributes', async ({ page }) => {

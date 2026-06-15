@@ -3,50 +3,61 @@ import { ProblemSection } from '@/components/landing/ProblemSection'
 import { Centerpiece } from '@/components/landing/Centerpiece'
 import { NamedSalaryAnchor } from '@/components/landing/NamedSalaryAnchor'
 import { ThreeLevels } from '@/components/landing/ThreeLevels'
+import { HowItWorks } from '@/components/landing/HowItWorks'
 import { WhyStellar } from '@/components/landing/WhyStellar'
-import { Differentiation } from '@/components/landing/Differentiation'
+import { TrustModel } from '@/components/landing/TrustModel'
+import { ClosingCTA } from '@/components/landing/ClosingCTA'
 import { Reveal } from '@/components/motion/Reveal'
 
 // Landing page — narrative order:
 // Hero → Problem → Centerpiece + NamedSalaryAnchor → ThreeLevels → WhyStellar → Differentiation
-// (FloatingNav + Footer come from the marketing layout)
+// (FloatingNav + Footer come from the marketing layout). Each section manages its
+// own scroll entrance internally (RevealGroup); only the showcase group is wrapped.
 
 export default function Landing() {
   return (
     <main>
-      {/* Hero: page-load entrance animation handled inside Hero.tsx */}
       <Hero />
 
-      {/* Problem section */}
-      <Reveal>
-        <ProblemSection />
-      </Reveal>
+      <ProblemSection />
 
-      {/* Centerpiece — deepest Z-axis layer (UI-SPEC: Z-Axis Cascade).
-          Manages its own visibility + MotionConfig; Reveal wraps the section shell. */}
-      <Reveal delay={0.05}>
-        <section className="py-24 px-4">
-          <div className="max-w-5xl mx-auto flex flex-col items-center gap-12">
-            <Centerpiece />
+      {/* The proof, problem-first (PAS): the exposed salary today, then Sobrecito sealing it */}
+      <section className="pt-6 md:pt-8 pb-24 md:pb-32 px-5 md:px-8">
+        <div className="max-w-3xl mx-auto flex flex-col gap-14">
+          <Reveal className="text-center">
+            <p className="font-mono text-xs uppercase tracking-[0.2em] text-ink-muted">
+              What everyone else can see
+            </p>
+            <h2 className="mt-4 font-display font-light text-ink text-h2 leading-[1.1] tracking-[-0.02em] text-balance">
+              Every on-chain salary is public. Sobrecito seals it.
+            </h2>
+          </Reveal>
+
+          <Reveal delay={0.05}>
+            <p className="mb-4 font-mono text-xs uppercase tracking-[0.2em] text-accent-warm">
+              Without Sobrecito · a salary on-chain today
+            </p>
             <NamedSalaryAnchor />
-          </div>
-        </section>
-      </Reveal>
+          </Reveal>
 
-      {/* Three Levels of Revelation */}
-      <Reveal>
-        <ThreeLevels />
-      </Reveal>
+          <Reveal delay={0.05}>
+            <p className="mb-4 font-mono text-xs uppercase tracking-[0.2em] text-accent-soft">
+              With Sobrecito
+            </p>
+            <Centerpiece />
+          </Reveal>
+        </div>
+      </section>
 
-      {/* Why Stellar */}
-      <Reveal delay={0.05}>
-        <WhyStellar />
-      </Reveal>
+      <ThreeLevels />
 
-      {/* Differentiation */}
-      <Reveal>
-        <Differentiation />
-      </Reveal>
+      <HowItWorks />
+
+      <WhyStellar />
+
+      <TrustModel />
+
+      <ClosingCTA />
     </main>
   )
 }

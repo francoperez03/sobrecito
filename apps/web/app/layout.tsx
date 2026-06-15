@@ -1,5 +1,5 @@
 import type { Metadata } from 'next'
-import { Geist, Geist_Mono } from 'next/font/google'
+import { Geist, Geist_Mono, Fraunces } from 'next/font/google'
 import './globals.css'
 
 const geist = Geist({
@@ -12,6 +12,15 @@ const geistMono = Geist_Mono({
   subsets: ['latin'],
   variable: '--font-geist-mono',
   display: 'swap',
+})
+
+// Fraunces — display serif (light optical weights) for editorial headlines.
+const fraunces = Fraunces({
+  subsets: ['latin'],
+  variable: '--font-fraunces',
+  display: 'swap',
+  weight: ['300', '400', '500'],
+  style: ['normal', 'italic'],
 })
 
 export const metadata: Metadata = {
@@ -31,9 +40,12 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geist.variable} ${geistMono.variable}`}
+      className={`${geist.variable} ${geistMono.variable} ${fraunces.variable}`}
     >
-      <body>{children}</body>
+      {/* suppressHydrationWarning: browser extensions inject attributes on <body>
+          (e.g. bis_register / __processed_*) before hydration; this silences that
+          extension-only noise without affecting app markup. */}
+      <body suppressHydrationWarning>{children}</body>
     </html>
   )
 }
