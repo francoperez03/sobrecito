@@ -16,8 +16,8 @@ export function Differentiation() {
           </div>
         </DoubleBezel>
 
-        {/* Row 2 — vs Zarf, offset depth layer */}
-        <DoubleBezel outerClassName="md:ml-8 ring-1 ring-white/12">
+        {/* Row 2 */}
+        <DoubleBezel>
           <div className="p-8 md:p-10">
             <p className="font-sans font-[900] text-ink text-h3 leading-[1.15] tracking-[-0.01em]">
               Only the auditor can open it.
