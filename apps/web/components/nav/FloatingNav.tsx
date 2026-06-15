@@ -30,7 +30,7 @@ export function FloatingNav() {
           {/* Desktop: Watch the demo CTA */}
           <a
             href={DEMO_VIDEO_URL}
-            className="hidden md:flex items-center gap-1.5 px-4 h-[44px] bg-accent text-bg font-sans font-[900] text-sm rounded-full transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:opacity-90 active:scale-[0.98]"
+            className="hidden md:flex items-center gap-1.5 px-4 h-[44px] bg-accent-fill text-white font-sans font-[900] text-sm rounded-full transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:opacity-90 active:scale-[0.98]"
             rel="noopener noreferrer"
           >
             Watch the demo
@@ -95,7 +95,7 @@ export function FloatingNav() {
                 target={external ? '_blank' : undefined}
                 rel={external ? 'noopener noreferrer' : undefined}
                 className={`font-sans font-[900] text-2xl tracking-[-0.02em] transition-opacity hover:opacity-70 ${
-                  primary ? 'text-accent' : 'text-ink-muted'
+                  primary ? 'text-accent-soft' : 'text-ink-muted'
                 }`}
                 initial={{ opacity: 0, y: 24 }}
                 animate={{ opacity: 1, y: 0 }}

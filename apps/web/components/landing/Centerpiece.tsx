@@ -47,7 +47,7 @@ export function Centerpiece() {
 
           {/* Predicate footer */}
           <div className="px-6 pb-5 pt-3 border-t border-white/5">
-            <p className="font-mono text-sm text-accent">
+            <p className="font-mono text-sm text-accent-soft">
               {PREDICATE_LABEL} ✓
             </p>
             {isAuditor && (
@@ -98,7 +98,7 @@ function TableRow({
             The motion entrance animates from opacity-0 when first mounted. */}
         {revealed && (
           <motion.span
-            className="absolute inset-0 text-sm text-accent flex items-center"
+            className="absolute inset-0 text-sm text-accent-soft flex items-center"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ duration: 0.4, ease: EASE_BRAND, delay: delay + 0.1 }}

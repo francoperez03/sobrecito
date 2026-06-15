@@ -9,11 +9,13 @@
   /* OKLCH palette — sobrecito: electric blue accent over a tinted blue-black
      ("colored black", not pure black). Hue ~258 across the cool ramp; warm
      amber reserved for salary exposure (the one warm note, complementary). */
-  --color-bg:           oklch(0.15 0.030 262);  /* blue-black, dominant bg */
-  --color-surface:      oklch(0.21 0.038 262);  /* sealed-envelope cards */
+  --color-bg:           oklch(0.14 0.020 262);  /* near-black, faint cool tint (more neutral than navy) */
+  --color-surface:      oklch(0.20 0.028 262);  /* sealed-envelope cards */
   --color-ink:          oklch(0.96 0.012 258);  /* body text, faint cool tint */
   --color-ink-muted:    oklch(0.74 0.030 258);  /* captions (AA on bg) */
-  --color-accent:       oklch(0.72 0.180 250);  /* electric blue (AA both as text on bg and under dark text on fills) */
+  --color-accent:       oklch(0.60 0.220 258);  /* electric blue — large headings/icons on dark (>=3:1) + focus rings */
+  --color-accent-soft:  oklch(0.80 0.150 252);  /* lighter blue — small accent text on dark (AA 4.5:1) */
+  --color-accent-fill:  oklch(0.50 0.200 260);  /* deep blue — button fills with white text (AA 4.5:1) */
   --color-accent-warm:  oklch(0.80 0.130 60);   /* amber — salary exposure only */
 
   /* Type scale (single source of truth → generates text-display/h2/h3/lead).

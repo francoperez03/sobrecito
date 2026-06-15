@@ -10,11 +10,13 @@ Physical-scene sentence: "A payroll officer in a well-lit corporate back office 
 
 | Role | Value | Usage |
 |------|-------|-------|
-| bg | `oklch(0.15 0.030 262)` | Page background, 60% — tinted blue-black (colored, not pure black) |
-| surface | `oklch(0.21 0.038 262)` | Cards, sealed envelope state, nav pill bg — 30% |
+| bg | `oklch(0.14 0.020 262)` | Page background, 60% — tinted blue-black (colored, not pure black) |
+| surface | `oklch(0.20 0.028 262)` | Cards, sealed envelope state, nav pill bg — 30% |
 | ink | `oklch(0.96 0.012 258)` | Primary body text, headings |
 | ink-muted | `oklch(0.74 0.030 258)` | Captions, metadata, secondary labels |
-| accent | `oklch(0.72 0.180 250)` | Electric blue — proof state, CTA, auditor view revealed amounts |
+| accent | `oklch(0.60 0.220 258)` | Electric blue — large headings/icons + focus rings (>=3:1) |
+| accent-soft | `oklch(0.80 0.150 252)` | Lighter blue — small accent text on dark (AA 4.5:1) |
+| accent-fill | `oklch(0.50 0.200 260)` | Deep blue — button fills with white text (AA 4.5:1) |
 | accent-warm | `oklch(0.80 0.130 60)` | Amber — named-salary anchor only, exposure signal |
 
 Contrast verification targets (verified green via axe-core in tests/a11y.spec.ts):

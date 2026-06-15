@@ -45,7 +45,7 @@ export function Hero() {
           {/* Primary CTA */}
           <a
             href={DEMO_VIDEO_URL}
-            className="group flex items-center gap-2 px-6 h-[52px] bg-accent text-bg font-sans font-[900] text-base rounded-full transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:opacity-90 active:scale-[0.98]"
+            className="group flex items-center gap-2 px-6 h-[52px] bg-accent-fill text-white font-sans font-[900] text-base rounded-full transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:opacity-90 active:scale-[0.98]"
           >
             Watch the demo
             <ArrowRight
