@@ -1,0 +1,35 @@
+@import "tailwindcss";
+
+@theme {
+  /* Typography — CSS variables injected by next/font in layout.tsx */
+  --font-family-display: var(--font-geist), 'Helvetica Neue', sans-serif;
+  --font-family-sans:    var(--font-geist), 'Helvetica Neue', sans-serif;
+  --font-family-mono:    var(--font-geist-mono), 'Courier New', monospace;
+
+  /* OKLCH palette — seed: oklch(0.350 0.110 140.0) from impeccable palette.mjs --from sobre */
+  --color-bg:           oklch(0.10 0.015 140);
+  --color-surface:      oklch(0.16 0.015 140);
+  --color-ink:          oklch(0.94 0.005 140);
+  --color-ink-muted:    oklch(0.70 0.010 140);
+  --color-accent:       oklch(0.72 0.18 145);
+  --color-accent-warm:  oklch(0.78 0.14 55);
+
+  /* Custom easing */
+  --ease-brand: cubic-bezier(0.32, 0.72, 0, 1);
+
+  /* Semantic spacing */
+  --spacing-section: 6rem;
+}
+
+/* Base resets */
+html {
+  background-color: var(--color-bg);
+  color: var(--color-ink);
+  scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}

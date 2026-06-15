@@ -1,0 +1,37 @@
+{
+  "name": "sobrecito",
+  "private": true,
+  "description": "Sobre — nomina confidencial sobre Stellar/Soroban con ZK. Monorepo poliglota (web + ZK/Rust + ops).",
+  "scripts": {
+    "dev": "pnpm --filter web dev",
+    "build": "pnpm --filter web build",
+    "start": "pnpm --filter web start",
+    "lint": "pnpm --filter web lint",
+
+    "web:dev": "pnpm --filter web dev",
+    "web:build": "pnpm --filter web build",
+    "web:start": "pnpm --filter web start",
+    "web:test": "pnpm --filter web test:e2e",
+
+    "zk:setup": "cd packages/zk && cargo build -p circuits",
+    "zk:setup:regen": "cd packages/zk && REGEN_KEYS=1 cargo build -p circuits",
+    "zk:test": "cd packages/zk && cargo test -p soroban-utils -p pool -p circuits",
+    "zk:test:proofs": "cd packages/zk && BUILD_TESTS=1 cargo test -p circuits -- --ignored",
+    "zk:test:pool": "cd packages/zk && VERIFIER_VK_JSON=\"$PWD/testdata/policy_tx_1_8_vk.json\" cargo test -p pool",
+    "zk:fmt": "cd packages/zk && cargo fmt",
+    "zk:clippy": "cd packages/zk && cargo clippy --all-targets",
+
+    "verifier:build": "ops/scripts/build-verifier-with-vk.sh packages/zk/testdata/policy_tx_1_8_vk.json",
+    "pool:build": "cd packages/zk && VERIFIER_VK_JSON=\"$PWD/testdata/policy_tx_1_8_vk.json\" cargo build -p pool --target wasm32v1-none",
+    "contracts:build": "cd packages/zk && VERIFIER_VK_JSON=\"$PWD/testdata/policy_tx_1_8_vk.json\" stellar contract build --manifest-path Cargo.toml --out-dir target/stellar --optimize",
+
+    "deploy:testnet": "ops/scripts/deploy.sh testnet --vk-file packages/zk/testdata/policy_tx_1_8_vk.json",
+
+    "test": "pnpm web:test",
+    "test:all": "pnpm zk:test && pnpm web:test"
+  },
+  "engines": {
+    "node": ">=20.9.0",
+    "pnpm": ">=8"
+  }
+}
