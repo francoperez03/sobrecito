@@ -1,0 +1,401 @@
+//! payroll-proof-gen: genera un proof Groth16 valido para policy_tx_1_8 y
+//! lo serializa al formato JSON que acepta el CLI de Stellar (pool.transact).
+//!
+//! Uso:
+//!   payroll-proof-gen \
+//!     --wasm  <path/to/policy_tx_1_8.wasm> \
+//!     --r1cs  <path/to/policy_tx_1_8.r1cs> \
+//!     --pk    <path/to/policy_tx_1_8_proving_key.bin> \
+//!     --asp-member-root <decimal_u256> \
+//!     --asp-non-member-root <decimal_u256> \
+//!     --pool-root <decimal_u256>       (actual on-chain root) \
+//!     [--ext-data-hash <hex32>]        (default: hash for ext_amount=0, deployer=mikey) \
+//!     [--out <path/to/output.json>]    (default: stdout)
+
+use anyhow::{Context, Result, anyhow, bail};
+use ark_bn254::Bn254;
+use ark_circom::{CircomBuilder, CircomConfig, CircomReduction};
+use ark_ff::{BigInteger, PrimeField};
+use ark_groth16::{Groth16, ProvingKey};
+use ark_serialize::CanonicalDeserialize;
+use ark_snark::SNARK;
+use circuit_keys::{g1_to_soroban_bytes, g2_to_soroban_bytes};
+use circuits::test::utils::{
+    circom_tester::{InputValue, Inputs, load_keys},
+    general::{poseidon2_hash2, scalar_to_bigint},
+    keypair::{derive_public_key, sign},
+    merkle_tree::{merkle_proof, merkle_root},
+    sparse_merkle_tree::prepare_smt_proof_with_overrides,
+    transaction::{commitment, nullifier, prepopulated_leaves},
+    transaction_case::{InputNote, OutputNote, TxCase},
+};
+use num_bigint::{BigInt, BigUint};
+use std::{
+    env,
+    fs::{self, File},
+    io::BufReader,
+    path::PathBuf,
+};
+use zkhash::{ark_ff::Zero, fields::bn256::FpBN256 as Scalar};
+
+fn main() -> Result<()> {
+    let args: Vec<String> = env::args().collect();
+
+    let wasm = get_arg(&args, "--wasm")?;
+    let r1cs = get_arg(&args, "--r1cs")?;
+    let pk_path = get_arg(&args, "--pk")?;
+    let asp_member_root_str = get_arg(&args, "--asp-member-root")?;
+    let asp_non_member_root_str = get_arg(&args, "--asp-non-member-root")?;
+    let pool_root_provided = get_arg(&args, "--pool-root")?;
+    let ext_data_hash_hex = get_arg(&args, "--ext-data-hash").unwrap_or_else(|_| {
+        // Default: hash for ext_amount=0, recipient=mikey deployer, 8 empty encrypted_outputs
+        // Calculado via: cargo test -p pool print_demo_ext_data_hash -- --nocapture --ignored
+        "0b3f2759b68a3bf239da2b7d987c95c9373c5595623ae21d334f01c123c66056".to_string()
+    });
+    let out_path = get_arg(&args, "--out").ok();
+
+    // Load proving key using circom_tester helper (loads PK + extracts VK + pvk)
+    eprintln!("==> Loading proving key from {pk_path}");
+    let keys = load_keys(&pk_path).context("Failed to load proving key")?;
+
+    // Build payroll case: 1 input, 8 outputs, reshield (publicAmount = 0)
+    let salaries: [u64; 8] = [50, 80, 120, 60, 200, 90, 110, 90];
+    let total: u64 = salaries.iter().sum(); // 800
+
+    let outputs: Vec<OutputNote> = salaries
+        .iter()
+        .enumerate()
+        .map(|(i, &amt)| OutputNote {
+            pub_key: Scalar::from(1000u64.saturating_add(i as u64)),
+            blinding: Scalar::from(2000u64.saturating_add(i as u64)),
+            amount: Scalar::from(amt),
+        })
+        .collect();
+
+    let case = TxCase::new(
+        vec![InputNote {
+            leaf_index: 11,
+            priv_key: Scalar::from(424242u64),
+            blinding: Scalar::from(515151u64),
+            amount: Scalar::from(total),
+        }],
+        outputs,
+    );
+
+    const LEVELS: usize = 10;
+
+    // Pool Merkle tree
+    let leaves = prepopulated_leaves(LEVELS, 0x50B5Eu64, &[case.inputs[0].leaf_index], 24);
+    let input = &case.inputs[0];
+    let pk_field = derive_public_key(input.priv_key);
+    let input_commitment = commitment(input.amount, pk_field, input.blinding);
+    let mut leaves_with_input = leaves.clone();
+    leaves_with_input[input.leaf_index] = input_commitment;
+    let pool_root = merkle_root(leaves_with_input.clone());
+
+    // Log computed root vs provided root (informational)
+    let pool_root_big = scalar_to_bigint(pool_root);
+    eprintln!("==> Computed pool root: {pool_root_big}");
+    eprintln!("==> Provided pool root: {pool_root_provided}");
+
+    // Compute Merkle path for input note
+    let (siblings, path_idx_u64, depth) = merkle_proof(&leaves_with_input, input.leaf_index);
+    if depth != LEVELS {
+        bail!("unexpected Merkle depth: {depth} != {LEVELS}");
+    }
+    let path_idx = Scalar::from(path_idx_u64);
+
+    let sig = sign(input.priv_key, input_commitment, path_idx);
+    let nul = nullifier(input_commitment, path_idx, sig);
+
+    // Output commitments
+    let output_commitments: Vec<Scalar> = case
+        .outputs
+        .iter()
+        .map(|out| commitment(out.amount, out.pub_key, out.blinding))
+        .collect();
+
+    // Membership tree (same seed as test_tx_1in_8out_payroll)
+    let mem_seed = 0xFEED_FACEu64 ^ (0u64 << 40) ^ 0x1234_5678u64;
+    let base_mem_leaves: Vec<Scalar> = prepopulated_leaves(LEVELS, mem_seed, &[], 24);
+    let mut frozen_leaves: [Scalar; 1 << LEVELS] =
+        base_mem_leaves.try_into().map_err(|_| anyhow!("conversion failed"))?;
+
+    let mem_leaf = poseidon2_hash2(pk_field, Scalar::zero(), Some(Scalar::from(1u64)));
+    frozen_leaves[input.leaf_index] = mem_leaf;
+    let mem_root = merkle_root(frozen_leaves.to_vec());
+
+    let (mem_siblings, mem_path_idx, mem_depth) = merkle_proof(&frozen_leaves, input.leaf_index);
+    if mem_depth != LEVELS {
+        bail!("unexpected membership Merkle depth: {mem_depth} != {LEVELS}");
+    }
+
+    // Non-membership proof
+    let override_key = Scalar::from(100_001u64); // 1 * 100_000 + 1
+    let override_leaf = poseidon2_hash2(pk_field, Scalar::zero(), Some(Scalar::from(1u64)));
+    let overrides: Vec<(BigInt, BigInt)> = vec![(
+        scalar_to_bigint(override_key),
+        scalar_to_bigint(override_leaf),
+    )];
+    let non_mem_proof =
+        prepare_smt_proof_with_overrides(&scalar_to_bigint(pk_field), &overrides, LEVELS);
+
+    // ext_data_hash as BigInt from hex
+    let ext_hash_bytes = hex_to_bytes32(&ext_data_hash_hex)?;
+    let ext_hash_bigint = BigInt::from_bytes_be(num_bigint::Sign::Plus, &ext_hash_bytes);
+
+    // publicAmount = 0 (reshield, ext_amount = 0)
+    let public_amount = BigInt::from(0u64);
+
+    // Build Circom inputs
+    let mut inputs = Inputs::new();
+    inputs.set("root", scalar_to_bigint(pool_root));
+    inputs.set("publicAmount", public_amount);
+    inputs.set("extDataHash", ext_hash_bigint);
+    inputs.set("inputNullifier", vec![scalar_to_bigint(nul)]);
+    inputs.set("inAmount", vec![input.amount]);
+    inputs.set("inPrivateKey", vec![input.priv_key]);
+    inputs.set("inBlinding", vec![input.blinding]);
+    inputs.set("inPathIndices", vec![path_idx]);
+    inputs.set(
+        "inPathElements",
+        siblings.iter().map(|&s| scalar_to_bigint(s)).collect::<Vec<_>>(),
+    );
+    inputs.set(
+        "outputCommitment",
+        output_commitments.iter().map(|&c| scalar_to_bigint(c)).collect::<Vec<_>>(),
+    );
+    inputs.set("outAmount", case.outputs.iter().map(|n| n.amount).collect::<Vec<_>>());
+    inputs.set("outPubkey", case.outputs.iter().map(|n| n.pub_key).collect::<Vec<_>>());
+    inputs.set("outBlinding", case.outputs.iter().map(|n| n.blinding).collect::<Vec<_>>());
+
+    inputs.set("membershipRoots", vec![scalar_to_bigint(mem_root)]);
+
+    // Membership proof fields (flat circom signal names)
+    inputs.set_key(
+        &circuits::test::utils::circom_tester::SignalKey::new("membershipProofs")
+            .idx(0)
+            .idx(0)
+            .field("leaf"),
+        scalar_to_bigint(mem_leaf),
+    );
+    inputs.set_key(
+        &circuits::test::utils::circom_tester::SignalKey::new("membershipProofs")
+            .idx(0)
+            .idx(0)
+            .field("blinding"),
+        BigInt::from(0u64),
+    );
+    inputs.set_key(
+        &circuits::test::utils::circom_tester::SignalKey::new("membershipProofs")
+            .idx(0)
+            .idx(0)
+            .field("pathIndices"),
+        scalar_to_bigint(Scalar::from(mem_path_idx)),
+    );
+    inputs.set_key(
+        &circuits::test::utils::circom_tester::SignalKey::new("membershipProofs")
+            .idx(0)
+            .idx(0)
+            .field("pathElements"),
+        mem_siblings.iter().map(|&s| scalar_to_bigint(s)).collect::<Vec<BigInt>>(),
+    );
+
+    // Non-membership proof
+    inputs.set("nonMembershipRoots", vec![non_mem_proof.root.clone()]);
+    let nmp_key = scalar_to_bigint(pk_field);
+    inputs.set_key(
+        &circuits::test::utils::circom_tester::SignalKey::new("nonMembershipProofs")
+            .idx(0)
+            .idx(0)
+            .field("key"),
+        nmp_key,
+    );
+    if non_mem_proof.is_old0 {
+        inputs.set_key(
+            &circuits::test::utils::circom_tester::SignalKey::new("nonMembershipProofs")
+                .idx(0)
+                .idx(0)
+                .field("oldKey"),
+            BigInt::from(0u64),
+        );
+        inputs.set_key(
+            &circuits::test::utils::circom_tester::SignalKey::new("nonMembershipProofs")
+                .idx(0)
+                .idx(0)
+                .field("oldValue"),
+            BigInt::from(0u64),
+        );
+        inputs.set_key(
+            &circuits::test::utils::circom_tester::SignalKey::new("nonMembershipProofs")
+                .idx(0)
+                .idx(0)
+                .field("isOld0"),
+            BigInt::from(1u64),
+        );
+    } else {
+        inputs.set_key(
+            &circuits::test::utils::circom_tester::SignalKey::new("nonMembershipProofs")
+                .idx(0)
+                .idx(0)
+                .field("oldKey"),
+            non_mem_proof.not_found_key.clone(),
+        );
+        inputs.set_key(
+            &circuits::test::utils::circom_tester::SignalKey::new("nonMembershipProofs")
+                .idx(0)
+                .idx(0)
+                .field("oldValue"),
+            non_mem_proof.not_found_value.clone(),
+        );
+        inputs.set_key(
+            &circuits::test::utils::circom_tester::SignalKey::new("nonMembershipProofs")
+                .idx(0)
+                .idx(0)
+                .field("isOld0"),
+            BigInt::from(0u64),
+        );
+    }
+    inputs.set_key(
+        &circuits::test::utils::circom_tester::SignalKey::new("nonMembershipProofs")
+            .idx(0)
+            .idx(0)
+            .field("siblings"),
+        non_mem_proof.siblings.clone(),
+    );
+
+    eprintln!("==> Building Circom circuit with inputs...");
+    let cfg = CircomConfig::<ark_bn254::Fr>::new(&wasm, &r1cs)
+        .map_err(|e| anyhow!("CircomConfig error: {e}"))?;
+    let mut builder = CircomBuilder::new(cfg);
+
+    for (signal, value) in inputs.iter() {
+        push_circom_value(&mut builder, signal, value);
+    }
+
+    let circuit = builder.build().map_err(|e| anyhow!("Circom build failed: {e}"))?;
+    let pub_inputs = circuit
+        .get_public_inputs()
+        .ok_or_else(|| anyhow!("get_public_inputs returned None"))?;
+
+    eprintln!("==> Public inputs count: {}", pub_inputs.len());
+
+    eprintln!("==> Generating Groth16 proof (this may take a while)...");
+    let mut rng = ark_std::rand::thread_rng();
+    let proof = Groth16::<Bn254, CircomReduction>::prove(&keys.pk, circuit.clone(), &mut rng)
+        .map_err(|e| anyhow!("Prove failed: {e}"))?;
+
+    // Verify locally
+    let verified =
+        Groth16::<Bn254, CircomReduction>::verify_with_processed_vk(&keys.pvk, &pub_inputs, &proof)
+            .map_err(|e| anyhow!("verify failed: {e}"))?;
+
+    if !verified {
+        bail!("Proof failed local verification!");
+    }
+    eprintln!("==> Proof verified locally: OK");
+
+    // Serialize for CLI
+    let a_hex = hex_from_bytes(&g1_to_soroban_bytes(&proof.a));
+    let b_hex = hex_from_bytes(&g2_to_soroban_bytes(&proof.b));
+    let c_hex = hex_from_bytes(&g1_to_soroban_bytes(&proof.c));
+
+    let nullifier_dec = field_to_decimal(nul);
+    let commitment_decs: Vec<serde_json::Value> = output_commitments
+        .iter()
+        .map(|&c| serde_json::Value::String(field_to_decimal(c)))
+        .collect();
+    let mem_root_dec = field_to_decimal(mem_root);
+    let non_mem_root_dec = bigint_to_decimal(&non_mem_proof.root);
+    let pool_root_dec = field_to_decimal(pool_root);
+    let ext_hash_hex_32 = hex_from_bytes(&ext_hash_bytes);
+
+    let output = serde_json::json!({
+        "proof_arg": {
+            "proof": { "a": a_hex, "b": b_hex, "c": c_hex },
+            "root": pool_root_dec,
+            "input_nullifiers": [nullifier_dec],
+            "output_commitments": commitment_decs,
+            "public_amount": "0",
+            "ext_data_hash": ext_hash_hex_32,
+            "asp_membership_root": asp_member_root_str,
+            "asp_non_membership_root": asp_non_member_root_str
+        },
+        "ext_data_arg": {
+            "recipient": "GBWJZZ3XSNAY3WLFNLXUZXEEYMZCYVG4TW6Z5VSASJS2TOWF7GGPPKMW",
+            "ext_amount": "0",
+            "encrypted_outputs": ["","","","","","","",""]
+        },
+        "computed_mem_root": mem_root_dec,
+        "computed_non_mem_root": non_mem_root_dec,
+        "pool_root": pool_root_dec,
+        "pub_input_count": pub_inputs.len(),
+        "verified_locally": verified
+    });
+
+    let json_str = serde_json::to_string_pretty(&output)?;
+
+    if let Some(path) = out_path {
+        fs::write(&path, &json_str)
+            .with_context(|| format!("Failed to write output to {path}"))?;
+        eprintln!("==> Output written to {path}");
+    } else {
+        println!("{json_str}");
+    }
+
+    Ok(())
+}
+
+fn get_arg(args: &[String], flag: &str) -> Result<String> {
+    let pos = args
+        .iter()
+        .position(|a| a == flag)
+        .ok_or_else(|| anyhow!("missing argument {flag}"))?;
+    args.get(pos.saturating_add(1))
+        .cloned()
+        .ok_or_else(|| anyhow!("missing value for {flag}"))
+}
+
+fn push_circom_value(
+    builder: &mut CircomBuilder<ark_bn254::Fr>,
+    path: &str,
+    value: &InputValue,
+) {
+    match value {
+        InputValue::Single(v) => builder.push_input(path, v.clone()),
+        InputValue::Array(arr) => {
+            for v in arr {
+                builder.push_input(path, v.clone());
+            }
+        }
+    }
+}
+
+fn hex_from_bytes(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+fn hex_to_bytes32(hex: &str) -> Result<[u8; 32]> {
+    let hex = hex.trim_start_matches("0x");
+    let padded = format!("{:0>64}", hex);
+    if padded.len() != 64 {
+        bail!("hex too long: {}", hex);
+    }
+    let bytes: Vec<u8> = (0..32)
+        .map(|i| u8::from_str_radix(&padded[i * 2..i * 2 + 2], 16))
+        .collect::<Result<_, _>>()
+        .context("invalid hex byte")?;
+    let mut out = [0u8; 32];
+    out.copy_from_slice(&bytes);
+    Ok(out)
+}
+
+fn field_to_decimal(f: Scalar) -> String {
+    let bigint = f.into_bigint();
+    let bytes = bigint.to_bytes_be();
+    BigUint::from_bytes_be(&bytes).to_string()
+}
+
+fn bigint_to_decimal(b: &BigInt) -> String {
+    b.magnitude().to_string()
+}

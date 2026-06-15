@@ -1,0 +1,27 @@
+[package]
+name = "payroll-proof-gen"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "payroll-proof-gen"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true, features = ["std"] }
+ark-bn254 = { workspace = true, features = ["std"] }
+ark-circom = { workspace = true }
+ark-ff = { workspace = true, features = ["std"] }
+ark-groth16 = { workspace = true, features = ["r1cs", "std"] }
+ark-relations = { workspace = true, features = ["std"] }
+ark-snark = { workspace = true }
+ark-serialize = { workspace = true, features = ["std"] }
+ark-std = { workspace = true }
+circuit-keys = { workspace = true }
+circuits = { workspace = true, features = ["std"] }
+hex = { workspace = true, features = ["std"] }
+num-bigint = { workspace = true, features = ["std"] }
+serde_json = { workspace = true, features = ["std"] }
+zkhash = { workspace = true }
