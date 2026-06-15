@@ -15,3 +15,7 @@ export {
   buildEncryptedOutputs,
   N_OUTS,
 } from "./crypto/encoding.js";
+
+// Event scanner: read NewCommitmentEvent from the pool over a ledger range.
+export { scanCommitmentEvents } from "./scanner/eventScanner.js";
+export type { ScanOptions, ScannedEvent } from "./scanner/eventScanner.js";
