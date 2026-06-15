@@ -101,6 +101,7 @@ step "Generando proof (puede tardar ~30s)..."
   --asp-member-root "$ASP_M_ROOT" \
   --asp-non-member-root "$ASP_NM_ROOT" \
   --pool-root "$POOL_ROOT" \
+  --zero-input \
   --out "$PROOF_OUT" 2>&1 >&2
 
 VERIFIED_LOCAL="$(jq -r '.verified_locally' "$PROOF_OUT")"

@@ -9,6 +9,7 @@
 //!     --asp-member-root <decimal_u256> \
 //!     --asp-non-member-root <decimal_u256> \
 //!     --pool-root <decimal_u256>       (actual on-chain root) \
+//!     [--zero-input]                   (usa inAmount=0; el circuito desactiva merkle-check; root on-chain pasa is_known_root)
 //!     [--ext-data-hash <hex32>]        (default: hash for ext_amount=0, deployer=mikey) \
 //!     [--out <path/to/output.json>]    (default: stdout)
 
@@ -53,6 +54,7 @@ fn main() -> Result<()> {
         "0b3f2759b68a3bf239da2b7d987c95c9373c5595623ae21d334f01c123c66056".to_string()
     });
     let out_path = get_arg(&args, "--out").ok();
+    let zero_input = args.iter().any(|a| a == "--zero-input");
 
     // Load proving key using circom_tester helper (loads PK + extracts VK + pvk)
     eprintln!("==> Loading proving key from {pk_path}");
@@ -62,7 +64,14 @@ fn main() -> Result<()> {
     let salaries: [u64; 8] = [50, 80, 120, 60, 200, 90, 110, 90];
     let total: u64 = salaries.iter().sum(); // 800
 
-    let outputs: Vec<OutputNote> = salaries
+    // --zero-input: inAmount=0, outAmounts=0 (el circuito desactiva el merkle-check cuando inAmount=0)
+    let (in_amount, out_amounts): (u64, [u64; 8]) = if zero_input {
+        (0, [0; 8])
+    } else {
+        (total, salaries)
+    };
+
+    let outputs: Vec<OutputNote> = out_amounts
         .iter()
         .enumerate()
         .map(|(i, &amt)| OutputNote {
@@ -77,7 +86,7 @@ fn main() -> Result<()> {
             leaf_index: 11,
             priv_key: Scalar::from(424242u64),
             blinding: Scalar::from(515151u64),
-            amount: Scalar::from(total),
+            amount: Scalar::from(in_amount),
         }],
         outputs,
     );
@@ -98,6 +107,15 @@ fn main() -> Result<()> {
     eprintln!("==> Computed pool root: {pool_root_big}");
     eprintln!("==> Provided pool root: {pool_root_provided}");
 
+    // Con --zero-input el circuito desactiva el merkle-check (inAmount=0),
+    // así que usamos el root on-chain directamente para pasar is_known_root.
+    let proof_root_bigint: BigInt = if zero_input {
+        pool_root_provided.parse::<BigInt>().context("invalid --pool-root")?
+    } else {
+        pool_root_big.clone()
+    };
+    let proof_root_str = proof_root_bigint.magnitude().to_string();
+
     // Compute Merkle path for input note
     let (siblings, path_idx_u64, depth) = merkle_proof(&leaves_with_input, input.leaf_index);
     if depth != LEVELS {
@@ -115,17 +133,32 @@ fn main() -> Result<()> {
         .map(|out| commitment(out.amount, out.pub_key, out.blinding))
         .collect();
 
-    // Membership tree (same seed as test_tx_1in_8out_payroll)
-    let mem_seed = 0xFEED_FACEu64 ^ (0u64 << 40) ^ 0x1234_5678u64;
-    let base_mem_leaves: Vec<Scalar> = prepopulated_leaves(LEVELS, mem_seed, &[], 24);
-    let mut frozen_leaves: [Scalar; 1 << LEVELS] =
-        base_mem_leaves.try_into().map_err(|_| anyhow!("conversion failed"))?;
-
+    // Membership tree.
+    // --zero-input: usa el estado real on-chain del ASP (8 dummy leaves 1..8 + employer en idx 8).
+    // Default: árbol local con semilla (para pruebas locales).
     let mem_leaf = poseidon2_hash2(pk_field, Scalar::zero(), Some(Scalar::from(1u64)));
-    frozen_leaves[input.leaf_index] = mem_leaf;
-    let mem_root = merkle_root(frozen_leaves.to_vec());
-
-    let (mem_siblings, mem_path_idx, mem_depth) = merkle_proof(&frozen_leaves, input.leaf_index);
+    let (mem_root, mem_siblings, mem_path_idx, mem_depth) = if zero_input {
+        // Estado on-chain conocido: leaves[0..7] = 1..8, leaves[8] = employer_mem_leaf
+        let employer_leaf_index = 8usize;
+        let mut known_leaves = vec![Scalar::zero(); 1 << LEVELS];
+        for i in 0..8usize {
+            known_leaves[i] = Scalar::from((i + 1) as u64);
+        }
+        known_leaves[employer_leaf_index] = mem_leaf;
+        let root = merkle_root(known_leaves.clone());
+        let known_arr: [Scalar; 1 << LEVELS] = known_leaves.try_into().map_err(|_| anyhow!("conversion failed"))?;
+        let (sibs, path_idx, depth) = merkle_proof(&known_arr, employer_leaf_index);
+        (root, sibs, path_idx, depth)
+    } else {
+        let mem_seed = 0xFEED_FACEu64 ^ (0u64 << 40) ^ 0x1234_5678u64;
+        let base_mem_leaves: Vec<Scalar> = prepopulated_leaves(LEVELS, mem_seed, &[], 24);
+        let mut frozen_leaves: [Scalar; 1 << LEVELS] =
+            base_mem_leaves.try_into().map_err(|_| anyhow!("conversion failed"))?;
+        frozen_leaves[input.leaf_index] = mem_leaf;
+        let root = merkle_root(frozen_leaves.to_vec());
+        let (sibs, path_idx, depth) = merkle_proof(&frozen_leaves, input.leaf_index);
+        (root, sibs, path_idx, depth)
+    };
     if mem_depth != LEVELS {
         bail!("unexpected membership Merkle depth: {mem_depth} != {LEVELS}");
     }
@@ -149,7 +182,7 @@ fn main() -> Result<()> {
 
     // Build Circom inputs
     let mut inputs = Inputs::new();
-    inputs.set("root", scalar_to_bigint(pool_root));
+    inputs.set("root", proof_root_bigint.clone());
     inputs.set("publicAmount", public_amount);
     inputs.set("extDataHash", ext_hash_bigint);
     inputs.set("inputNullifier", vec![scalar_to_bigint(nul)]);
@@ -307,13 +340,12 @@ fn main() -> Result<()> {
         .collect();
     let mem_root_dec = field_to_decimal(mem_root);
     let non_mem_root_dec = bigint_to_decimal(&non_mem_proof.root);
-    let pool_root_dec = field_to_decimal(pool_root);
     let ext_hash_hex_32 = hex_from_bytes(&ext_hash_bytes);
 
     let output = serde_json::json!({
         "proof_arg": {
             "proof": { "a": a_hex, "b": b_hex, "c": c_hex },
-            "root": pool_root_dec,
+            "root": proof_root_str,
             "input_nullifiers": [nullifier_dec],
             "output_commitments": commitment_decs,
             "public_amount": "0",
@@ -328,7 +360,7 @@ fn main() -> Result<()> {
         },
         "computed_mem_root": mem_root_dec,
         "computed_non_mem_root": non_mem_root_dec,
-        "pool_root": pool_root_dec,
+        "pool_root": proof_root_str,
         "pub_input_count": pub_inputs.len(),
         "verified_locally": verified
     });
