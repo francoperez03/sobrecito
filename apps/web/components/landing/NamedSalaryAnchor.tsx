@@ -44,7 +44,7 @@ export function NamedSalaryAnchor() {
 
       {/* Caption */}
       <p className="mt-4 text-sm text-center text-ink-muted">
-        Every on-chain salary without Sobre looks like this. Permanently.
+        Every on-chain salary without Sobrecito looks like this. Permanently.
       </p>
     </div>
   )

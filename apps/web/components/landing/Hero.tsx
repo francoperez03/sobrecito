@@ -13,12 +13,11 @@ const EASE_BRAND = [0.32, 0.72, 0, 1] as const
 
 export function Hero() {
   return (
-    <section className="pt-40 pb-32 px-4">
+    <section className="pt-24 pb-24 px-4">
       <div className="max-w-5xl mx-auto">
         {/* H1 — entrance: translate-y-12 blur-sm opacity-0 → resolved, 800ms */}
         <motion.h1
-          className="font-sans font-[900] text-ink leading-[1.05] tracking-[-0.02em] text-balance"
-          style={{ fontSize: 'clamp(3rem, 7vw, 5.5rem)' }}
+          className="font-sans font-[900] text-ink text-display leading-[1.05] tracking-[-0.02em] text-balance"
           initial={{ opacity: 0, y: 48, filter: 'blur(4px)' }}
           animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
           transition={{ duration: 0.8, ease: EASE_BRAND }}
@@ -28,8 +27,7 @@ export function Hero() {
 
         {/* Subhead — sub-heading variant: H2 size floor, weight 400, ink-muted; entrance +200ms */}
         <motion.p
-          className="mt-6 font-sans font-[400] text-ink-muted leading-[1.6] text-balance max-w-[65ch]"
-          style={{ fontSize: 'clamp(1.1rem, 2vw, 1.4rem)' }}
+          className="mt-6 font-sans font-[400] text-ink-muted text-lead leading-[1.6] text-balance max-w-[65ch]"
           initial={{ opacity: 0, y: 32, filter: 'blur(4px)' }}
           animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
           transition={{ duration: 0.8, ease: EASE_BRAND, delay: 0.2 }}

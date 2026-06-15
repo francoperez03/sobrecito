@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 })
 
 export const metadata: Metadata = {
-  title: 'Sobre — payroll that doesn\'t dox your team',
+  title: 'sobrecito · payroll that doesn\'t dox your team',
   description:
     'Pay salaries in USDC on-chain. Keep every amount private. Still prove the totals to your auditor.',
 }

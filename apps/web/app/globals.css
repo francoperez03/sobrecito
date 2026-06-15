@@ -6,13 +6,22 @@
   --font-family-sans:    var(--font-geist), 'Helvetica Neue', sans-serif;
   --font-family-mono:    var(--font-geist-mono), 'Courier New', monospace;
 
-  /* OKLCH palette — seed: oklch(0.350 0.110 140.0) from impeccable palette.mjs --from sobre */
-  --color-bg:           oklch(0.10 0.015 140);
-  --color-surface:      oklch(0.16 0.015 140);
-  --color-ink:          oklch(0.94 0.005 140);
-  --color-ink-muted:    oklch(0.70 0.010 140);
-  --color-accent:       oklch(0.72 0.18 145);
-  --color-accent-warm:  oklch(0.78 0.14 55);
+  /* OKLCH palette — sobrecito: electric blue accent over a tinted blue-black
+     ("colored black", not pure black). Hue ~258 across the cool ramp; warm
+     amber reserved for salary exposure (the one warm note, complementary). */
+  --color-bg:           oklch(0.15 0.030 262);  /* blue-black, dominant bg */
+  --color-surface:      oklch(0.21 0.038 262);  /* sealed-envelope cards */
+  --color-ink:          oklch(0.96 0.012 258);  /* body text, faint cool tint */
+  --color-ink-muted:    oklch(0.74 0.030 258);  /* captions (AA on bg) */
+  --color-accent:       oklch(0.72 0.180 250);  /* electric blue (AA both as text on bg and under dark text on fills) */
+  --color-accent-warm:  oklch(0.80 0.130 60);   /* amber — salary exposure only */
+
+  /* Type scale (single source of truth → generates text-display/h2/h3/lead).
+     Modular ramp, fluid via clamp; body=1rem, small=0.875rem, micro=text-xs. */
+  --text-display: clamp(3rem, 6.5vw, 5.25rem);
+  --text-h2:      clamp(2rem, 3.8vw, 3rem);
+  --text-h3:      clamp(1.375rem, 2vw, 1.75rem);
+  --text-lead:    clamp(1.125rem, 1.7vw, 1.375rem);
 
   /* Custom easing */
   --ease-brand: cubic-bezier(0.32, 0.72, 0, 1);

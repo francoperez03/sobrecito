@@ -30,10 +30,8 @@ export function ProblemSection() {
         <div className="mt-8 flex justify-center">
           <DoubleBezel outerClassName="ring-1 ring-accent/30">
             <div className="px-12 py-6">
-              <p className="font-sans font-[900] text-accent text-center leading-[1.15] tracking-[-0.01em]"
-                style={{ fontSize: 'clamp(1.75rem, 3.5vw, 2.75rem)' }}
-              >
-                Sobre holds both.
+              <p className="font-sans font-[900] text-accent text-h2 text-center leading-[1.15] tracking-[-0.01em]">
+                Sobrecito holds both.
               </p>
             </div>
           </DoubleBezel>

@@ -9,7 +9,7 @@ export function Footer() {
         {/* Wordmark + credit */}
         <div className="flex items-center gap-3">
           <span className="font-sans font-[900] text-ink tracking-[-0.02em]">
-            Sobre
+            sobrecito
           </span>
           <span className="text-ink-muted font-sans text-sm">
             · by Crisol
@@ -31,7 +31,7 @@ export function Footer() {
       {/* Honest disclosure */}
       <div className="max-w-5xl mx-auto mt-6">
         <p className="font-sans text-[0.875rem] text-ink-muted leading-[1.4] tracking-[0.02em]">
-          Proof-of-concept — not audited. Amounts shielded; batch totals proven on-chain.
+          Proof-of-concept, not audited. Amounts shielded; batch totals proven on-chain.
         </p>
       </div>
     </footer>

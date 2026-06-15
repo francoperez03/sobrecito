@@ -22,7 +22,7 @@ export function FloatingNav() {
         <div className="flex items-center gap-4 h-12 px-5 bg-surface ring-1 ring-white/8 rounded-full backdrop-blur-sm">
           {/* Wordmark */}
           <span className="font-sans font-[900] text-ink tracking-[-0.02em] text-base">
-            Sobre
+            sobrecito
           </span>
 
           <div className="flex-1" />

@@ -12,7 +12,7 @@ test.describe('Landing page smoke tests', () => {
 
   test('problem section renders', async ({ page }) => {
     await expect(page.getByText('every salary is public forever')).toBeVisible()
-    await expect(page.getByText('Sobre holds both.')).toBeVisible()
+    await expect(page.getByText('Sobrecito holds both.')).toBeVisible()
   })
 
   test('three levels renders', async ({ page }) => {
