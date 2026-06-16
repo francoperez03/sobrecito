@@ -1,0 +1,21 @@
+{
+  "name": "@sobre/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "sobre": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc"
+  },
+  "dependencies": {
+    "commander": "^15.0.0",
+    "csv-parse": "^7.0.0",
+    "viewkey": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.3",
+    "typescript": "6.0.3"
+  }
+}
