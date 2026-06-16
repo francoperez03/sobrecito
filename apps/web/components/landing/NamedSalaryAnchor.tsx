@@ -36,7 +36,7 @@ export function NamedSalaryAnchor() {
           </div>
         </div>
 
-        {/* Divider — source reads: "this is real. It can't be hidden." */}
+        {/* Divider — source frames the receipt as a public, permanent on-chain example */}
         <div className="mt-4 pt-4 border-t border-hairline">
           <p className="text-xs text-ink-muted italic">{source}</p>
         </div>

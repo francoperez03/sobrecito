@@ -32,7 +32,7 @@ export function Hero() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, ease: EASE_OUT }}
         >
-          Confidential payroll · Stellar
+          On-chain payroll · USDC
         </motion.p>
 
         {/* H1 — Fraunces display, light weight, editorial */}
@@ -42,7 +42,7 @@ export function Hero() {
           animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
           transition={{ duration: 0.8, ease: EASE_OUT, delay: 0.08 }}
         >
-          Payroll that doesn't dox your team.
+          Private payroll in stablecoins.
         </motion.h1>
 
         {/* Subhead */}
@@ -52,7 +52,7 @@ export function Hero() {
           animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
           transition={{ duration: 0.8, ease: EASE_OUT, delay: 0.24 }}
         >
-          Pay salaries in USDC on-chain. Keep every amount private. Still prove the totals to your auditor.
+          Pay your team on-chain in stablecoins, with every salary kept private and the batch total your auditor can verify on demand.
         </motion.p>
 
         {/* CTAs */}

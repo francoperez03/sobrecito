@@ -45,5 +45,5 @@ export const NAMED_SALARY_RECEIPT: NamedSalaryReceipt = {
   accountHash: 'GABC…X4F9',
   amount: '$96,000',
   timestamp: '2024-03-15T14:22:07Z',
-  source: "Source: Stellar Explorer — this is real. It can't be hidden.",
+  source: 'Example on-chain transaction — public, permanent, and readable by anyone.',
 }
