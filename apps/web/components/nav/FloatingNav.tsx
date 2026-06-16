@@ -11,6 +11,11 @@ const EASE_BRAND = [0.32, 0.72, 0, 1] as const
 // Dynamic-Island spring for the role-pill morph.
 const ISLAND_SPRING = { type: 'spring', stiffness: 440, damping: 32, mass: 0.7 } as const
 
+// Animated Next.js Link: role switches navigate client-side (no full reload),
+// so the persistent navbar stays mounted and its island spring morphs across
+// the route change instead of remounting on a hard navigation.
+const MotionLink = motion.create(Link)
+
 /** Map the current route to the role being "played", or null on the root/marketing page. */
 function roleFromPath(pathname: string): string | null {
   if (pathname.startsWith('/employer')) return 'Employer'
@@ -59,7 +64,14 @@ export function FloatingNav() {
   return (
     <>
       <nav className="flex justify-center pt-6 px-4 relative z-50">
-        <div className="flex items-center gap-4 h-12 pl-5 pr-2 bg-surface/80 ring-1 ring-hairline rounded-full backdrop-blur-md">
+        {/* The pill itself is layout-animated so its total width (and the
+            re-centering inside the nav) springs smoothly when the role grows
+            in/out, instead of snapping while only the button morphs. */}
+        <motion.div
+          layout
+          transition={ISLAND_SPRING}
+          className="flex items-center gap-4 h-12 pl-5 pr-2 bg-surface/80 ring-1 ring-hairline rounded-full backdrop-blur-md"
+        >
           {/* Wordmark — tapping the root shrinks the island back to its natural state */}
           <Link
             href="/"
@@ -92,7 +104,7 @@ export function FloatingNav() {
                 {activeRole && (
                   <motion.span
                     key={activeRole}
-                    layout
+                    layout="position"
                     initial={{ opacity: 0, scale: 0.4 }}
                     animate={{ opacity: 1, scale: 1 }}
                     exit={{ opacity: 0, scale: 0.4 }}
@@ -127,7 +139,7 @@ export function FloatingNav() {
                   {PLAY_AS.map(({ label, href }, i) => {
                     const isActive = label === activeRole
                     return (
-                      <motion.a
+                      <MotionLink
                         key={label}
                         href={href}
                         role="menuitem"
@@ -148,7 +160,7 @@ export function FloatingNav() {
                       >
                         {label}
                         {isActive && <span className="size-1.5 rounded-full bg-accent-soft" aria-hidden />}
-                      </motion.a>
+                      </MotionLink>
                     )
                   })}
                 </motion.div>
@@ -193,7 +205,7 @@ export function FloatingNav() {
               transition={{ duration: 0.3, ease: EASE_BRAND }}
             />
           </button>
-        </div>
+        </motion.div>
       </nav>
 
       {/* Mobile full-screen overlay menu */}
@@ -216,7 +228,7 @@ export function FloatingNav() {
               Play as
             </motion.span>
             {PLAY_AS.map(({ label, href }, i) => (
-              <motion.a
+              <MotionLink
                 key={label}
                 href={href}
                 className="font-sans font-[900] text-2xl tracking-[-0.02em] text-accent-soft transition-opacity hover:opacity-70"
@@ -231,7 +243,7 @@ export function FloatingNav() {
                 onClick={() => setMenuOpen(false)}
               >
                 {label}
-              </motion.a>
+              </MotionLink>
             ))}
             <motion.a
               href={GITHUB_REPO_URL}

@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import { Geist, Geist_Mono, Fraunces } from 'next/font/google'
 import './globals.css'
+import { SiteChrome } from './SiteChrome'
 
 const geist = Geist({
   subsets: ['latin'],
@@ -45,7 +46,9 @@ export default function RootLayout({
       {/* suppressHydrationWarning: browser extensions inject attributes on <body>
           (e.g. bis_register / __processed_*) before hydration; this silences that
           extension-only noise without affecting app markup. */}
-      <body suppressHydrationWarning>{children}</body>
+      <body suppressHydrationWarning>
+        <SiteChrome>{children}</SiteChrome>
+      </body>
     </html>
   )
 }
