@@ -2,6 +2,7 @@
 
 import { motion } from 'motion/react'
 import type { AuditorNote } from 'viewkey'
+import { formatUsdc } from '@/lib/rpc'
 
 const EASE_BRAND = [0.32, 0.72, 0, 1] as const
 
@@ -82,7 +83,7 @@ function AuditorRow({
         />
 
         {/* Amount — conditionally rendered (not opacity-0) so getByText fails in
-            the sealed state. No USDC suffix: BN254 field value, not a transfer. */}
+            the sealed state. Real USDC value (base units → decimal). */}
         {reconstructed && (
           <motion.span
             className="absolute inset-0 font-mono text-sm text-accent-soft flex items-center"
@@ -90,7 +91,7 @@ function AuditorRow({
             animate={{ opacity: 1 }}
             transition={{ duration: 0.4, ease: EASE_BRAND, delay: i * 0.06 + 0.1 }}
           >
-            {note.amount.toString()}
+            {formatUsdc(note.amount)} USDC
           </motion.span>
         )}
       </div>

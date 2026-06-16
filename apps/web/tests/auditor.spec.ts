@@ -40,9 +40,23 @@ const FIXTURE_EVENTS = [
   { type: 'contract', contractId: '', ledger: 3110577, topic: [COMMIT_TOPIC0, 'AAAACwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPv'], value: 'AAAAEQAAAAEAAAACAAAADwAAABBlbmNyeXB0ZWRfb3V0cHV0AAAADQAAAQAAAAB8ou/Itjw//TuhfGRQwyXCjmY1vIiM//PgeOWOgTau1VjevCk+ntIki3USj9g8aK2/r80yLnSm27YcrM4LKVLBHVbwdxhwCJfDF1EWMyF12On+BLLErjnUo3H5t7qpszOjBE375rqjroFSsZM3iWkuVhksGNjDB8vRqR4rjAAAAHzXVgCOXCwy3BIU4WGRHFbgStqi6eGUHnByQVC4ILJ9f4RSqEbk4V8jsF3TcC+byc5pZOEH4M3duLaCVugcdGZ30ob3ivRpvsCxqCUHL1XCZI0ISc5pjFnFJtAKpxJunq/wr3oThMKmPL24qHBSv9B/vEO6aTa+cg9kn4ozAAAADwAAAAVpbmRleAAAAAAAAAMAAAAH' },
 ]
 
+// Real `simulateTransaction` response for the SAC `balance(pool)` read, with the
+// retval swapped to i128(800) so the on-chain total reconciles against the fixture
+// sum (50+80+120+60+200+90+110+90 = 800 base units). Captured from testnet RPC.
+const SIM_BALANCE_800 = {
+  transactionData:
+    'AAAAAAAAAAIAAAAGAAAAAVBFzV7Acpp2j9WtAlBYUt9PAo3Ogw5axSIJukhIOy8BAAAAEAAAAAEAAAACAAAADwAAAAdCYWxhbmNlAAAAABIAAAABzp9buRK/KbSD+Cf5KFSMBlqIqV+yEvr2/Bj3ICo4HLEAAAABAAAABgAAAAFQRc1ewHKado/VrQJQWFLfTwKNzoMOWsUiCbpISDsvAQAAABQAAAABAAAAAAADOF0AAAAAAAAAAAAAAAAAADMK',
+  events: [],
+  minResourceFee: '13066',
+  results: [{ auth: [], xdr: 'AAAACgAAAAAAAAAAAAAAAAAAAyA=' }],
+  latestLedger: 3122636,
+}
+
 /**
- * Stub the Soroban RPC. Every `getEvents` call resolves to `events` with no
- * cursor (single page). Any other RPC method gets a benign empty result.
+ * Stub the Soroban RPC. `getEvents` resolves to `events` (single page);
+ * `simulateTransaction` resolves to the SAC balance read (i128 800, matching the
+ * fixture sum) so the auditor reconciliation has a real on-chain total. Any other
+ * method gets a benign empty result.
  */
 async function mockRpc(page: Page, events: unknown[]) {
   await page.route(`**://${RPC_HOST}/**`, async (route) => {
@@ -57,10 +71,12 @@ async function mockRpc(page: Page, events: unknown[]) {
       method = ''
     }
 
-    const result =
-      method === 'getEvents'
-        ? { events, latestLedger: 3110600, cursor: '' }
-        : {}
+    let result: unknown = {}
+    if (method === 'getEvents') {
+      result = { events, latestLedger: 3110600, cursor: '' }
+    } else if (method === 'simulateTransaction') {
+      result = SIM_BALANCE_800
+    }
 
     await route.fulfill({
       status: 200,
@@ -119,8 +135,8 @@ test.describe('Auditor console', () => {
   })
 
   // 6-AUD-amounts: after reconstruction the revealed per-employee amounts appear
-  // as font-mono text-accent-soft nodes (the Centerpiece reveal). The amounts are
-  // BN254 field values (50, 80, …), no USDC suffix.
+  // as font-mono text-accent-soft nodes (the Centerpiece reveal), formatted as real
+  // USDC (base units → decimal): 200 → 0.00002 USDC, 120 → 0.000012 USDC.
   test('reveals per-employee amounts as font-mono accent-soft nodes', async ({
     page,
   }) => {
@@ -134,8 +150,8 @@ test.describe('Auditor console', () => {
 
     // Revealed amount nodes carry both classes (the auditor reveal styling).
     const revealed = page.locator('.font-mono.text-accent-soft')
-    await expect(revealed.filter({ hasText: '200' })).toBeVisible()
-    await expect(revealed.filter({ hasText: '120' })).toBeVisible()
+    await expect(revealed.filter({ hasText: '0.00002 USDC' })).toBeVisible()
+    await expect(revealed.filter({ hasText: '0.000012 USDC' })).toBeVisible()
   })
 
   // 6-AUD-badkey: a malformed key → reconstruct fails → the textarea gains the

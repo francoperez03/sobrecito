@@ -8,18 +8,18 @@ import {
   PayrollTable,
   type PayrollRow,
 } from '@/components/dashboard/PayrollTable'
-import { readDeployments } from '@/lib/rpc'
+import { readDeployments, readPoolUsdcBalance, formatUsdc } from '@/lib/rpc'
 
-// Declared total T for the demo batch (8 notes, ops/fixtures/demo.csv sums to
-// 800 USDC). T is the public predicate value — the per-note amounts live only
-// in encrypted_outputs and are NEVER decrypted on this page (A1, T-06-09).
-const DECLARED_TOTAL = '800 USDC'
+// The total T shown here is the REAL on-chain USDC balance of the pool (read via
+// a read-only SAC `balance` simulation), not a demo constant. It is the public
+// predicate value; per-note amounts live only in encrypted_outputs and are NEVER
+// decrypted on this page (A1, T-06-09).
 
 type LoadState =
   | { phase: 'loading' }
   | { phase: 'error' }
   | { phase: 'empty' }
-  | { phase: 'ready'; events: ScannedEvent[] }
+  | { phase: 'ready'; events: ScannedEvent[]; totalBase: bigint }
 
 /**
  * Employer dashboard (`/employer`, UX-02, D-07/D-08).
@@ -50,7 +50,16 @@ export default function EmployerPage() {
         if (events.length === 0) {
           setState({ phase: 'empty' })
         } else {
-          setState({ phase: 'ready', events })
+          // Real total = live pool USDC balance. Fall back to 0n if the read
+          // fails so the page still renders the committed batch.
+          let totalBase = BigInt(0)
+          try {
+            totalBase = await readPoolUsdcBalance()
+          } catch {
+            totalBase = BigInt(0)
+          }
+          if (cancelled) return
+          setState({ phase: 'ready', events, totalBase })
         }
       } catch {
         if (!cancelled) setState({ phase: 'error' })
@@ -87,7 +96,7 @@ export default function EmployerPage() {
             <Reveal delay={0.1}>
               <div className="mb-6">
                 <BatchSummaryCard
-                  total={DECLARED_TOTAL}
+                  total={`${formatUsdc(state.totalBase)} USDC`}
                   txHash={readDeployments().poolContractId}
                   ledgerSeq={batchLedger(state.events)}
                 />

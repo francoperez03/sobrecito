@@ -2,13 +2,14 @@
 
 import { motion } from 'motion/react'
 import { DoubleBezel } from '@/components/ui/DoubleBezel'
+import { formatUsdc } from '@/lib/rpc'
 
 const EASE_BRAND = [0.32, 0.72, 0, 1] as const
 
 interface ReconciliationFooterProps {
-  /** Sum of the decrypted per-note amounts (BN254 field values). */
+  /** Sum of the decrypted per-note amounts (USDC base units). */
   sumDecrypted: bigint
-  /** Declared on-chain total T. */
+  /** Real on-chain total T = the pool's live USDC balance. */
   total: bigint
   /** Whether sum(decrypted) reconciles to T. */
   match: boolean
@@ -35,10 +36,10 @@ export function ReconciliationFooter({
         transition={{ duration: 0.4, ease: EASE_BRAND, delay: 0.5 }}
       >
         <p className="font-mono text-sm text-ink-muted">
-          sum(decrypted amounts) = {sumDecrypted.toString()}
+          sum(decrypted amounts) = {formatUsdc(sumDecrypted)} USDC
         </p>
         <p className="font-mono text-sm text-ink-muted">
-          on-chain total T = {total.toString()}
+          on-chain total T = {formatUsdc(total)} USDC
         </p>
         <p
           className={`font-mono text-sm mt-1 ${

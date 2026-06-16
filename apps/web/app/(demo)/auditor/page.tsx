@@ -6,12 +6,12 @@ import { Reveal } from '@/components/motion/Reveal'
 import { ViewKeyInput } from '@/components/auditor/ViewKeyInput'
 import { AuditorTable } from '@/components/auditor/AuditorTable'
 import { ReconciliationFooter } from '@/components/auditor/ReconciliationFooter'
-import { readDeployments } from '@/lib/rpc'
+import { readDeployments, readPoolUsdcBalance } from '@/lib/rpc'
 
-// Declared on-chain total T for the demo batch (ops/fixtures/demo.csv sums to
-// 800). The reconciliation footer asserts sum(decrypted) === T. Built via
-// BigInt() (not a `800n` literal) because the web tsconfig targets ES2017.
-const DECLARED_TOTAL = BigInt(800)
+// The on-chain total T is the REAL USDC balance of the pool (independent source),
+// not a demo constant. The reconciliation footer asserts that the sum of the
+// auditor's decrypted amounts equals the USDC actually held by the pool — a real
+// soundness check, not sum === sum.
 
 type ConsoleState = 'idle' | 'loading' | 'done' | 'empty' | 'error'
 
@@ -45,6 +45,7 @@ export default function AuditorPage() {
   const [viewKey, setViewKey] = useState('')
   const [state, setState] = useState<ConsoleState>('idle')
   const [summary, setSummary] = useState<BatchSummary | null>(null)
+  const [onChainTotal, setOnChainTotal] = useState<bigint>(BigInt(0))
 
   async function handleReconstruct() {
     setState('loading')
@@ -68,6 +69,12 @@ export default function AuditorPage() {
         setState('empty')
         return
       }
+      // Real reconciliation source: the USDC actually held by the pool on-chain.
+      try {
+        setOnChainTotal(await readPoolUsdcBalance())
+      } catch {
+        setOnChainTotal(BigInt(0))
+      }
       setSummary(result)
       setState('done')
     } catch {
@@ -85,8 +92,8 @@ export default function AuditorPage() {
   const sumDecrypted = summary
     ? summary.notes.reduce((acc, n) => acc + n.amount, BigInt(0))
     : BigInt(0)
-  const total = summary ? summary.total : DECLARED_TOTAL
-  const match = summary ? sumDecrypted === total : false
+  const total = onChainTotal
+  const match = summary ? sumDecrypted === onChainTotal : false
 
   return (
     <main className="min-h-dvh">
