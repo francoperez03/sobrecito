@@ -2,11 +2,15 @@
 /**
  * sobre — the employer-facing CLI for confidential payroll on Stellar/Soroban.
  *
- * This is the runnable shell (Plan 06-01). The full CSV → proof-gen → blobs →
- * pool.transact pipeline lands in Plan 06-02; here the `pay` command is a stub
- * that echoes what it would do so `sobre pay --help` and a dry-run both work.
+ * `sobre pay nomina.csv` runs the full pipeline in one command (Plan 06-02):
+ * parse + validate the CSV → freeze the dual ECIES blobs once → compute the
+ * matching ext_data_hash + generate a fresh proof → submit one batch to the live
+ * pool. `--dry-run` plans without transacting; `--verbose` prints the honest
+ * disclosure on start.
  */
 import { Command } from "commander";
+import { payCommand } from "./commands/pay.js";
+import { errorLine } from "./output.js";
 
 const program = new Command();
 
@@ -19,29 +23,19 @@ program
   .command("pay")
   .description("Submit a payroll batch from a CSV (name,amount,public_key).")
   .argument("<file>", "path to the payroll CSV")
-  .option("--dry-run", "print what would be submitted without transacting")
+  .option("--dry-run", "print the planned batch without transacting")
   .option("--verbose", "print the honest-disclosure note and extra detail")
-  .action((file: string, opts: { dryRun?: boolean; verbose?: boolean }) => {
-    const prefix = opts.dryRun ? "[dry-run] " : "";
-
-    if (opts.verbose) {
-      console.log(
-        `${prefix}PoC — not audited. ZK proof is technical; confidentiality is a policy guarantee.`,
-      );
-    }
-
-    // UI-SPEC start line: `sobre pay: reading nomina.csv`
-    console.log(`${prefix}sobre pay: reading ${file}`);
-
-    // The proof-gen → blobs → pool.transact pipeline lands in Plan 06-02.
-    console.log(`${prefix}· pipeline not yet wired (Plan 06-02 fills proof-gen → submit)`);
+  .option("--network <network>", "stellar network", "testnet")
+  .action((file: string, opts: { dryRun?: boolean; verbose?: boolean; network?: string }) => {
+    payCommand(file, opts);
   });
 
 async function main(): Promise<void> {
   await program.parseAsync(process.argv);
 }
 
-main().catch((err) => {
-  console.error(err);
+main().catch((err: unknown) => {
+  const message = err instanceof Error ? err.message : String(err);
+  console.error(errorLine(message, "check input and retry"));
   process.exit(1);
 });
