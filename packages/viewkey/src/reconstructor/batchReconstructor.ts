@@ -84,8 +84,17 @@ export async function reconstructBatch(
   let total = 0n;
 
   for (const event of events) {
-    const blob = decodeDualBlob(event.encryptedOutput);
-    const payload = decryptNote(opts.auditorPrivkey, blob.auditorCiphertext);
+    // A pool can hold many batches, each encrypted to a different auditor key.
+    // Decrypt only the outputs that belong to THIS view-key; skip the rest
+    // (a foreign blob fails the ECIES auth tag and throws). This is the
+    // selective-disclosure contract: an auditor reconstructs only their batch.
+    let payload: ReturnType<typeof decryptNote>;
+    try {
+      const blob = decodeDualBlob(event.encryptedOutput);
+      payload = decryptNote(opts.auditorPrivkey, blob.auditorCiphertext);
+    } catch {
+      continue;
+    }
 
     const employeePubkeyX25519 =
       opts.employeePubkeys?.get(event.index) ?? new Uint8Array(0);
