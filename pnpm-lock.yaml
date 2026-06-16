@@ -25,6 +25,9 @@ importers:
       react-dom:
         specifier: 19.2.7
         version: 19.2.7(react@19.2.7)
+      viewkey:
+        specifier: workspace:*
+        version: link:../../packages/viewkey
     devDependencies:
       '@axe-core/playwright':
         specifier: 4.11.3
