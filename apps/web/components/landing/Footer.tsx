@@ -27,13 +27,6 @@ export function Footer() {
           GitHub
         </a>
       </div>
-
-      {/* Honest disclosure */}
-      <div className="max-w-5xl mx-auto mt-10 pt-6 border-t border-hairline">
-        <p className="font-sans text-sm text-ink-muted leading-[1.5]">
-          Proof-of-concept, not audited. Amounts shielded; batch totals proven on-chain.
-        </p>
-      </div>
     </footer>
   )
 }
