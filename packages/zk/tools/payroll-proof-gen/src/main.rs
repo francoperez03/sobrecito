@@ -56,6 +56,24 @@ fn main() -> Result<()> {
     });
     let out_path = get_arg(&args, "--out").ok();
     let zero_input = args.iter().any(|a| a == "--zero-input");
+
+    // --deposit-amounts <a,b,...,h>: REAL deposit of `sum` base units (USDC, 7
+    // decimals). inAmount=0 (merkle-check disabled like --zero-input), outputs =
+    // the 8 provided amounts, publicAmount = ext_amount = sum. Reuses the
+    // on-chain ASP/root state handling so the proof verifies against the live pool.
+    let deposit_amounts: Option<[u64; 8]> = get_arg(&args, "--deposit-amounts").ok().map(|s| {
+        let v: Vec<u64> = s
+            .split(',')
+            .map(|x| x.trim().parse::<u64>().expect("invalid --deposit-amounts value"))
+            .collect();
+        assert_eq!(v.len(), 8, "--deposit-amounts must carry exactly 8 values");
+        let mut arr = [0u64; 8];
+        arr.copy_from_slice(&v[..8]);
+        arr
+    });
+    let is_deposit = deposit_amounts.is_some();
+    // A deposit reuses the live on-chain ASP/root branches that --zero-input uses.
+    let use_onchain_state = zero_input || is_deposit;
     let blinding_seed: u64 = get_arg(&args, "--blinding")
         .ok()
         .and_then(|s| s.parse::<u64>().ok())
@@ -69,8 +87,12 @@ fn main() -> Result<()> {
     let salaries: [u64; 8] = [50, 80, 120, 60, 200, 90, 110, 90];
     let total: u64 = salaries.iter().sum(); // 800
 
+    // --deposit-amounts: real deposit → inAmount=0 (merkle-check off), outputs = the
+    //   8 provided base-unit amounts, conservation 0 + publicAmount(sum) = sumOuts(sum).
     // --zero-input: inAmount=0, outAmounts=0 (el circuito desactiva el merkle-check cuando inAmount=0)
-    let (in_amount, out_amounts): (u64, [u64; 8]) = if zero_input {
+    let (in_amount, out_amounts): (u64, [u64; 8]) = if let Some(d) = deposit_amounts {
+        (0, d)
+    } else if zero_input {
         (0, [0; 8])
     } else {
         (total, salaries)
@@ -114,7 +136,7 @@ fn main() -> Result<()> {
 
     // Con --zero-input el circuito desactiva el merkle-check (inAmount=0),
     // así que usamos el root on-chain directamente para pasar is_known_root.
-    let proof_root_bigint: BigInt = if zero_input {
+    let proof_root_bigint: BigInt = if use_onchain_state {
         pool_root_provided.parse::<BigInt>().context("invalid --pool-root")?
     } else {
         pool_root_big.clone()
@@ -142,7 +164,7 @@ fn main() -> Result<()> {
     // --zero-input: usa el estado real on-chain del ASP (8 dummy leaves 1..8 + employer en idx 8).
     // Default: árbol local con semilla (para pruebas locales).
     let mem_leaf = poseidon2_hash2(pk_field, Scalar::zero(), Some(Scalar::from(1u64)));
-    let (mem_root, mem_siblings, mem_path_idx, mem_depth) = if zero_input {
+    let (mem_root, mem_siblings, mem_path_idx, mem_depth) = if use_onchain_state {
         // Estado on-chain conocido: leaves[0..7] = 1..8, leaves[8] = employer_mem_leaf
         // Los slots vacíos del árbol on-chain usan zeroes[0] = poseidon2("XLM") = poseidon2(88,76,77)
         // (misma función de compresión t=4, r=3, domain_sep=0 que define get_zeroes() en soroban-utils).
@@ -185,7 +207,7 @@ fn main() -> Result<()> {
     // (proof.asp_non_membership_root, leído vía cross-contract de get_root()).
     // Default (local proving test): inserta un override para ejercitar la
     // verificación de no-inclusión contra un SMT poblado (root != 0).
-    let overrides: Vec<(BigInt, BigInt)> = if zero_input {
+    let overrides: Vec<(BigInt, BigInt)> = if use_onchain_state {
         vec![]
     } else {
         let override_key = Scalar::from(100_001u64); // 1 * 100_000 + 1
@@ -202,8 +224,13 @@ fn main() -> Result<()> {
     let ext_hash_bytes = hex_to_bytes32(&ext_data_hash_hex)?;
     let ext_hash_bigint = BigInt::from_bytes_be(num_bigint::Sign::Plus, &ext_hash_bytes);
 
-    // publicAmount = 0 (reshield, ext_amount = 0)
-    let public_amount = BigInt::from(0u64);
+    // publicAmount: deposit → sum(outputs) (= ext_amount); reshield → 0.
+    let public_amount_u64: u64 = if is_deposit {
+        out_amounts.iter().copied().sum()
+    } else {
+        0
+    };
+    let public_amount = BigInt::from(public_amount_u64);
 
     // Build Circom inputs
     let mut inputs = Inputs::new();
@@ -373,14 +400,14 @@ fn main() -> Result<()> {
             "root": proof_root_str,
             "input_nullifiers": [nullifier_dec],
             "output_commitments": commitment_decs,
-            "public_amount": "0",
+            "public_amount": public_amount_u64.to_string(),
             "ext_data_hash": ext_hash_hex_32,
             "asp_membership_root": asp_member_root_str,
             "asp_non_membership_root": asp_non_member_root_str
         },
         "ext_data_arg": {
             "recipient": "GBWJZZ3XSNAY3WLFNLXUZXEEYMZCYVG4TW6Z5VSASJS2TOWF7GGPPKMW",
-            "ext_amount": "0",
+            "ext_amount": public_amount_u64.to_string(),
             "encrypted_outputs": ["","","","","","","",""]
         },
         "computed_mem_root": mem_root_dec,
