@@ -85,7 +85,11 @@ export default function AuditorPage() {
     }
   }
 
-  const invalid = state === 'error'
+  // A key that decrypts nothing (wrong/foreign key) is signalled the same as a
+  // malformed one: the amber ring fires and the "did not decrypt" copy shows. The
+  // reconstructor now skips foreign blobs instead of throwing, so the empty result
+  // is the bad-key path under a multi-batch pool.
+  const invalid = state === 'error' || state === 'empty'
   const processing = state === 'loading'
   const reconstructed = state === 'done'
 
@@ -115,8 +119,8 @@ export default function AuditorPage() {
             value={viewKey}
             onChange={(v) => {
               setViewKey(v)
-              // Clear a prior error (amber ring) as soon as the auditor edits.
-              if (state === 'error') setState('idle')
+              // Clear a prior invalid signal (amber ring) as soon as the auditor edits.
+              if (state === 'error' || state === 'empty') setState('idle')
             }}
             onReconstruct={handleReconstruct}
             processing={processing}
@@ -124,24 +128,12 @@ export default function AuditorPage() {
           />
         </Reveal>
 
-        {/* Error (bad key) — UI-SPEC copy. The amber ring lives on the textarea. */}
-        {state === 'error' && (
+        {/* Bad key OR a key that decrypts nothing (foreign/empty) — same signal:
+            the amber ring on the textarea plus the did-not-decrypt copy. */}
+        {(state === 'error' || state === 'empty') && (
           <p className="mt-6 text-lead text-ink-muted">
             View-key did not decrypt any outputs. Check the key and try again.
           </p>
-        )}
-
-        {/* Empty (no batch events on-chain). */}
-        {state === 'empty' && (
-          <div className="mt-10">
-            <h2 className="text-h2 font-[900] tracking-[-0.01em] leading-[1.15]">
-              No batch events found.
-            </h2>
-            <p className="mt-3 text-lead text-ink-muted">
-              The pool has no committed batches yet. Run{' '}
-              <span className="font-mono">sobre pay nomina.csv</span> first.
-            </p>
-          </div>
         )}
 
         {/* Done — reveal + reconciliation. */}

@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { motion } from 'motion/react'
 import { DoubleBezel } from '@/components/ui/DoubleBezel'
 import { unshieldNote, type NoteMeta } from '@/lib/employee-unshield'
+import { formatUsdc } from '@/lib/rpc'
 
 const EASE_BRAND = [0.32, 0.72, 0, 1] as const
 
@@ -80,7 +81,7 @@ export function EmployeeClaimCard({ noteMeta }: EmployeeClaimCardProps) {
             style={{ transformOrigin: 'right' }}
           />
           {/* Conditionally rendered (not opacity-0) so the amount is absent while
-              sealed. No USDC suffix: BN254 field value, not a transfer. */}
+              sealed. Real USDC value (base units → decimal). */}
           {claimed && (
             <motion.span
               className="absolute inset-0 font-mono text-2xl text-accent-soft flex items-center"
@@ -88,7 +89,7 @@ export function EmployeeClaimCard({ noteMeta }: EmployeeClaimCardProps) {
               animate={{ opacity: 1 }}
               transition={{ duration: 0.4, ease: EASE_BRAND, delay: 0.1 }}
             >
-              {noteMeta.amount}
+              {formatUsdc(BigInt(noteMeta.amount))} USDC
             </motion.span>
           )}
         </div>

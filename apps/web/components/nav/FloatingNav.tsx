@@ -1,20 +1,47 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
-import { ArrowRight, GithubLogo } from '@phosphor-icons/react'
+import { CaretDown, GithubLogo } from '@phosphor-icons/react'
 
 const GITHUB_REPO_URL = 'https://github.com/francoperez03/sobrecito'
-const DEMO_VIDEO_URL = '#demo'
 const EASE_BRAND = [0.32, 0.72, 0, 1] as const
 
-const NAV_LINKS = [
-  { label: 'Watch the demo', href: DEMO_VIDEO_URL, primary: true },
-  { label: 'View on GitHub', href: GITHUB_REPO_URL, external: true },
+// Pre-generated demo claim token (one note of the live testnet batch) so
+// "Play as → Employee" opens a real claim card instead of the invalid-link state.
+const EMPLOYEE_DEMO_TOKEN =
+  'eyJwb29sQ29udHJhY3RJZCI6IkNESEo2VzVaQ0s3U1RORUQ3QVQ3U0tDVVJRREZWQ0ZKTDZaQkY2WFc3UU1QT0lCS0hBT0xDVkwyIiwiY29tbWl0bWVudEluZGV4IjoyMCwiYW1vdW50IjoiMjUwMDAwMCIsIm5vdGVQcml2a2V5SGV4IjoiMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMCIsImJsaW5kaW5nIjoiMzAwNCJ9'
+
+// The three demo surfaces. "Play as" lets a visitor step into each role.
+const PLAY_AS = [
+  { label: 'Employer', href: '/employer' },
+  { label: 'Employee', href: `/employee/${EMPLOYEE_DEMO_TOKEN}` },
+  { label: 'Auditor', href: '/auditor' },
 ]
 
 export function FloatingNav() {
   const [menuOpen, setMenuOpen] = useState(false)
+  const [playOpen, setPlayOpen] = useState(false)
+  const playRef = useRef<HTMLDivElement>(null)
+
+  // Close the Play-as dropdown on outside click or Escape.
+  useEffect(() => {
+    if (!playOpen) return
+    function onPointerDown(e: PointerEvent) {
+      if (playRef.current && !playRef.current.contains(e.target as Node)) {
+        setPlayOpen(false)
+      }
+    }
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') setPlayOpen(false)
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [playOpen])
 
   return (
     <>
@@ -27,15 +54,57 @@ export function FloatingNav() {
 
           <div className="flex-1" />
 
-          {/* Desktop: Watch the demo CTA */}
-          <a
-            href={DEMO_VIDEO_URL}
-            className="hidden md:flex items-center gap-1.5 px-4 h-[44px] bg-accent-fill text-white font-sans font-[900] text-sm rounded-full transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:opacity-90 active:scale-[0.98]"
-            rel="noopener noreferrer"
-          >
-            Watch the demo
-            <ArrowRight size={16} weight="light" />
-          </a>
+          {/* Desktop: Play as dropdown */}
+          <div ref={playRef} className="hidden md:block relative">
+            <button
+              type="button"
+              aria-haspopup="menu"
+              aria-expanded={playOpen}
+              onClick={() => setPlayOpen((prev) => !prev)}
+              className="flex items-center gap-1.5 px-4 h-[44px] bg-accent-fill text-white font-sans font-[900] text-sm rounded-full transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:opacity-90 active:scale-[0.98]"
+            >
+              Play as
+              <motion.span
+                animate={{ rotate: playOpen ? 180 : 0 }}
+                transition={{ duration: 0.3, ease: EASE_BRAND }}
+                className="flex"
+              >
+                <CaretDown size={16} weight="bold" />
+              </motion.span>
+            </button>
+
+            <AnimatePresence>
+              {playOpen && (
+                <motion.div
+                  role="menu"
+                  className="absolute right-0 top-[calc(100%+8px)] min-w-[176px] p-1.5 bg-surface ring-1 ring-white/8 rounded-2xl backdrop-blur-sm shadow-xl shadow-black/40 origin-top-right"
+                  initial={{ opacity: 0, y: -8, scale: 0.96 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -8, scale: 0.96 }}
+                  transition={{ duration: 0.2, ease: EASE_BRAND }}
+                >
+                  {PLAY_AS.map(({ label, href }, i) => (
+                    <motion.a
+                      key={label}
+                      href={href}
+                      role="menuitem"
+                      className="flex items-center justify-between px-3.5 h-[40px] rounded-xl font-sans font-[700] text-sm text-ink-muted hover:text-ink hover:bg-white/5 transition-colors"
+                      initial={{ opacity: 0, x: -6 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{
+                        duration: 0.22,
+                        ease: EASE_BRAND,
+                        delay: 0.03 + i * 0.05,
+                      }}
+                      onClick={() => setPlayOpen(false)}
+                    >
+                      {label}
+                    </motion.a>
+                  ))}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
 
           {/* Desktop: View on GitHub ghost link */}
           <a
@@ -88,28 +157,46 @@ export function FloatingNav() {
             exit={{ opacity: 0 }}
             transition={{ duration: 0.25, ease: EASE_BRAND }}
           >
-            {NAV_LINKS.map(({ label, href, external, primary }, i) => (
+            <motion.span
+              className="text-xs uppercase tracking-[0.2em] text-ink-muted/60"
+              initial={{ opacity: 0, y: 24 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 16 }}
+              transition={{ duration: 0.3, ease: EASE_BRAND, delay: 0.05 }}
+            >
+              Play as
+            </motion.span>
+            {PLAY_AS.map(({ label, href }, i) => (
               <motion.a
                 key={label}
                 href={href}
-                target={external ? '_blank' : undefined}
-                rel={external ? 'noopener noreferrer' : undefined}
-                className={`font-sans font-[900] text-2xl tracking-[-0.02em] transition-opacity hover:opacity-70 ${
-                  primary ? 'text-accent-soft' : 'text-ink-muted'
-                }`}
+                className="font-sans font-[900] text-2xl tracking-[-0.02em] text-accent-soft transition-opacity hover:opacity-70"
                 initial={{ opacity: 0, y: 24 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: 16 }}
                 transition={{
                   duration: 0.3,
                   ease: EASE_BRAND,
-                  delay: 0.05 + i * 0.08,
+                  delay: 0.1 + i * 0.08,
                 }}
                 onClick={() => setMenuOpen(false)}
               >
                 {label}
               </motion.a>
             ))}
+            <motion.a
+              href={GITHUB_REPO_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-sans font-[900] text-2xl tracking-[-0.02em] text-ink-muted transition-opacity hover:opacity-70"
+              initial={{ opacity: 0, y: 24 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 16 }}
+              transition={{ duration: 0.3, ease: EASE_BRAND, delay: 0.1 + PLAY_AS.length * 0.08 }}
+              onClick={() => setMenuOpen(false)}
+            >
+              View on GitHub
+            </motion.a>
           </motion.div>
         )}
       </AnimatePresence>
