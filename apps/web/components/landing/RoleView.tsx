@@ -1,7 +1,4 @@
-'use client'
-
 import type { ReactElement, ReactNode } from 'react'
-import { motion, useReducedMotion } from 'motion/react'
 import { LockSimple } from '@phosphor-icons/react'
 import { DEMO_ROWS } from '@/lib/demo-data'
 
@@ -13,7 +10,7 @@ interface RoleViewProps {
   rows: RowState[]
   /** Hide employee names (Employee's colleagues, Public). */
   redactNames?: boolean
-  /** The single row the viewer owns (Employee) — labelled "You", accent-tinted. */
+  /** The single row the viewer owns (Employee) — labelled "You", highlighted. */
   ownIndex?: number
   /** Optional footer (e.g. the proven total for Public, or the view-key note). */
   footer?: ReactNode
@@ -22,12 +19,10 @@ interface RoleViewProps {
 }
 
 /**
- * Compact, fixed-state mini-table of one role's view of the payroll batch — the
- * landing-page echo of the Centerpiece sealed/revealed visual. Each row is either
- * `revealed` (real amount) or `sealed` (a redacted bar with a periodic shimmer).
- * State is fixed per role (no toggle); the only motion is the looping shimmer,
- * gated on prefers-reduced-motion. Reuses the live DEMO_ROWS so amounts stay in
- * sync with the Centerpiece.
+ * Compact mini-table of one role's view of the payroll batch. Unlike the
+ * Centerpiece (whose drama IS the sealing), this view inverts the emphasis: what
+ * the role CAN see is the hero (the owned row, the proven total), and sealed rows
+ * recede quietly — static, dim, no shimmer competing for attention.
  */
 export function RoleView({
   rows,
@@ -36,71 +31,61 @@ export function RoleView({
   footer,
   label,
 }: RoleViewProps): ReactElement {
-  const reduce = useReducedMotion()
-
   return (
     <div
       role="img"
       aria-label={label}
-      className="rounded-xl bg-surface ring-1 ring-hairline shadow-[inset_0_1px_1px_rgba(255,255,255,0.04)] px-4 py-3"
+      className="rounded-xl bg-surface ring-1 ring-hairline shadow-[inset_0_1px_1px_rgba(255,255,255,0.04)] p-2"
     >
-      {DEMO_ROWS.map((row, i) => {
-        const revealed = rows[i] === 'revealed'
-        const isOwn = ownIndex === i
-        const showName = revealed && (!redactNames || isOwn)
+      <div className="flex flex-col gap-0.5">
+        {DEMO_ROWS.map((row, i) => {
+          const revealed = rows[i] === 'revealed'
+          const isOwn = ownIndex === i
+          const showName = revealed && (!redactNames || isOwn)
 
-        return (
-          <div
-            key={row.employee}
-            className="grid grid-cols-[1fr_auto] items-center gap-3 py-1.5 border-b border-hairline last:border-0"
-          >
-            {/* Name (or Sealed lock chip when redacted). */}
-            <span className="self-center min-w-0">
-              {showName ? (
-                <span className={`text-xs ${isOwn ? 'text-accent-soft' : 'text-ink'}`}>
-                  {isOwn ? 'You' : row.employee}
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1.5 text-ink-muted">
-                  <LockSimple size={11} weight="bold" />
-                  <span className="font-mono text-[0.625rem] uppercase tracking-[0.12em]">
-                    Sealed
+          return (
+            <div
+              key={row.employee}
+              className={`grid grid-cols-[1fr_auto] items-center gap-3 rounded-lg px-3 py-2.5 ${
+                isOwn ? 'bg-accent/[0.08] ring-1 ring-accent/20' : ''
+              }`}
+            >
+              {/* Name (or a quiet Sealed chip when redacted). */}
+              <span className="min-w-0 truncate">
+                {showName ? (
+                  <span
+                    className={`text-sm ${isOwn ? 'text-accent-soft font-medium' : 'text-ink'}`}
+                  >
+                    {isOwn ? 'You' : row.employee}
                   </span>
-                </span>
-              )}
-            </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 text-ink-muted">
+                    <LockSimple size={11} weight="bold" />
+                    <span className="font-mono text-[0.625rem] uppercase tracking-[0.12em]">
+                      Sealed
+                    </span>
+                  </span>
+                )}
+              </span>
 
-            {/* Amount: real value (revealed) or a sealed bar (with shimmer). */}
-            <div className="relative overflow-hidden h-4 w-20 self-center">
+              {/* Amount: the real value (hero) or a quiet static redaction bar. */}
               {revealed ? (
-                <span className="absolute inset-0 font-mono text-xs text-accent-soft tabular-nums flex items-center justify-end">
+                <span
+                  className={`font-mono tabular-nums text-right ${
+                    isOwn ? 'text-sm text-accent-soft font-medium' : 'text-xs text-accent-soft'
+                  }`}
+                >
                   {row.amount}
                 </span>
               ) : (
-                <div className="absolute inset-0 rounded bg-ink/25 overflow-hidden">
-                  {!reduce && (
-                    <motion.div
-                      aria-hidden
-                      className="absolute inset-y-0 left-0 w-1/3 bg-gradient-to-r from-transparent via-white/25 to-transparent"
-                      initial={{ x: '-130%' }}
-                      animate={{ x: '430%' }}
-                      transition={{
-                        duration: 1.3,
-                        ease: 'easeInOut',
-                        repeat: Infinity,
-                        repeatDelay: 2.4,
-                        delay: 0.6 + i * 0.2,
-                      }}
-                    />
-                  )}
-                </div>
+                <span aria-hidden className="h-2.5 w-16 rounded-full bg-ink/[0.12]" />
               )}
             </div>
-          </div>
-        )
-      })}
+          )
+        })}
+      </div>
 
-      {footer && <div className="mt-2 pt-2 border-t border-hairline">{footer}</div>}
+      {footer && <div className="mt-1 px-3 pt-3 border-t border-hairline">{footer}</div>}
     </div>
   )
 }

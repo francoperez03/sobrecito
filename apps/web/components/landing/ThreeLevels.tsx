@@ -74,7 +74,7 @@ const levels: {
     rows: [S, S, S, S],
     redactNames: true,
     footer: (
-      <p className="font-mono text-xs text-accent-soft tabular-nums">
+      <p className="font-mono text-sm text-accent-soft tabular-nums leading-[1.4]">
         sum = {PREDICATE_TOTAL} ✓ verified on-chain
       </p>
     ),
