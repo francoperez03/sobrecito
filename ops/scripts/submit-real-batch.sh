@@ -58,4 +58,9 @@ TX_HASH="$(stellar contract invoke \
 
 echo "==> transact returned: $TX_HASH" >&2
 grep -oE 'index: [0-9]+' "$BATCH_DIR/submit.log" >&2 || true
-echo "$TX_HASH"
+
+# transact returns void, so stdout is "null". The real tx hash is in the log
+# ("Signing transaction: <hash>" / the stellar.expert URL). Surface that instead.
+REAL_HASH="$(grep -oE 'tx/[0-9a-f]{64}' "$BATCH_DIR/submit.log" | head -1 | cut -d/ -f2)"
+[[ -z "$REAL_HASH" ]] && REAL_HASH="$(grep -oiE 'Signing transaction: [0-9a-f]{64}' "$BATCH_DIR/submit.log" | grep -oE '[0-9a-f]{64}' | head -1)"
+[[ -n "$REAL_HASH" ]] && echo "$REAL_HASH" || echo "$TX_HASH"

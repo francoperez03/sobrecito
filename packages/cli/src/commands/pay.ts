@@ -17,7 +17,7 @@ import { genBatchFromCSV } from "../pipeline/genKeys.js";
 import { proofGen } from "../pipeline/proofGen.js";
 import { submitBatch } from "../pipeline/submit.js";
 import { OUT_DIR } from "../pipeline/paths.js";
-import { step, successSummary, HONEST_DISCLOSURE } from "../output.js";
+import { step, successSummary, formatUsdc, HONEST_DISCLOSURE } from "../output.js";
 
 export interface PayOptions {
   dryRun?: boolean;
@@ -68,14 +68,15 @@ export function payCommand(file: string, opts: PayOptions = {}): void {
       console.log(`[dry-run]   note ${i + 1}: ${row.name} · sealed`);
     });
     console.log(`[dry-run] frozen blobs: ${frozen.outDir}`);
-    console.log(`[dry-run] sum(payments) = ${frozen.total.toString()} USDC · would submit to ${network}`);
+    console.log(`[dry-run] sum(payments) = ${formatUsdc(frozen.total)} USDC · would submit to ${network}`);
     console.log("[dry-run] no proof generated, no batch submitted.");
     return;
   }
 
   // 5. proof-gen (computes ext_data_hash from the frozen blobs first).
+  //    Real deposit: ext_amount = sum(amounts), publicAmount matches on-chain.
   console.log(step("proving", rows.length));
-  proofGen(OUT_DIR, network);
+  proofGen(OUT_DIR, network, amounts);
 
   // 6. submit one batch via the guarded script.
   console.log(step("submitting"));

@@ -28,6 +28,9 @@ import {
   deploymentsJson,
 } from "./paths.js";
 
+/** The checked-in verifier VK the pool crate's build.rs needs to compile. */
+const VERIFIER_VK_JSON = resolve(ZK_DIR, "testdata/policy_tx_1_8_vk.json");
+
 interface BlobsManifest {
   count: number;
   blobs: string[];
@@ -81,7 +84,7 @@ function getRoot(network: string, deployer: string, contractId: string): string 
  * Compute ext_data_hash from the frozen blobs by shelling out to the pool's Rust
  * helper. Captures the printed `ext_data_hash_hex=<hex>` line (L4).
  */
-function computeExtDataHash(blobHexes: string[]): string {
+function computeExtDataHash(blobHexes: string[], extAmount: bigint): string {
   const out = execFileSync(
     "cargo",
     [
@@ -96,7 +99,16 @@ function computeExtDataHash(blobHexes: string[]): string {
     {
       cwd: ZK_DIR,
       encoding: "utf8",
-      env: { ...process.env, SOBRE_BLOBS_HEX: blobHexes.join(",") },
+      // SOBRE_EXT_AMOUNT binds the real deposit amount into the hashed ExtData so
+      // the on-chain check hash_ext_data(submitted) == proof.ext_data_hash holds.
+      env: {
+        ...process.env,
+        // Required by the pool crate's build.rs (circom-groth16-verifier) so the
+        // `cargo test -p pool` helper compiles without external env setup.
+        VERIFIER_VK_JSON,
+        SOBRE_BLOBS_HEX: blobHexes.join(","),
+        SOBRE_EXT_AMOUNT: extAmount.toString(),
+      },
     },
   );
   const match = out.match(/ext_data_hash_hex=([0-9a-fA-F]{64})/);
@@ -118,12 +130,18 @@ export interface ProofResult {
  * @param outDir  the frozen batch dir (ops/testnet-batch), holding blobs.json
  * @param network stellar network for the live root reads (default "testnet")
  */
-export function proofGen(outDir: string, network = "testnet"): ProofResult {
+export function proofGen(outDir: string, network = "testnet", amounts: bigint[] = []): ProofResult {
   // 1. frozen blobs (never regenerated here — L3/Pitfall 1).
   const blobHexes = readBlobs(outDir);
 
-  // 2. ext_data_hash bound to those exact bytes (L4).
-  const extDataHash = computeExtDataHash(blobHexes);
+  if (amounts.length !== 8) {
+    throw new Error(`proofGen needs exactly 8 deposit amounts, got ${amounts.length}`);
+  }
+  // Real deposit: ext_amount = sum of the 8 base-unit amounts (USDC, 7 decimals).
+  const extAmount = amounts.reduce((a, b) => a + b, 0n);
+
+  // 2. ext_data_hash bound to those exact bytes AND the deposit amount (L4).
+  const extDataHash = computeExtDataHash(blobHexes, extAmount);
 
   // 3. live roots (pool + ASP) for the proof public inputs.
   const deployments = readDeployments(network);
@@ -153,7 +171,12 @@ export function proofGen(outDir: string, network = "testnet"): ProofResult {
       aspNonMemberRoot,
       "--ext-data-hash",
       extDataHash,
-      "--zero-input",
+      "--deposit-amounts",
+      amounts.map((a) => a.toString()).join(","),
+      // Fresh blinding seed → unique dummy-input nullifier per batch, so a second
+      // real deposit does not revert with AlreadySpentNullifier (pool Error #9).
+      "--blinding",
+      (Date.now() % 2_000_000_000).toString(),
       "--out",
       proofPath,
     ],
@@ -169,7 +192,7 @@ export function proofGen(outDir: string, network = "testnet"): ProofResult {
     JSON.stringify(
       {
         recipient: deployer,
-        ext_amount: "0",
+        ext_amount: extAmount.toString(),
         encrypted_outputs: blobHexes,
       },
       null,

@@ -11,6 +11,22 @@
 export type StepState = "pending" | "proving" | "submitting" | "committed" | "failed";
 
 /**
+ * Format USDC base units (7 decimals) as a human string, trimming trailing zeros.
+ *   formatUsdc(10000000n) → "1"      formatUsdc(625000n) → "0.0625"
+ */
+export function formatUsdc(base: bigint): string {
+  const neg = base < 0n;
+  const v = neg ? -base : base;
+  const int = v / 10000000n;
+  const frac = v % 10000000n;
+  let s = int.toString();
+  if (frac > 0n) {
+    s += "." + frac.toString().padStart(7, "0").replace(/0+$/, "");
+  }
+  return (neg ? "-" : "") + s;
+}
+
+/**
  * Progress line for a pipeline step. The two steps the CLI actually prints are
  * `proving` (needs the note count N) and `submitting`. Both use the `·` prefix.
  *
@@ -60,12 +76,12 @@ export function warnLine(amount: string, addr: string): string {
  */
 export function successSummary(
   n: number,
-  total: bigint | string,
+  total: bigint,
   hash: string,
   seq: string,
 ): string {
   return [
-    `✓ ${n} notes committed · sum(payments) = ${total.toString()} USDC · verified on-chain`,
+    `✓ ${n} notes committed · sum(payments) = ${formatUsdc(total)} USDC · verified on-chain`,
     `  batch tx: ${hash}`,
     `  ledger: ${seq}`,
   ].join("\n");

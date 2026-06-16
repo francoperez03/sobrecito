@@ -5,7 +5,7 @@
  * before any crypto runs (the CSV is an untrusted file shape, trust boundary
  * CSV → CLI):
  *   - exactly 8 data rows (D-05: the circuit `policy_tx_1_8` is fixed at 8 outputs)
- *   - `amount` is a non-negative integer → BigInt (shielded field value, not USDC)
+ *   - `amount` is a non-negative USDC value, ≤7 decimals → base-unit BigInt (real on-chain value)
  *   - `public_key` is 64 hex chars → Uint8Array(32) (X25519 employee key)
  *
  * The `name` column is display-only. It is NEVER passed to a shell or to
@@ -19,14 +19,28 @@
 import { readFileSync } from "node:fs";
 import { parse } from "csv-parse/sync";
 
-/** One validated payroll row. `amount` is a BN254 field value, not real USDC. */
+/** USDC has 7 decimals on Stellar (the SAC). 1 USDC = 10_000_000 base units. */
+export const USDC_DECIMALS = 7;
+const USDC_SCALE = 10n ** BigInt(USDC_DECIMALS);
+
+/** One validated payroll row. `amount` is the REAL USDC value in base units (7 decimals). */
 export interface PayrollRow {
   /** Display-only label. Never reaches a shell (T-06-04). */
   name: string;
-  /** Shielded note amount as a bigint. */
+  /** Shielded note amount in USDC base units (10_000_000 = 1 USDC). */
   amount: bigint;
   /** Employee X25519 encryption public key (raw 32 bytes). */
   publicKey: Uint8Array;
+}
+
+/**
+ * Convert a human USDC string (`"1"`, `"0.0625"`, up to 7 decimals) to base units.
+ * Uses string math so there is no float rounding on money.
+ */
+export function usdcToBaseUnits(s: string): bigint {
+  const [intPart, fracRaw = ""] = s.split(".");
+  const frac = (fracRaw + "0".repeat(USDC_DECIMALS)).slice(0, USDC_DECIMALS);
+  return BigInt(intPart) * USDC_SCALE + BigInt(frac);
 }
 
 const REQUIRED_COLUMNS = ["name", "amount", "public_key"] as const;
@@ -87,13 +101,13 @@ export function parseCSV(file: string): PayrollRow[] {
     const amountRaw = row.amount;
     const keyRaw = row.public_key;
 
-    // amount must be a non-negative integer.
-    if (typeof amountRaw !== "string" || !/^\d+$/.test(amountRaw)) {
+    // amount is a non-negative USDC value with up to 7 decimals → base units.
+    if (typeof amountRaw !== "string" || !/^\d+(\.\d{1,7})?$/.test(amountRaw)) {
       throw parseFailure(file);
     }
     let amount: bigint;
     try {
-      amount = BigInt(amountRaw);
+      amount = usdcToBaseUnits(amountRaw);
     } catch {
       throw parseFailure(file);
     }

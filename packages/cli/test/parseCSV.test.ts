@@ -44,9 +44,15 @@ test("parseCSV parses the 8-row demo.csv into 8 typed rows", () => {
     assert.ok(row.publicKey instanceof Uint8Array);
     assert.equal(row.publicKey.length, 32);
   }
-  // Demo amounts sum to T = 800.
+  // Demo amounts are real USDC decimals summing to T = 1 USDC = 10_000_000 base units.
   const total = parsed.reduce((acc, r) => acc + r.amount, 0n);
-  assert.equal(total, 800n);
+  assert.equal(total, 10_000_000n);
+});
+
+test("parseCSV converts USDC decimals to base units (0.0625 → 625000)", () => {
+  const parsed = parseCSV(DEMO_CSV);
+  assert.equal(parsed[0].amount, 625000n); // Ana 0.0625 USDC
+  assert.equal(parsed[1].amount, 1_000_000n); // Bruno 0.10 USDC
 });
 
 test("parseCSV throws on a 7-row CSV (not-8 rows → non-zero exit)", () => {
@@ -65,8 +71,8 @@ test("parseCSV rejects a public_key that is not 64 hex chars", () => {
   assert.throws(() => parseCSV(file), /expected columns: name, amount, public_key/);
 });
 
-test("parseCSV rejects a non-integer amount", () => {
-  const bad = HEADER + "\n" + Array.from({ length: 8 }, (_, i) => `Emp${i},${i === 0 ? "12.5" : 10 * (i + 1)},${KEY}`).join("\n") + "\n";
+test("parseCSV rejects an amount with more than 7 decimals", () => {
+  const bad = HEADER + "\n" + Array.from({ length: 8 }, (_, i) => `Emp${i},${i === 0 ? "0.12345678" : 10 * (i + 1)},${KEY}`).join("\n") + "\n";
   const file = tmpCsv(bad);
   assert.throws(() => parseCSV(file), /expected columns: name, amount, public_key/);
 });
