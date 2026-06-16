@@ -86,7 +86,8 @@ export function FloatingNav() {
                 Play as
               </motion.span>
 
-              {/* Dynamic-island role pill: grows in when a role is active, pops out at root */}
+              {/* Dynamic-island: the active role grows in as continuous text so it
+                  reads "Play as Employer"; pops back out at the root. */}
               <AnimatePresence initial mode="popLayout">
                 {activeRole && (
                   <motion.span
@@ -96,7 +97,7 @@ export function FloatingNav() {
                     animate={{ opacity: 1, scale: 1 }}
                     exit={{ opacity: 0, scale: 0.4 }}
                     transition={ISLAND_SPRING}
-                    className="inline-flex items-center h-[26px] px-2.5 rounded-full bg-white/20 font-[700] text-xs tracking-[0.01em] whitespace-nowrap"
+                    className="whitespace-nowrap origin-left"
                   >
                     {activeRole}
                   </motion.span>
