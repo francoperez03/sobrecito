@@ -17,7 +17,7 @@ export function Centerpiece() {
 
   return (
     <MotionConfig reducedMotion="user">
-      <div className="w-full max-w-3xl mx-auto">
+      <div data-testid="centerpiece" className="w-full max-w-3xl mx-auto">
         <DoubleBezel radius="2rem" className="overflow-hidden">
           {/* Header row */}
           <div className="flex items-center justify-between px-6 pt-5 pb-3">
