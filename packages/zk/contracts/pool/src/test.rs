@@ -968,9 +968,16 @@ fn print_real_batch_ext_data_hash() {
         encrypted_outputs.push_back(bytes);
     }
 
+    // ext_amount defaults to 0 (reshield); SOBRE_EXT_AMOUNT overrides it for a real
+    // deposit so the hash binds the exact ext_data the deployer submits.
+    let ext_amount_i32: i32 = std::env::var("SOBRE_EXT_AMOUNT")
+        .ok()
+        .and_then(|s| s.trim().parse::<i32>().ok())
+        .unwrap_or(0);
+
     let ext = ExtData {
         recipient,
-        ext_amount: I256::from_i32(&env, 0),
+        ext_amount: I256::from_i32(&env, ext_amount_i32),
         encrypted_outputs,
     };
 

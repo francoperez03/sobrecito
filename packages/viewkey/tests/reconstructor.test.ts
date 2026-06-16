@@ -93,19 +93,22 @@ describe("batch reconstructor (PROOF-04)", () => {
     }
   });
 
-  it("fails to reconstruct with the wrong auditor key (key separation)", async () => {
+  it("reveals nothing with the wrong auditor key (key separation)", async () => {
     const auditor = keypair();
     const intruder = keypair();
     const events = buildFixtureEvents(auditor.pub);
 
-    // The intruder cannot open the auditor ciphertexts: GCM tag fails.
-    await expect(
-      reconstructBatch({
-        auditorPrivkey: intruder.priv,
-        source: { events },
-        poolAddress: POOL_ADDRESS,
-        periodStart: PERIOD_START,
-      }),
-    ).rejects.toThrow();
+    // The intruder cannot open the auditor ciphertexts (GCM tag fails), so every
+    // blob is skipped: the reconstruction yields no notes and a zero total. This
+    // is the selective-disclosure contract under a multi-batch pool — a foreign
+    // key reveals nothing rather than aborting the whole scan.
+    const summary = await reconstructBatch({
+      auditorPrivkey: intruder.priv,
+      source: { events },
+      poolAddress: POOL_ADDRESS,
+      periodStart: PERIOD_START,
+    });
+    expect(summary.notes).toHaveLength(0);
+    expect(summary.total).toBe(0n);
   });
 });
