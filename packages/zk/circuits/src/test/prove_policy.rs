@@ -369,6 +369,146 @@ mod tests {
         )
     }
 
+    /// Salaries for the canonical 1-in-8-out payroll batch (sum = 800).
+    const PAYROLL_SALARIES: [u64; 8] = [50, 80, 120, 60, 200, 90, 110, 90];
+
+    /// Builds the canonical valid 1-in-8-out payroll case used by the A3
+    /// soundness negative tests. Mirrors `test_tx_1in_8out_payroll`: one
+    /// employer input holding the total `T = 800`, eight employee outputs that
+    /// sum to `T`, fully shielded (`publicAmount = 0`).
+    #[allow(clippy::type_complexity)]
+    fn payroll_base_case() -> (TxCase, Vec<Scalar>, Vec<MembershipTree>, Vec<NonMembership>) {
+        let total: u64 = PAYROLL_SALARIES.iter().sum();
+
+        let outputs: Vec<OutputNote> = PAYROLL_SALARIES
+            .iter()
+            .enumerate()
+            .map(|(i, &amt)| OutputNote {
+                pub_key: Scalar::from(1000u64 + i as u64),
+                blinding: Scalar::from(2000u64 + i as u64),
+                amount: Scalar::from(amt),
+            })
+            .collect();
+
+        let case = TxCase::new(
+            vec![InputNote {
+                leaf_index: 11,
+                priv_key: Scalar::from(424242u64),
+                blinding: Scalar::from(515151u64),
+                amount: Scalar::from(total),
+            }],
+            outputs,
+        );
+
+        let leaves = prepopulated_leaves(LEVELS, 0x50B5Eu64, &[case.inputs[0].leaf_index], 24);
+        let membership_trees = default_membership_trees(&case, 0x1234_5678u64);
+        let keys = vec![NonMembership {
+            key_non_inclusion: scalar_to_bigint(derive_public_key(case.inputs[0].priv_key)),
+        }];
+
+        (case, leaves, membership_trees, keys)
+    }
+
+    /// PROOF-06 (A3 nota ajena): el empleador prueba con una clave privada que
+    /// NO deriva el commitment del leaf. La constraint keypair
+    /// (publicKey = Poseidon2(privKey)) y la prueba Merkle dejan de cerrar, el
+    /// witness del circuito falla. El batch ajeno rebota.
+    #[test]
+    fn policy_rejects_foreign_note() -> Result<()> {
+        let (wasm, r1cs) = load_artifacts("policy_tx_1_8")?;
+        let (case, leaves, membership_trees, keys) = payroll_base_case();
+
+        let res = run_case(
+            &wasm,
+            &r1cs,
+            &case,
+            leaves,
+            Scalar::from(0u64),
+            &membership_trees,
+            &keys,
+            // Swap inPrivateKey[0] to a foreign key the prover does not own.
+            Some(|inputs: &mut Inputs| {
+                inputs.set("inPrivateKey", vec![scalar_to_bigint(Scalar::from(999u64))]);
+            }),
+        );
+
+        assert!(res.is_err(), "foreign private key unexpectedly verified");
+        Ok(())
+    }
+
+    /// PROOF-07 (A3 suma forjada): el empleador infla un outAmount para que
+    /// `sumOuts != sumIns + publicAmount`. La constraint de conservacion
+    /// (policyTransaction.circom:210, `sumIns + publicAmount === sumOuts`) deja
+    /// de satisfacerse y el witness falla. La suma forjada rebota.
+    #[test]
+    fn policy_rejects_forged_sum() -> Result<()> {
+        let (wasm, r1cs) = load_artifacts("policy_tx_1_8")?;
+        let (case, leaves, membership_trees, keys) = payroll_base_case();
+
+        // Keep the 8-element outAmount array intact but break conservation:
+        // inflate the first salary so sumOuts != 800.
+        let mut forged: Vec<BigInt> = PAYROLL_SALARIES
+            .iter()
+            .map(|&amt| scalar_to_bigint(Scalar::from(amt)))
+            .collect();
+        forged[0] = scalar_to_bigint(Scalar::from(PAYROLL_SALARIES[0] + 1));
+
+        let res = run_case(
+            &wasm,
+            &r1cs,
+            &case,
+            leaves,
+            Scalar::from(0u64),
+            &membership_trees,
+            &keys,
+            Some(move |inputs: &mut Inputs| {
+                inputs.set("outAmount", forged.clone());
+            }),
+        );
+
+        assert!(res.is_err(), "forged sum unexpectedly verified");
+        Ok(())
+    }
+
+    /// PROOF-07 (A3 monto negativo / overflow): el empleador setea un outAmount
+    /// a `p - 1` (el mayor field element, semanticamente "negativo modular").
+    /// El range-check `Num2Bits(248)` (policyTransaction.circom:190) rechaza
+    /// porque p-1 necesita 254 bits. El monto fuera de rango rebota.
+    #[test]
+    fn policy_rejects_negative_amount() -> Result<()> {
+        let (wasm, r1cs) = load_artifacts("policy_tx_1_8")?;
+        let (case, leaves, membership_trees, keys) = payroll_base_case();
+
+        // p - 1 = largest BN254 field element ("negative modular"). Keep the
+        // other 7 amounts so only the range check (not conservation) is the
+        // first violated constraint.
+        let p_minus_1 = scalar_to_bigint(Scalar::zero() - Scalar::from(1u64));
+        let mut amounts: Vec<BigInt> = PAYROLL_SALARIES
+            .iter()
+            .map(|&amt| scalar_to_bigint(Scalar::from(amt)))
+            .collect();
+        amounts[0] = p_minus_1;
+
+        let res = run_case(
+            &wasm,
+            &r1cs,
+            &case,
+            leaves,
+            Scalar::from(0u64),
+            &membership_trees,
+            &keys,
+            Some(move |inputs: &mut Inputs| {
+                inputs.set("outAmount", amounts.clone());
+            }),
+        );
+
+        assert!(
+            res.is_err(),
+            "negative/overflow amount unexpectedly verified"
+        );
+        Ok(())
+    }
+
     #[test]
     #[ignore]
     fn test_tx_1in_1out() -> Result<()> {

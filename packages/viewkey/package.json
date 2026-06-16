@@ -1,0 +1,23 @@
+{
+  "name": "viewkey",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@noble/ciphers": "2.2.0",
+    "@noble/curves": "2.2.0",
+    "@noble/hashes": "2.2.0",
+    "@stellar/stellar-sdk": "16.0.0",
+    "snarkjs": "0.7.6"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.3",
+    "typescript": "6.0.3",
+    "vitest": "^4.1.9"
+  }
+}
