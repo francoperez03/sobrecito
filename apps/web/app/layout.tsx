@@ -24,9 +24,9 @@ const fraunces = Fraunces({
 })
 
 export const metadata: Metadata = {
-  title: 'sobrecito · payroll that doesn\'t dox your team',
+  title: 'sobrecito · private payroll in stablecoins',
   description:
-    'Pay salaries in USDC on-chain. Keep every amount private. Still prove the totals to your auditor.',
+    'Pay your team on-chain in stablecoins, with every salary kept private and the batch total your auditor can verify on demand.',
   icons: {
     icon: '/icon.svg',
   },

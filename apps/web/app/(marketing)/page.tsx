@@ -4,13 +4,12 @@ import { Centerpiece } from '@/components/landing/Centerpiece'
 import { NamedSalaryAnchor } from '@/components/landing/NamedSalaryAnchor'
 import { ThreeLevels } from '@/components/landing/ThreeLevels'
 import { HowItWorks } from '@/components/landing/HowItWorks'
-import { WhyStellar } from '@/components/landing/WhyStellar'
 import { TrustModel } from '@/components/landing/TrustModel'
 import { ClosingCTA } from '@/components/landing/ClosingCTA'
 import { Reveal } from '@/components/motion/Reveal'
 
 // Landing page — narrative order:
-// Hero → Problem → Centerpiece + NamedSalaryAnchor → ThreeLevels → WhyStellar → Differentiation
+// Hero → Problem → Centerpiece + NamedSalaryAnchor → ThreeLevels → HowItWorks → TrustModel
 // (FloatingNav + Footer come from the marketing layout). Each section manages its
 // own scroll entrance internally (RevealGroup); only the showcase group is wrapped.
 
@@ -52,8 +51,6 @@ export default function Landing() {
       <ThreeLevels />
 
       <HowItWorks />
-
-      <WhyStellar />
 
       <TrustModel />
 

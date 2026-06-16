@@ -7,7 +7,7 @@ test.describe('Landing page smoke tests', () => {
 
   test('hero h1 renders', async ({ page }) => {
     const heading = page.getByRole('heading', { level: 1 })
-    await expect(heading).toContainText("Payroll that doesn't dox your team.")
+    await expect(heading).toContainText('Private payroll in stablecoins.')
   })
 
   test('problem section renders', async ({ page }) => {
@@ -21,15 +21,10 @@ test.describe('Landing page smoke tests', () => {
     await expect(page.getByText('Auditor reconstructs detail via view-key.')).toBeVisible()
   })
 
-  test('why stellar section renders', async ({ page }) => {
-    await expect(page.getByText('Paid in the dollars your treasury already holds.')).toBeVisible()
-    await expect(page.getByText("Circle's Stellar Asset Contract")).toBeVisible()
-  })
-
   test('trust model section renders', async ({ page }) => {
     await expect(page.getByText('Verifiable by anyone. Owned by no one.')).toBeVisible()
     await expect(page.getByText('Sobrecito never touches your funds or your keys.')).toBeVisible()
-    await expect(page.getByText('If Crisol disappears tomorrow', { exact: false })).toBeVisible()
+    await expect(page.getByText('If the provider disappears tomorrow', { exact: false })).toBeVisible()
   })
 
   test('nav links have valid href attributes', async ({ page }) => {

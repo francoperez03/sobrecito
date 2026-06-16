@@ -12,7 +12,15 @@ export function Footer() {
             sobrecito
           </span>
           <span className="font-mono text-xs uppercase tracking-[0.18em] text-ink-muted">
-            by Crisol
+            by{' '}
+            <a
+              href="https://www.crisol.studio/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="rounded transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+            >
+              Crisol
+            </a>
           </span>
         </div>
 
@@ -26,13 +34,6 @@ export function Footer() {
           <GithubLogo size={15} weight="light" />
           GitHub
         </a>
-      </div>
-
-      {/* Honest disclosure */}
-      <div className="max-w-5xl mx-auto mt-10 pt-6 border-t border-hairline">
-        <p className="font-sans text-sm text-ink-muted leading-[1.5]">
-          Proof-of-concept, not audited. Amounts shielded; batch totals proven on-chain.
-        </p>
       </div>
     </footer>
   )

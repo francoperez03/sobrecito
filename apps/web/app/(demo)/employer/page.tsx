@@ -109,11 +109,6 @@ export default function EmployerPage() {
           </>
         )}
 
-        {/* Honest-disclosure footnote — Shared copy contract. */}
-        <p className="mt-16 text-xs text-ink-muted">
-          PoC — not audited. ZK proof is technical; confidentiality is a policy
-          guarantee.
-        </p>
       </section>
     </main>
   )
