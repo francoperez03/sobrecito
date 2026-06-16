@@ -2,65 +2,81 @@
 
 import { motion } from 'motion/react'
 import { ArrowRight, GithubLogo } from '@phosphor-icons/react'
+import { EASE_OUT } from '@/lib/motion'
 
 const GITHUB_REPO_URL = 'https://github.com/francoperez03/sobrecito'
 const DEMO_VIDEO_URL = '#demo'
-const EASE_BRAND = [0.32, 0.72, 0, 1] as const
 
-// Hero entrance: H1 at 0ms, subhead at +200ms, CTAs at +400ms.
-// initial={false} on wrapper: SSR renders final visible state (no invisible flash at hydration).
-// The motion entrance fires on first client render — enhancement over an already-visible default.
+// Hero entrance: eyebrow → H1 → subhead → CTAs, staggered.
+// H1 and the subhead <p> stay adjacent siblings (the a11y test reads
+// h1.nextElementSibling to wait for the entrance to settle).
 
 export function Hero() {
   return (
-    <section className="pt-24 pb-24 px-4">
-      <div className="max-w-5xl mx-auto">
-        {/* H1 — entrance: translate-y-12 blur-sm opacity-0 → resolved, 800ms */}
+    <section className="relative overflow-hidden border-b border-hairline">
+      {/* Electric glow — the one warm-to-cool identity note on the black canvas. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute -top-40 left-1/2 -translate-x-1/2 h-[480px] w-[820px] max-w-[120vw] rounded-full opacity-60 blur-[120px]"
+        style={{
+          background:
+            'radial-gradient(closest-side, color-mix(in oklch, var(--color-accent) 26%, transparent), transparent)',
+        }}
+      />
+
+      <div className="relative max-w-5xl mx-auto px-5 md:px-8 pt-28 pb-24 md:pt-36 md:pb-32">
+        {/* Eyebrow — the single deliberate kicker on the page */}
+        <motion.p
+          className="font-mono text-xs uppercase tracking-[0.22em] text-ink-muted"
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, ease: EASE_OUT }}
+        >
+          Confidential payroll · Stellar
+        </motion.p>
+
+        {/* H1 — Fraunces display, light weight, editorial */}
         <motion.h1
-          className="font-sans font-[900] text-ink text-display leading-[1.05] tracking-[-0.02em] text-balance"
-          initial={{ opacity: 0, y: 48, filter: 'blur(4px)' }}
+          className="mt-5 font-display font-light text-ink text-display leading-[1.04] tracking-[-0.02em] text-balance max-w-[18ch]"
+          initial={{ opacity: 0, y: 28, filter: 'blur(6px)' }}
           animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
-          transition={{ duration: 0.8, ease: EASE_BRAND }}
+          transition={{ duration: 0.8, ease: EASE_OUT, delay: 0.08 }}
         >
           Payroll that doesn't dox your team.
         </motion.h1>
 
-        {/* Subhead — sub-heading variant: H2 size floor, weight 400, ink-muted; entrance +200ms */}
+        {/* Subhead */}
         <motion.p
-          className="mt-6 font-sans font-[400] text-ink-muted text-lead leading-[1.6] text-balance max-w-[65ch]"
-          initial={{ opacity: 0, y: 32, filter: 'blur(4px)' }}
+          className="mt-7 font-sans font-normal text-ink-muted text-lead leading-[1.65] text-pretty max-w-[58ch]"
+          initial={{ opacity: 0, y: 24, filter: 'blur(6px)' }}
           animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
-          transition={{ duration: 0.8, ease: EASE_BRAND, delay: 0.2 }}
+          transition={{ duration: 0.8, ease: EASE_OUT, delay: 0.24 }}
         >
           Pay salaries in USDC on-chain. Keep every amount private. Still prove the totals to your auditor.
         </motion.p>
 
-        {/* CTAs — entrance +400ms */}
+        {/* CTAs */}
         <motion.div
-          className="mt-10 flex flex-wrap items-center gap-4"
-          initial={{ opacity: 0, y: 24 }}
+          className="mt-11 flex flex-wrap items-center gap-4"
+          initial={{ opacity: 0, y: 18 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.7, ease: EASE_BRAND, delay: 0.4 }}
+          transition={{ duration: 0.7, ease: EASE_OUT, delay: 0.4 }}
         >
-          {/* Primary CTA */}
           <a
             href={DEMO_VIDEO_URL}
-            className="group flex items-center gap-2 px-6 h-[52px] bg-accent-fill text-white font-sans font-[900] text-base rounded-full transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:opacity-90 active:scale-[0.98]"
+            className="group flex items-center gap-2 pl-6 pr-2 h-[52px] bg-accent-fill text-white font-sans font-medium text-base rounded-full transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:bg-accent active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
           >
             Watch the demo
-            <ArrowRight
-              size={18}
-              weight="light"
-              className="transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] group-hover:translate-x-1 group-hover:-translate-y-[1px]"
-            />
+            <span className="flex items-center justify-center w-9 h-9 rounded-full bg-white/15 transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:translate-x-0.5">
+              <ArrowRight size={16} weight="bold" />
+            </span>
           </a>
 
-          {/* Secondary CTA */}
           <a
             href={GITHUB_REPO_URL}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-2 px-6 h-[52px] text-ink-muted font-sans text-base rounded-full border border-white/10 transition-opacity duration-200 ease-[cubic-bezier(0.32,0.72,0,1)] hover:opacity-70 active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:outline-none"
+            className="flex items-center gap-2 px-6 h-[52px] text-ink font-sans text-base rounded-full border border-hairline-strong transition-colors duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] hover:bg-surface active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg focus-visible:outline-none"
           >
             <GithubLogo size={18} weight="light" />
             View on GitHub

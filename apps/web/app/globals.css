@@ -1,35 +1,43 @@
 @import "tailwindcss";
 
 @theme {
-  /* Typography — CSS variables injected by next/font in layout.tsx */
-  --font-family-display: var(--font-geist), 'Helvetica Neue', sans-serif;
-  --font-family-sans:    var(--font-geist), 'Helvetica Neue', sans-serif;
-  --font-family-mono:    var(--font-geist-mono), 'Courier New', monospace;
+  /* Typography — CSS variables injected by next/font in layout.tsx.
+     Standard Tailwind v4 font keys so font-sans / font-mono / font-display resolve. */
+  --font-sans:    var(--font-geist), 'Helvetica Neue', sans-serif;
+  --font-mono:    var(--font-geist-mono), 'Courier New', monospace;
+  --font-display: var(--font-fraunces), Georgia, 'Times New Roman', serif;
 
-  /* OKLCH palette — sobrecito: electric blue accent over a tinted blue-black
-     ("colored black", not pure black). Hue ~258 across the cool ramp; warm
-     amber reserved for salary exposure (the one warm note, complementary). */
-  --color-bg:           oklch(0.14 0.020 262);  /* near-black, faint cool tint (more neutral than navy) */
-  --color-surface:      oklch(0.20 0.028 262);  /* sealed-envelope cards */
-  --color-ink:          oklch(0.96 0.012 258);  /* body text, faint cool tint */
-  --color-ink-muted:    oklch(0.74 0.030 258);  /* captions (AA on bg) */
-  --color-accent:       oklch(0.60 0.220 258);  /* electric blue — large headings/icons on dark (>=3:1) + focus rings */
-  --color-accent-soft:  oklch(0.80 0.150 252);  /* lighter blue — small accent text on dark (AA 4.5:1) */
-  --color-accent-fill:  oklch(0.50 0.200 260);  /* deep blue — button fills with white text (AA 4.5:1) */
-  --color-accent-warm:  oklch(0.80 0.130 60);   /* amber — salary exposure only */
+  /* OKLCH palette — sobrecito: electric blue accent over near-black ("colored
+     black", not pure #000). Hue ~258 across the cool ramp; warm amber reserved
+     for salary exposure (the one warm note, complementary). */
+  --color-bg:            oklch(0.10 0.012 262);  /* near-black, faint cool tint — reads black */
+  --color-surface:       oklch(0.145 0.016 262); /* sealed-envelope cards, barely lifted */
+  --color-surface-deep:  oklch(0.07 0.010 262);  /* deepest band — closing / immersive panels */
+  --color-ink:           oklch(0.96 0.012 258);  /* body text, faint cool tint */
+  --color-ink-muted:     oklch(0.745 0.030 258); /* captions, metadata (AA on bg) */
+  --color-accent:        oklch(0.62 0.215 258);  /* electric blue — large headings/icons (>=3:1) + focus rings */
+  --color-accent-soft:   oklch(0.81 0.150 252);  /* lighter blue — small accent text (AA 4.5:1) */
+  --color-accent-fill:   oklch(0.52 0.200 260);  /* deep blue — button fills with white text (AA 4.5:1) */
+  --color-accent-warm:   oklch(0.81 0.130 60);   /* amber — salary exposure only */
 
-  /* Type scale (single source of truth → generates text-display/h2/h3/lead).
+  /* Hairlines (Crisol idiom — thin lines over heavy borders) */
+  --color-hairline:        oklch(1 0 0 / 0.08);
+  --color-hairline-strong: oklch(1 0 0 / 0.14);
+  --color-grid:            oklch(1 0 0 / 0.022);
+
+  /* Type scale (single source of truth → text-display/h2/h3/lead).
      Modular ramp, fluid via clamp; body=1rem, small=0.875rem, micro=text-xs. */
-  --text-display: clamp(3rem, 6.5vw, 5.25rem);
+  --text-display: clamp(2.75rem, 6vw, 5rem);
   --text-h2:      clamp(2rem, 3.8vw, 3rem);
   --text-h3:      clamp(1.375rem, 2vw, 1.75rem);
   --text-lead:    clamp(1.125rem, 1.7vw, 1.375rem);
 
-  /* Custom easing */
+  /* Easing */
+  --ease-out:   cubic-bezier(0.16, 1, 0.3, 1);
   --ease-brand: cubic-bezier(0.32, 0.72, 0, 1);
 
-  /* Semantic spacing */
-  --spacing-section: 6rem;
+  /* Semantic spacing — generous editorial rhythm */
+  --spacing-section: 8rem;
 }
 
 /* Base resets */
@@ -37,6 +45,24 @@ html {
   background-color: var(--color-bg);
   color: var(--color-ink);
   scroll-behavior: smooth;
+}
+
+body {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  /* Faint technical grid — adds depth to the black canvas without touching contrast. */
+  background-image:
+    linear-gradient(var(--color-grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--color-grid) 1px, transparent 1px);
+  background-size: 72px 72px;
+  background-position: center top;
+  background-attachment: fixed;
+}
+
+::selection {
+  background-color: var(--color-accent);
+  color: white;
 }
 
 @media (prefers-reduced-motion: reduce) {

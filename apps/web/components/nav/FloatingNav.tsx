@@ -46,9 +46,9 @@ export function FloatingNav() {
   return (
     <>
       <nav className="flex justify-center pt-6 px-4 relative z-50">
-        <div className="flex items-center gap-4 h-12 px-5 bg-surface ring-1 ring-white/8 rounded-full backdrop-blur-sm">
+        <div className="flex items-center gap-4 h-12 pl-5 pr-2 bg-surface/80 ring-1 ring-hairline rounded-full backdrop-blur-md">
           {/* Wordmark */}
-          <span className="font-sans font-[900] text-ink tracking-[-0.02em] text-base">
+          <span className="font-display font-light text-ink tracking-[-0.02em] text-lg">
             sobrecito
           </span>
 
@@ -105,13 +105,12 @@ export function FloatingNav() {
               )}
             </AnimatePresence>
           </div>
-
           {/* Desktop: View on GitHub ghost link */}
           <a
             href={GITHUB_REPO_URL}
             target="_blank"
             rel="noopener noreferrer"
-            className="hidden md:flex items-center gap-1.5 px-3 h-[44px] text-ink-muted font-sans text-sm rounded-full transition-opacity duration-200 hover:opacity-70 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:outline-none"
+            className="hidden md:flex items-center gap-1.5 px-3 h-9 text-ink-muted font-sans text-sm rounded-full transition-colors duration-200 hover:text-ink focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface focus-visible:outline-none"
           >
             <GithubLogo size={16} weight="light" />
             View on GitHub

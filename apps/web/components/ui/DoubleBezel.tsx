@@ -17,11 +17,11 @@ export function DoubleBezel({
 
   return (
     <div
-      className={`ring-1 ring-white/8 p-2 bg-surface ${outerClassName ?? ''}`}
+      className={`ring-1 ring-hairline p-2 bg-surface ${outerClassName ?? ''}`}
       style={{ borderRadius: radius }}
     >
       <div
-        className={`bg-bg shadow-[inset_0_1px_1px_rgba(255,255,255,0.08)] ${className ?? ''}`}
+        className={`bg-bg shadow-[inset_0_1px_1px_rgba(255,255,255,0.06)] ${className ?? ''}`}
         style={{ borderRadius: innerRadius }}
       >
         {children}

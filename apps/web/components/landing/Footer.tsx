@@ -4,15 +4,15 @@ const GITHUB_REPO_URL = 'https://github.com/francoperez03/sobrecito'
 
 export function Footer() {
   return (
-    <footer className="py-16 px-4 border-t border-white/8">
-      <div className="max-w-5xl mx-auto flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+    <footer className="py-20 px-5 md:px-8 border-t border-hairline bg-surface-deep">
+      <div className="max-w-5xl mx-auto flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
         {/* Wordmark + credit */}
-        <div className="flex items-center gap-3">
-          <span className="font-sans font-[900] text-ink tracking-[-0.02em]">
+        <div className="flex items-baseline gap-3">
+          <span className="font-display font-light text-ink text-4xl md:text-5xl tracking-[-0.02em]">
             sobrecito
           </span>
-          <span className="text-ink-muted font-sans text-sm">
-            · by Crisol
+          <span className="font-mono text-xs uppercase tracking-[0.18em] text-ink-muted">
+            by Crisol
           </span>
         </div>
 
@@ -21,16 +21,16 @@ export function Footer() {
           href={GITHUB_REPO_URL}
           target="_blank"
           rel="noopener noreferrer"
-          className="flex items-center gap-1.5 text-ink-muted font-sans text-sm transition-opacity duration-200 hover:opacity-70 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:outline-none rounded"
+          className="flex items-center gap-1.5 text-ink-muted font-mono text-xs uppercase tracking-[0.18em] transition-colors duration-200 hover:text-ink focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg focus-visible:outline-none rounded"
         >
-          <GithubLogo size={14} weight="light" />
+          <GithubLogo size={15} weight="light" />
           GitHub
         </a>
       </div>
 
       {/* Honest disclosure */}
-      <div className="max-w-5xl mx-auto mt-6">
-        <p className="font-sans text-[0.875rem] text-ink-muted leading-[1.4] tracking-[0.02em]">
+      <div className="max-w-5xl mx-auto mt-10 pt-6 border-t border-hairline">
+        <p className="font-sans text-sm text-ink-muted leading-[1.5]">
           Proof-of-concept, not audited. Amounts shielded; batch totals proven on-chain.
         </p>
       </div>

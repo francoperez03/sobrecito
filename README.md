@@ -3,12 +3,19 @@
 **Payroll that doesn't dox your team: pay salaries in USDC on-chain, keep every amount private, and still prove the totals to your auditor.**
 
 Sobre is confidential payroll on Stellar/Soroban. An organization pays salaries in
-USDC on-chain without exposing each individual amount, and proves with a
-zero-knowledge proof that the batch total is correct to its auditor.
+USDC on-chain without exposing any individual amount, and proves with a
+zero-knowledge proof that the batch total is correct. Every on-chain salary is public
+by default; Sobre seals the amounts and lets the right people open exactly their share.
 
-- **The public** sees that payroll happened, not how much each person earns.
-- **The auditor**, with a view-key, reconstructs the detail they are entitled to.
-- **Everyone else** sees nothing.
+Each role sees only what it's owed:
+
+- **Employer** sees the full breakdown, in private, before anything goes on-chain.
+- **Employee** sees only their own pay, and can prove it, never a colleague's.
+- **Auditor** reconstructs the per-employee detail with a view-key scoped to one period.
+- **Public** sees one number: the batch total, proven on-chain. No individual amounts.
+
+Trust lives in the ledger and in open code: non-custodial, with a public circuit and
+Soroban verifier. If this project disappeared tomorrow, every proof would still verify.
 
 Built for the Stellar "Real-World ZK" hackathon (June 2026).
 

@@ -12,7 +12,7 @@ export function NamedSalaryAnchor() {
         className="px-6 py-5"
       >
         {/* Receipt header */}
-        <p className="text-xs text-ink-muted font-mono uppercase tracking-widest mb-4">
+        <p className="text-xs text-ink-muted font-mono uppercase tracking-[0.18em] mb-4">
           On-chain payment record
         </p>
 
@@ -37,14 +37,14 @@ export function NamedSalaryAnchor() {
         </div>
 
         {/* Divider — source reads: "this is real. It can't be hidden." */}
-        <div className="mt-4 pt-4 border-t border-white/5">
+        <div className="mt-4 pt-4 border-t border-hairline">
           <p className="text-xs text-ink-muted italic">{source}</p>
         </div>
       </DoubleBezel>
 
       {/* Caption */}
       <p className="mt-4 text-sm text-center text-ink-muted">
-        Every on-chain salary without Sobrecito looks like this. Permanently.
+        Anyone can read this salary, and it stays on the ledger forever.
       </p>
     </div>
   )
