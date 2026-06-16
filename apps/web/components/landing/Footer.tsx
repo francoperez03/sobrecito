@@ -12,7 +12,15 @@ export function Footer() {
             sobrecito
           </span>
           <span className="font-mono text-xs uppercase tracking-[0.18em] text-ink-muted">
-            by Crisol
+            by{' '}
+            <a
+              href="https://www.crisol.studio/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="rounded transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+            >
+              Crisol
+            </a>
           </span>
         </div>
 
