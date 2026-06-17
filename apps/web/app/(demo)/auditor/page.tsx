@@ -15,7 +15,11 @@ import { readDeployments, readPoolUsdcBalance } from '@/lib/rpc'
 // auditor's decrypted amounts equals the USDC actually held by the pool — a real
 // soundness check, not sum === sum.
 
-type ConsoleState = 'idle' | 'loading' | 'done' | 'empty' | 'error'
+// 'invalid' = the pasted string is not a well-formed view-key (parse threw).
+// 'empty'   = the key is valid but no notes in the pool decrypt under it.
+// 'error'   = the reconstruct itself failed (RPC / unexpected). These are three
+// distinct situations and must read differently to the auditor.
+type ConsoleState = 'idle' | 'loading' | 'done' | 'empty' | 'invalid' | 'error'
 
 /** Hex (or 0x-prefixed hex) → bytes. Throws nothing; malformed input yields a
  * wrong-length / NaN array that `reconstructBatch` rejects downstream (T-06-15:
@@ -82,8 +86,21 @@ export default function AuditorPage() {
 
   async function handleReconstruct() {
     setState('loading')
+
+    // Step 1 — validate the key shape FIRST, separately from reconstruction.
+    // A parse failure means the pasted string is malformed (not 32 bytes); that is
+    // a different situation from a well-formed key that simply decrypts nothing.
+    let auditorPrivkey: Uint8Array
     try {
-      const auditorPrivkey = parseViewKey(viewKey)
+      auditorPrivkey = parseViewKey(viewKey)
+    } catch {
+      setSummary(null)
+      setState('invalid')
+      return
+    }
+
+    // Step 2 — reconstruct with a known-valid key.
+    try {
       const { rpcUrl, poolContractId, deploymentLedger } = readDeployments()
       const result = await reconstructBatch({
         auditorPrivkey,
@@ -98,6 +115,9 @@ export default function AuditorPage() {
         periodStart: deploymentLedger,
       })
       if (result.notes.length === 0) {
+        // Valid key, zero matching notes. NOT an input error — the key is fine,
+        // there is just nothing encrypted to it (e.g. a freshly generated key
+        // against a batch sealed to a different key).
         setSummary(null)
         setState('empty')
         return
@@ -111,18 +131,16 @@ export default function AuditorPage() {
       setSummary(result)
       setState('done')
     } catch {
-      // T-06-15: any failure (malformed key, decrypt mismatch, RPC error) sets the
-      // error state and the amber ring — never a crash.
+      // T-06-15: a reconstruction failure (RPC / unexpected) never crashes the page.
       setSummary(null)
       setState('error')
     }
   }
 
-  // A key that decrypts nothing (wrong/foreign key) is signalled the same as a
-  // malformed one: the amber ring fires and the "did not decrypt" copy shows. The
-  // reconstructor now skips foreign blobs instead of throwing, so the empty result
-  // is the bad-key path under a multi-batch pool.
-  const invalid = state === 'error' || state === 'empty'
+  // Amber ring = a genuine input/operation problem: a malformed key or a failed
+  // reconstruct. The 'empty' state is NOT amber — the key is valid, so signalling
+  // it as a mistake would be wrong (the bug the auditor flagged).
+  const invalid = state === 'invalid' || state === 'error'
   const processing = state === 'loading'
   const reconstructed = state === 'done'
 
@@ -158,8 +176,9 @@ export default function AuditorPage() {
             value={viewKey}
             onChange={(v) => {
               setViewKey(v)
-              // Clear a prior invalid signal (amber ring) as soon as the auditor edits.
-              if (state === 'error' || state === 'empty') setState('idle')
+              // Clear any prior result signal as soon as the auditor edits.
+              if (state === 'invalid' || state === 'empty' || state === 'error')
+                setState('idle')
             }}
             onReconstruct={handleReconstruct}
             processing={processing}
@@ -167,11 +186,27 @@ export default function AuditorPage() {
           />
         </Reveal>
 
-        {/* Bad key OR a key that decrypts nothing (foreign/empty) — same signal:
-            the amber ring on the textarea plus the did-not-decrypt copy. */}
-        {(state === 'error' || state === 'empty') && (
-          <p className="mt-6 text-lead text-ink-muted">
-            View-key did not decrypt any outputs. Check the key and try again.
+        {/* Malformed key — input error (amber ring fires on the textarea). */}
+        {state === 'invalid' && (
+          <p className="mt-6 text-lead text-ink-muted" data-testid="auditor-invalid">
+            That doesn&apos;t look like a valid view-key. Paste a 64-character hex
+            key, or the base64 key from Generate keypair above.
+          </p>
+        )}
+
+        {/* Valid key, no notes — informational, NOT an error (no amber ring). */}
+        {state === 'empty' && (
+          <p className="mt-6 text-lead text-ink-muted" data-testid="auditor-empty">
+            This view-key is valid, but no payroll notes are encrypted to it. In
+            this demo the sample batch is sealed to a fixed key, so a freshly
+            generated key won&apos;t decrypt it.
+          </p>
+        )}
+
+        {/* Reconstruct failed (RPC / unexpected) — operation error (amber ring). */}
+        {state === 'error' && (
+          <p className="mt-6 text-lead text-ink-muted" data-testid="auditor-error">
+            Couldn&apos;t reconstruct the batch (network or pool error). Try again.
           </p>
         )}
 

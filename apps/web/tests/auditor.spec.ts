@@ -183,13 +183,37 @@ test.describe('Auditor console', () => {
 
     // Amber invalid ring is applied (the only invalid-input signal, no red).
     await expect(textarea).toHaveClass(/ring-accent-warm/)
-    await expect(
-      page.getByText('View-key did not decrypt any outputs.'),
-    ).toBeVisible()
+    // Malformed key reads as a key-shape problem, not a "no notes" result.
+    await expect(page.getByTestId('auditor-invalid')).toBeVisible()
+    await expect(page.getByTestId('auditor-empty')).toHaveCount(0)
     // The page is still alive: the input card and CTA remain interactive.
     await expect(
       page.getByRole('button', { name: 'Reconstruct batch' }),
     ).toBeVisible()
+  })
+
+  // A well-formed key that decrypts nothing is NOT an input error: it shows the
+  // informational empty state (no amber ring), distinct from the malformed-key path.
+  test('valid key with no matching notes shows the empty state, not an error', async ({
+    page,
+  }) => {
+    await mockRpc(page, FIXTURE_EVENTS)
+    await page.goto('/auditor')
+
+    const textarea = page.getByRole('textbox', {
+      name: 'View-key (X25519 private key, base64)',
+    })
+    // A valid 32-byte hex key, but NOT the one the fixtures were encrypted to.
+    await textarea.fill(
+      '1111111111111111111111111111111111111111111111111111111111111111',
+    )
+    await page.getByRole('button', { name: 'Reconstruct batch' }).click()
+
+    // Empty (informational) copy shows; the malformed-key copy does not.
+    await expect(page.getByTestId('auditor-empty')).toBeVisible()
+    await expect(page.getByTestId('auditor-invalid')).toHaveCount(0)
+    // NOT an input error: the amber ring must NOT fire for a valid key.
+    await expect(textarea).not.toHaveClass(/ring-accent-warm/)
   })
 
   // AUD-02: notes from two ledger groups appear in two distinct batch sections.
