@@ -1,0 +1,326 @@
+'use client'
+
+import { useState, type ReactNode } from 'react'
+import { motion } from 'motion/react'
+import { Seal, Eye, Warning } from '@phosphor-icons/react'
+import { Reveal } from '@/components/motion/Reveal'
+import { DoubleBezel } from '@/components/ui/DoubleBezel'
+import { EmployeeKeyInput } from '@/components/employee/EmployeeKeyInput'
+import { DashboardSummary } from '@/components/employee/DashboardSummary'
+import { NoteCard } from '@/components/employee/NoteCard'
+import { ClaimStepper, type ClaimStep } from '@/components/employee/ClaimStepper'
+import { parseEmployeeKey, deriveEmployeeKeys } from '@/lib/zk/keyDerivation'
+import { scanEmployeeNotes, type EmployeeNote } from '@/lib/employee-scan'
+import { fetchNullifierStatus, readDeployments } from '@/lib/rpc'
+import { computeNullifier } from '@/lib/zk/proverClient'
+import { claimNote } from '@/lib/employee-claim'
+import type { ScannedEvent } from 'viewkey'
+
+// ---------------------------------------------------------------------------
+// Dashboard state machine
+// ---------------------------------------------------------------------------
+
+type DashboardState = 'idle' | 'scanning' | 'done' | 'empty' | 'invalid' | 'error'
+
+type NoteStatus = 'pending' | 'claimed' | 'unknown'
+
+interface EmployeeNoteWithStatus extends EmployeeNote {
+  status: NoteStatus
+  receiptTxHash?: string
+}
+
+// ---------------------------------------------------------------------------
+// StatusChip
+// ---------------------------------------------------------------------------
+
+const EASE_BRAND = [0.32, 0.72, 0, 1] as const
+
+type ChipTone = 'muted' | 'accent' | 'warn'
+
+function StatusChip({ state }: { state: DashboardState }) {
+  const map: Record<DashboardState, { label: string; tone: ChipTone; icon: ReactNode }> = {
+    idle:     { label: 'Sealed',       tone: 'muted',  icon: <Seal size={13} weight="fill" /> },
+    scanning: { label: 'Scanning pool', tone: 'accent', icon: <Eye size={13} /> },
+    done:     { label: 'Notes found',  tone: 'accent', icon: <Eye size={13} weight="fill" /> },
+    empty:    { label: 'No notes',     tone: 'muted',  icon: <Seal size={13} /> },
+    invalid:  { label: 'Invalid key',  tone: 'warn',   icon: <Warning size={13} weight="fill" /> },
+    error:    { label: 'Scan failed',  tone: 'warn',   icon: <Warning size={13} weight="fill" /> },
+  }
+  const { label, tone, icon } = map[state]
+  const toneClass =
+    tone === 'accent' ? 'text-accent-soft' : tone === 'warn' ? 'text-accent-warm' : 'text-ink-muted'
+  return (
+    <span
+      className={`inline-flex shrink-0 items-center gap-1.5 rounded-full bg-surface px-3 h-7 ring-1 ring-hairline text-xs ${toneClass}`}
+    >
+      <span className={state === 'scanning' ? 'animate-pulse' : ''} aria-hidden>
+        {icon}
+      </span>
+      {label}
+    </span>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// EmployeePage
+// ---------------------------------------------------------------------------
+
+/**
+ * Employee dashboard (/employee, CAP-1/2/3/5/6/7/8).
+ *
+ * The employee identifies with their stable key (X25519 hex or base64), scans
+ * the pool, decrypts their notes, views balance summary and per-note status,
+ * and claims each note via in-browser ZK proof + Freighter.
+ *
+ * The key NEVER leaves the browser: no server action, no API route, no form.
+ * `handleScan` runs entirely client-side. On claim, the amount becomes publicly
+ * visible on-chain (amber-warned in NoteCard BEFORE the CTA, A1 / T-063-11).
+ */
+export default function EmployeePage() {
+  const [key, setKey] = useState('')
+  const [state, setState] = useState<DashboardState>('idle')
+  const [notes, setNotes] = useState<EmployeeNoteWithStatus[]>([])
+  const [scannedEvents, setScannedEvents] = useState<ScannedEvent[]>([])
+  const [claimingIndex, setClaimingIndex] = useState<number | null>(null)
+  const [claimStep, setClaimStep] = useState<ClaimStep>({ phase: 'idle' })
+  const [bn254PrivKey, setBn254PrivKey] = useState<bigint | null>(null)
+
+  async function handleScan() {
+    setState('scanning')
+    setNotes([])
+
+    // Step 1: validate key shape (mirrors auditor page lines 130-137).
+    let seed: Uint8Array
+    try {
+      seed = parseEmployeeKey(key)
+    } catch {
+      setState('invalid')
+      return
+    }
+
+    // Step 2: scan with a known-valid key (browser-only; proverClient is called inside).
+    try {
+      const { bn254Priv, x25519Priv } = await deriveEmployeeKeys(seed)
+      setBn254PrivKey(bn254Priv)
+
+      const { rpcUrl, poolContractId, deploymentLedger } = readDeployments()
+      const source = { rpcUrl, poolContractId, fromLedger: deploymentLedger }
+      const found = await scanEmployeeNotes(x25519Priv, source)
+
+      if (found.length === 0) {
+        setState('empty')
+        return
+      }
+
+      // Fetch nullifier status in parallel (A1 fallback: defaults 'pending' on error).
+      const withStatus: EmployeeNoteWithStatus[] = await Promise.all(
+        found.map(async (n) => {
+          let status: NoteStatus = 'pending'
+          try {
+            // computeNullifier calls WASM; SSR guard is inside proverClient.
+            const nullifier = await computeNullifier(bn254Priv, n.blinding, BigInt(0))
+            const spent = await fetchNullifierStatus(nullifier)
+            status = spent ? 'claimed' : 'pending'
+          } catch {
+            status = 'pending' // A1: degrade gracefully on error
+          }
+          return { ...n, status }
+        }),
+      )
+
+      setNotes(withStatus)
+      // Keep a reference to raw events for the A2 Merkle path fallback on claim.
+      // scanEmployeeNotes returns EmployeeNote[] not ScannedEvent[], so we re-scan
+      // to get the raw events for reconstructMerklePathFromEvents.
+      // Pragmatic approach: build ScannedEvent-shaped objects from the found notes.
+      const rawEvents: ScannedEvent[] = found.map((n) => ({
+        commitment: n.commitment,
+        index: n.index,
+        // encryptedOutput is not available on EmployeeNote; use empty Uint8Array.
+        // reconstructMerklePathFromEvents only reads commitment + index from events.
+        encryptedOutput: new Uint8Array(0),
+        ledger: n.ledger,
+        txHash: n.txHash,
+      }))
+      setScannedEvents(rawEvents)
+      setState('done')
+    } catch {
+      setState('error')
+    }
+  }
+
+  async function handleClaim(noteIndex: number) {
+    if (!bn254PrivKey) return
+    setClaimingIndex(noteIndex)
+    setClaimStep({ phase: 'fetching-proof' })
+
+    const note = notes.find((n) => n.index === noteIndex)
+    if (!note) return
+
+    try {
+      // Freighter provides the recipient address; claimNote calls requestAccess internally.
+      // We pass an empty recipient here; unshieldNote fetches the address from Freighter.
+      const result = await claimNote(
+        note,
+        bn254PrivKey,
+        '', // unshieldNote resolves the Freighter address
+        scannedEvents,
+        (step) => setClaimStep(step),
+      )
+
+      // Flip the note to 'claimed' and attach the receipt tx hash.
+      setNotes((prev) =>
+        prev.map((n) =>
+          n.index === noteIndex
+            ? { ...n, status: 'claimed', receiptTxHash: result.hash }
+            : n,
+        ),
+      )
+    } catch (err) {
+      setClaimStep({
+        phase: 'error',
+        message: err instanceof Error ? err.message : 'Claim failed. Try again.',
+      })
+    } finally {
+      setClaimingIndex(null)
+    }
+  }
+
+  function handleDismissStepper() {
+    setClaimStep({ phase: 'idle' })
+  }
+
+  const invalid = state === 'invalid' || state === 'error'
+  const processing = state === 'scanning'
+
+  return (
+    <main className="min-h-dvh">
+      <section className="py-24 px-4 max-w-3xl mx-auto">
+        <Reveal delay={0}>
+          <header className="mb-8">
+            <div className="flex items-center justify-between gap-4">
+              <h2 className="text-h2 font-[900] tracking-[-0.01em] leading-[1.15]">
+                Employee dashboard
+              </h2>
+              <StatusChip state={state} />
+            </div>
+            <p className="mt-3 text-lead text-ink-muted max-w-[52ch]">
+              Paste your stable employee key to scan the pool and claim your salary.
+            </p>
+          </header>
+        </Reveal>
+
+        {/* Primary action: key input + scan CTA */}
+        <Reveal delay={0.05}>
+          <DoubleBezel radius="2rem" className="p-5 sm:p-6">
+            <EmployeeKeyInput
+              value={key}
+              onChange={(v) => {
+                setKey(v)
+                if (state === 'invalid' || state === 'empty' || state === 'error')
+                  setState('idle')
+              }}
+              onScan={handleScan}
+              processing={processing}
+              invalid={invalid}
+            />
+          </DoubleBezel>
+        </Reveal>
+
+        {/* State-driven batch surface */}
+        <div className="mt-6">
+          {state === 'idle' && null}
+
+          {state === 'scanning' && (
+            <DoubleBezel radius="2rem" className="px-6 py-6">
+              <div className="flex flex-col gap-3" aria-label="Scanning pool">
+                {[0, 1, 2, 3].map((i) => (
+                  <div
+                    key={i}
+                    className="h-5 rounded bg-ink/10 animate-pulse"
+                    style={{ width: `${88 - i * 9}%` }}
+                  />
+                ))}
+              </div>
+            </DoubleBezel>
+          )}
+
+          {state === 'invalid' && (
+            <DoubleBezel radius="2rem" className="px-6 py-6">
+              <p className="flex items-start gap-2.5 text-ink" data-testid="employee-invalid">
+                <Warning size={18} weight="fill" aria-hidden className="mt-0.5 shrink-0 text-accent-warm" />
+                <span>
+                  That doesn&apos;t look like a valid employee key. Paste a 64-character hex
+                  key or the base64 stable key from your employer.
+                </span>
+              </p>
+            </DoubleBezel>
+          )}
+
+          {state === 'error' && (
+            <DoubleBezel radius="2rem" className="px-6 py-6">
+              <p className="flex items-start gap-2.5 text-ink" data-testid="employee-error">
+                <Warning size={18} weight="fill" aria-hidden className="mt-0.5 shrink-0 text-accent-warm" />
+                <span>
+                  Could not scan the pool (network or pool error). Try again.
+                </span>
+              </p>
+            </DoubleBezel>
+          )}
+
+          {state === 'empty' && (
+            <DoubleBezel radius="2rem" className="px-6 py-6">
+              <p className="text-ink-muted leading-relaxed" data-testid="employee-empty">
+                This key is valid but no notes were found in the pool. If you have
+                recently received a payment, wait for the transaction to confirm and
+                scan again.
+              </p>
+            </DoubleBezel>
+          )}
+
+          {state === 'done' && notes.length > 0 && (
+            <div className="flex flex-col gap-4">
+              <Reveal delay={0}>
+                <DashboardSummary notes={notes} />
+              </Reveal>
+
+              {/* ClaimStepper: shown when a claim is in progress */}
+              {claimStep.phase !== 'idle' && (
+                <Reveal delay={0.06}>
+                  <div>
+                    <ClaimStepper step={claimStep} />
+                    {(claimStep.phase === 'done' || claimStep.phase === 'error') && (
+                      <motion.button
+                        type="button"
+                        onClick={handleDismissStepper}
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        transition={{ duration: 0.3, ease: EASE_BRAND }}
+                        className="mt-3 text-sm text-ink-muted hover:text-ink transition-colors"
+                      >
+                        Close
+                      </motion.button>
+                    )}
+                  </div>
+                </Reveal>
+              )}
+
+              {/* Note cards */}
+              {notes.map((note, i) => (
+                <Reveal key={note.index} delay={(i + 1) * 0.06}>
+                  <NoteCard
+                    note={note}
+                    status={note.status}
+                    onClaim={handleClaim}
+                    claiming={claimingIndex === note.index}
+                    receiptTxHash={note.receiptTxHash}
+                  />
+                </Reveal>
+              ))}
+            </div>
+          )}
+        </div>
+      </section>
+    </main>
+  )
+}

@@ -74,7 +74,8 @@ export async function fetchPoolRoot(): Promise<string> {
   const sim = await server.simulateTransaction(tx)
   if ('error' in sim && sim.error) throw new Error(sim.error)
   const retval = (sim as { result?: { retval?: unknown } }).result?.retval
-  if (!retval) throw new Error('fetchPoolRoot: simulation returned no value')
+  // Use explicit null/undefined check: `!retval` incorrectly rejects BigInt(0n).
+  if (retval == null) throw new Error('fetchPoolRoot: simulation returned no value')
   return BigInt(scValToNative(retval as never) as bigint | number).toString()
 }
 
@@ -105,7 +106,8 @@ export async function fetchASPRoots(): Promise<{
     const sim = await server.simulateTransaction(tx)
     if ('error' in sim && sim.error) throw new Error(sim.error)
     const retval = (sim as { result?: { retval?: unknown } }).result?.retval
-    if (!retval) throw new Error(`fetchASPRoots: simulation returned no value for ${contractId}`)
+    // Use explicit null/undefined check: `!retval` incorrectly rejects BigInt(0n).
+    if (retval == null) throw new Error(`fetchASPRoots: simulation returned no value for ${contractId}`)
     return BigInt(scValToNative(retval as never) as bigint | number).toString()
   }
 
@@ -226,8 +228,12 @@ export async function fetchMerkleProof(
     const sim = await server.simulateTransaction(tx)
     if ('error' in sim && sim.error) throw new MerkleProofUnavailableError()
     const retval = (sim as { result?: { retval?: unknown } }).result?.retval
-    if (!retval) throw new MerkleProofUnavailableError()
+    if (retval == null) throw new MerkleProofUnavailableError()
     const parsed = scValToNative(retval as never) as { pathElements: string[]; pathIndices: string }
+    // Verify the parsed value has the expected shape; if not, the pool doesn't expose get_proof.
+    if (!parsed || typeof parsed !== 'object' || !('pathElements' in parsed)) {
+      throw new MerkleProofUnavailableError()
+    }
     return parsed
   } catch (err) {
     if (err instanceof MerkleProofUnavailableError) throw err

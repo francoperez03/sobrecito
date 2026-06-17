@@ -32,7 +32,7 @@ vi.mock('@/lib/zk/withdrawTransactionBuilder', () => ({
 }))
 
 vi.mock('@/lib/zk/depositTransactionBuilder', () => ({
-  hashExtDataSobre: vi.fn().mockReturnValue(BigInt(0)),
+  hashExtDataSobre: vi.fn().mockReturnValue({ bigInt: BigInt(0), bytes: new Uint8Array(32) }),
 }))
 
 vi.mock('@/lib/employee-scan', async (importOriginal) => {
