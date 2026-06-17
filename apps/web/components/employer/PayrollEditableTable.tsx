@@ -1,15 +1,19 @@
 'use client'
 
 import { useRef, useState } from 'react'
+import { motion, AnimatePresence } from 'motion/react'
+import { CaretDown } from '@phosphor-icons/react'
 import { DenominationChips } from './DenominationChips'
 import { parseCsvText } from '@/lib/csvParser'
 import { decompose } from '@/lib/zk/denominationBuilder'
 import { usdcToBaseUnits, isHex64 } from '@/lib/csvParser'
+import { EASE_BRAND } from '@/lib/motion'
 
 /** A single editable row in the payroll table. Amounts are kept as strings for
- *  live input editing; conversion to bigint happens at submit time. */
+ *  live input editing; conversion to bigint happens at submit time.
+ *  Only the public key + amount are collected — the public key is the sole
+ *  identity that matters on-chain. */
 export interface EditableRow {
-  name: string
   /** USDC amount as a human string (e.g. "100", "10.5"). */
   amount: string
   /** Employee X25519 public key as 64 hex chars. */
@@ -22,18 +26,22 @@ export interface PayrollEditableTableProps {
 }
 
 /**
- * PayrollEditableTable — editable payroll grid with live denomination chips
- * and CSV import (D4: single surface, CSV fills the table).
+ * PayrollEditableTable — editable payroll grid with a collapsible per-row
+ * denomination breakdown and CSV import (D4: single surface, CSV fills the table).
  *
- * Columns: # | Name | Amount (+ DenomChips live) | Public key | Remove
+ * Columns: # | Public key (60%) | Amount (10%) | Details toggle (30%) | Remove
  *
- * CSV import reads the file via FileReader.readAsText, calls parseCsvText,
- * maps PayrollRow[] → EditableRow[], and calls onChange to fill the table.
- * Parse errors render inline in amber.
+ * The denomination chips are collapsed by default. When a row has an amount, a
+ * "View details" toggle fades in; clicking it expands the chips downward (the
+ * input row stays put). CSV import reads the file via FileReader.readAsText,
+ * calls parseCsvText, maps PayrollRow[] → EditableRow[] (name ignored), and
+ * calls onChange. Parse errors render inline in amber.
  */
 export function PayrollEditableTable({ rows, onChange }: PayrollEditableTableProps) {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [csvError, setCsvError] = useState<string | null>(null)
+  // Indices of rows whose denomination breakdown is expanded.
+  const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set())
 
   // Compute total notes across all rows to detect overflow
   function computeTotalNotes(): number {
@@ -41,7 +49,7 @@ export function PayrollEditableTable({ rows, onChange }: PayrollEditableTablePro
       .filter((r) => r.amount && r.publicKey && isHex64(r.publicKey))
       .map((r) => {
         try {
-          return { name: r.name, amountUsdc: usdcToBaseUnits(r.amount), pubkeyHex: r.publicKey }
+          return { name: '', amountUsdc: usdcToBaseUnits(r.amount), pubkeyHex: r.publicKey }
         } catch {
           return null
         }
@@ -57,6 +65,15 @@ export function PayrollEditableTable({ rows, onChange }: PayrollEditableTablePro
   const totalNotes = computeTotalNotes()
   const isOverflow = totalNotes > 8
 
+  function toggleRow(idx: number) {
+    setExpandedRows((prev) => {
+      const next = new Set(prev)
+      if (next.has(idx)) next.delete(idx)
+      else next.add(idx)
+      return next
+    })
+  }
+
   function handleCellChange(idx: number, field: keyof EditableRow, value: string) {
     const next = rows.map((row, i) =>
       i === idx ? { ...row, [field]: value } : row
@@ -65,10 +82,12 @@ export function PayrollEditableTable({ rows, onChange }: PayrollEditableTablePro
   }
 
   function handleAddRow() {
-    onChange([...rows, { name: '', amount: '', publicKey: '' }])
+    setExpandedRows(new Set())
+    onChange([...rows, { amount: '', publicKey: '' }])
   }
 
   function handleRemoveRow(idx: number) {
+    setExpandedRows(new Set())
     onChange(rows.filter((_, i) => i !== idx))
   }
 
@@ -87,14 +106,14 @@ export function PayrollEditableTable({ rows, onChange }: PayrollEditableTablePro
       try {
         const parsed = parseCsvText(text)
         const editableRows: EditableRow[] = parsed.map((r) => ({
-          name: r.name,
-          // Convert base units back to a human USDC string
+          // Convert base units back to a human USDC string (name is ignored)
           amount: formatBaseUnitsToDisplay(r.amount),
           // Convert Uint8Array back to 64-char hex
           publicKey: Array.from(r.publicKey)
             .map((b) => b.toString(16).padStart(2, '0'))
             .join(''),
         }))
+        setExpandedRows(new Set())
         onChange(editableRows)
       } catch (err) {
         setCsvError(err instanceof Error ? err.message : 'CSV parse error.')
@@ -109,44 +128,43 @@ export function PayrollEditableTable({ rows, onChange }: PayrollEditableTablePro
   return (
     <div className="w-full flex flex-col gap-4">
       {/* Table header */}
-      <div className="grid grid-cols-[auto_3fr_1fr_6fr_auto] gap-4 px-2 pb-2 border-b border-white/5">
+      <div className="grid grid-cols-[auto_6fr_1fr_3fr_auto] gap-4 px-2 pb-2 border-b border-white/5">
         <span className="text-xs text-ink-muted uppercase tracking-widest">#</span>
-        <span className="text-xs text-ink-muted uppercase tracking-widest">Name</span>
-        <span className="text-xs text-ink-muted uppercase tracking-widest">Amount</span>
         <span className="text-xs text-ink-muted uppercase tracking-widest">Public key</span>
+        <span className="text-xs text-ink-muted uppercase tracking-widest">Amount</span>
+        <span className="text-xs text-ink-muted uppercase tracking-widest" aria-hidden />
         <span className="text-xs text-ink-muted uppercase tracking-widest sr-only">Remove</span>
       </div>
 
       {/* Table rows */}
       <div className="flex flex-col">
         {rows.map((row, i) => {
-          // Per-row denomination chips
+          // Per-row amount → denomination breakdown
           let rowAmountUsdc: bigint | null = null
           try {
             if (row.amount && /^\d+(\.\d{1,7})?$/.test(row.amount)) {
               rowAmountUsdc = usdcToBaseUnits(row.amount)
             }
           } catch {
-            // invalid amount — no chips rendered
+            // invalid amount — no toggle rendered
           }
+          const hasAmount = rowAmountUsdc !== null && rowAmountUsdc > BigInt(0)
+          const isExpanded = expandedRows.has(i)
 
           return (
-            <div
-              key={i}
-              className="grid grid-cols-[auto_3fr_1fr_6fr_auto] gap-4 py-3 border-b border-white/5 last:border-0 items-center"
-            >
-              <span className="text-sm text-ink-muted tabular-nums">{i + 1}</span>
+            <div key={i} className="flex flex-col border-b border-white/5 last:border-0">
+              {/* Fixed input row — textboxes never move */}
+              <div className="grid grid-cols-[auto_6fr_1fr_3fr_auto] gap-4 py-3 items-center">
+                <span className="text-sm text-ink-muted tabular-nums">{i + 1}</span>
 
-              <input
-                type="text"
-                placeholder="Employee name"
-                value={row.name}
-                onChange={(e) => handleCellChange(i, 'name', e.target.value)}
-                className="text-sm bg-transparent border-b border-white/10 focus:border-accent outline-none py-1 text-ink w-full min-w-0"
-              />
+                <input
+                  type="text"
+                  placeholder="64-char hex pubkey"
+                  value={row.publicKey}
+                  onChange={(e) => handleCellChange(i, 'publicKey', e.target.value)}
+                  className="font-mono text-sm text-ink-muted bg-transparent border-b border-white/10 focus:border-accent outline-none py-1 w-full min-w-0"
+                />
 
-              {/* Amount column: input + live denomination chips */}
-              <div className="flex flex-col gap-1">
                 <input
                   type="text"
                   placeholder="e.g. 100"
@@ -154,30 +172,60 @@ export function PayrollEditableTable({ rows, onChange }: PayrollEditableTablePro
                   onChange={(e) => handleCellChange(i, 'amount', e.target.value)}
                   className="text-sm bg-transparent border-b border-white/10 focus:border-accent outline-none py-1 text-ink w-full min-w-0"
                 />
-                {rowAmountUsdc !== null && rowAmountUsdc > BigInt(0) && (
-                  <DenominationChips
-                    amountUsdc={rowAmountUsdc}
-                    isOverflow={isOverflow}
-                  />
-                )}
+
+                {/* Details toggle (was the Name slot): fades in only when there's an amount */}
+                <div className="min-w-0">
+                  <AnimatePresence>
+                    {hasAmount && (
+                      <motion.button
+                        type="button"
+                        onClick={() => toggleRow(i)}
+                        aria-expanded={isExpanded}
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ duration: 0.2, ease: EASE_BRAND }}
+                        className="flex items-center gap-1.5 text-sm text-accent-soft hover:text-ink transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded"
+                      >
+                        View details
+                        <motion.span
+                          animate={{ rotate: isExpanded ? 180 : 0 }}
+                          transition={{ duration: 0.3, ease: EASE_BRAND }}
+                          className="flex"
+                        >
+                          <CaretDown size={14} weight="bold" />
+                        </motion.span>
+                      </motion.button>
+                    )}
+                  </AnimatePresence>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => handleRemoveRow(i)}
+                  aria-label={`Remove row ${i + 1}`}
+                  className="text-ink-muted/40 hover:text-ink-muted transition-colors text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded"
+                >
+                  ✕
+                </button>
               </div>
 
-              <input
-                type="text"
-                placeholder="64-char hex pubkey"
-                value={row.publicKey}
-                onChange={(e) => handleCellChange(i, 'publicKey', e.target.value)}
-                className="font-mono text-sm text-ink-muted bg-transparent border-b border-white/10 focus:border-accent outline-none py-1 w-full min-w-0"
-              />
-
-              <button
-                type="button"
-                onClick={() => handleRemoveRow(i)}
-                aria-label={`Remove row ${i + 1}`}
-                className="text-ink-muted/40 hover:text-ink-muted transition-colors text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded"
-              >
-                ✕
-              </button>
+              {/* Collapsible denomination breakdown — expands downward, row above stays put */}
+              <AnimatePresence initial={false}>
+                {isExpanded && hasAmount && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.25, ease: EASE_BRAND }}
+                    className="overflow-hidden"
+                  >
+                    <div className="px-2 pb-3">
+                      <DenominationChips amountUsdc={rowAmountUsdc as bigint} isOverflow={isOverflow} />
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
           )
         })}
@@ -208,7 +256,7 @@ export function PayrollEditableTable({ rows, onChange }: PayrollEditableTablePro
           className="hidden"
           onChange={handleFileChange}
         />
-        <span className="text-xs text-ink-muted">columns: name, amount, public_key</span>
+        <span className="text-xs text-ink-muted">columns: name (optional), amount, public_key</span>
       </div>
 
       {/* Inline CSV parse error */}

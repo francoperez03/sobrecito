@@ -63,7 +63,7 @@ function toDecomposeInput(
       try {
         const amountUsdc = usdcToBaseUnits(r.amount)
         if (amountUsdc === BigInt(0)) return []
-        return [{ name: r.name, amountUsdc, pubkeyHex: r.publicKey }]
+        return [{ name: '', amountUsdc, pubkeyHex: r.publicKey }]
       } catch {
         return []
       }
@@ -91,7 +91,7 @@ function generateRandomBlinding(): bigint {
 export function PayrollComposer() {
   const [composerState, setComposerState] = useState<ComposerState>('idle')
   const [rows, setRows] = useState<EditableRow[]>([
-    { name: '', amount: '', publicKey: '' },
+    { amount: '', publicKey: '' },
   ])
   const [address, setAddress] = useState<string | null>(null)
   const [usdcBalance, setUsdcBalance] = useState<string | null>(null)
