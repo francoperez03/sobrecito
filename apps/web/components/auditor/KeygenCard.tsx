@@ -53,9 +53,7 @@ export function KeygenCard() {
   return (
     <div className="flex flex-col gap-4">
       <p className="text-sm text-ink-muted leading-relaxed">
-        Generate an X25519 keypair in your browser. Hand the public key to the
-        employer so they encrypt each amount to you; keep the private key as your
-        view-key.
+        Public key goes to the employer. Private key stays as your view-key.
       </p>
 
       <button
