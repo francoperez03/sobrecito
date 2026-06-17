@@ -1,6 +1,6 @@
 'use client'
 
-import { DoubleBezel } from '@/components/ui/DoubleBezel'
+import { LockKey } from '@phosphor-icons/react'
 
 interface ViewKeyInputProps {
   value: string
@@ -11,13 +11,14 @@ interface ViewKeyInputProps {
 }
 
 /**
- * View-key paste card (UX-03, D-09 / A2).
+ * Primary action: paste the view-key and reconstruct (UX-03, D-09 / A2).
  *
- * The auditor's X25519 private key is entered here and NEVER leaves the browser:
- * there is NO <form>, NO `action`, NO server action. `onChange` updates local
- * state only; the CTA is a plain button whose `onClick` runs `reconstructBatch`
- * client-side (D-09, T-06-12 mitigation). When `invalid`, the textarea ring swaps
- * to amber (`ring-accent-warm`) — the only invalid-input signal, no red.
+ * Renders bare (no DoubleBezel of its own) so the page can wrap the whole primary
+ * panel in a single bezel — no nested cards. The key NEVER leaves the browser:
+ * there is NO <form>, NO action, NO server action. `onChange` updates local state
+ * only; the CTA's `onClick` runs `reconstructBatch` client-side (T-06-12). When
+ * `invalid`, the field ring swaps to amber (`ring-accent-warm`) — the only
+ * invalid signal, no red.
  */
 export function ViewKeyInput({
   value,
@@ -27,29 +28,34 @@ export function ViewKeyInput({
   invalid,
 }: ViewKeyInputProps) {
   return (
-    <DoubleBezel radius="2rem" className="p-6">
-      <textarea
-        aria-label="View-key (X25519 private key, base64)"
-        placeholder="Paste view-key (X25519 private key, base64)"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className={[
-          'bg-bg text-ink font-mono text-sm rounded-[calc(1.5rem-0.5rem)] p-4',
-          'ring-1 resize-none w-full min-h-[80px] focus:outline-none transition-all',
-          invalid
-            ? 'ring-accent-warm focus:ring-accent-warm'
-            : 'ring-white/8 focus:ring-accent',
-        ].join(' ')}
-      />
-
-      <div className="mt-4 flex flex-col gap-3">
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-stretch">
+        <input
+          aria-label="View-key (X25519 private key, base64)"
+          placeholder="Paste view-key (X25519 private key, base64)"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !processing) onReconstruct()
+          }}
+          spellCheck={false}
+          autoComplete="off"
+          autoCapitalize="off"
+          className={[
+            'flex-1 min-w-0 bg-bg text-ink font-mono text-sm rounded-full h-[52px] px-5',
+            'ring-1 focus:outline-none transition-all placeholder:text-ink-muted',
+            invalid
+              ? 'ring-accent-warm focus:ring-accent-warm'
+              : 'ring-hairline focus:ring-2 focus:ring-accent',
+          ].join(' ')}
+        />
         <button
           type="button"
           onClick={onReconstruct}
           disabled={processing}
           className={[
-            'bg-accent-fill text-white font-[900] text-base px-6 h-[52px] rounded-full',
-            'hover:opacity-90 active:scale-[0.98] transition-all w-fit',
+            'shrink-0 bg-accent-fill text-white font-[900] text-base px-7 h-[52px] rounded-full',
+            'hover:opacity-90 active:scale-[0.98] transition-all',
             'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
             'focus-visible:ring-offset-2 focus-visible:ring-offset-bg',
             processing ? 'opacity-80 animate-pulse cursor-wait' : '',
@@ -57,12 +63,13 @@ export function ViewKeyInput({
         >
           {processing ? 'Reconstructing…' : 'Reconstruct batch'}
         </button>
-
-        {/* Privacy disclosure — D-09 / A2: the key stays client-side. */}
-        <p className="text-xs text-ink-muted">
-          Your key never leaves this browser. Decryption happens client-side.
-        </p>
       </div>
-    </DoubleBezel>
+
+      <p className="flex items-center gap-1.5 text-xs text-ink-muted">
+        <LockKey size={14} weight="fill" aria-hidden className="text-ink-muted/80" />
+        Used in this browser only. Decryption runs client-side; the key is never
+        sent.
+      </p>
+    </div>
   )
 }

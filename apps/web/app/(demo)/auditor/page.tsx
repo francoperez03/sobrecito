@@ -1,23 +1,38 @@
 'use client'
 
-import { useState } from 'react'
-import { reconstructBatch, type BatchSummary } from 'viewkey'
+import { useState, type ReactNode } from 'react'
+import { motion } from 'motion/react'
+import {
+  reconstructBatch,
+  keyFromBase64,
+  type BatchSummary,
+  type AuditorNote,
+} from 'viewkey'
+import { CaretDown, Seal, Eye, Warning } from '@phosphor-icons/react'
 import { Reveal } from '@/components/motion/Reveal'
+import { DoubleBezel } from '@/components/ui/DoubleBezel'
 import { ViewKeyInput } from '@/components/auditor/ViewKeyInput'
 import { AuditorTable } from '@/components/auditor/AuditorTable'
 import { ReconciliationFooter } from '@/components/auditor/ReconciliationFooter'
+import { KeygenCard } from '@/components/auditor/KeygenCard'
+import { BatchGroupHeader } from '@/components/auditor/BatchGroupHeader'
+import { SealedState } from '@/components/auditor/SealedState'
 import { readDeployments, readPoolUsdcBalance } from '@/lib/rpc'
 
 // The on-chain total T is the REAL USDC balance of the pool (independent source),
 // not a demo constant. The reconciliation footer asserts that the sum of the
-// auditor's decrypted amounts equals the USDC actually held by the pool — a real
-// soundness check, not sum === sum.
+// auditor's decrypted amounts equals the USDC actually held by the pool.
 
-type ConsoleState = 'idle' | 'loading' | 'done' | 'empty' | 'error'
+// 'invalid' = the pasted string is not a well-formed view-key (parse threw).
+// 'empty'   = the key is valid but no notes in the pool decrypt under it.
+// 'error'   = the reconstruct itself failed (RPC / unexpected). Three distinct
+// situations that must read differently to the auditor.
+type ConsoleState = 'idle' | 'loading' | 'done' | 'empty' | 'invalid' | 'error'
+
+const EASE_BRAND = [0.32, 0.72, 0, 1] as const
 
 /** Hex (or 0x-prefixed hex) → bytes. Throws nothing; malformed input yields a
- * wrong-length / NaN array that `reconstructBatch` rejects downstream (T-06-15:
- * the caller wraps this in try/catch, so a bad key never crashes the page). */
+ * wrong-length array that `reconstructBatch` rejects downstream. */
 function hexToBytes(hex: string): Uint8Array {
   const clean = hex.trim().replace(/^0x/, '')
   const out = new Uint8Array(Math.floor(clean.length / 2))
@@ -28,48 +43,119 @@ function hexToBytes(hex: string): Uint8Array {
 }
 
 /**
+ * Parse a pasted view-key into 32 bytes, auto-detecting hex vs base64. A trimmed
+ * string that is exactly 64 hex chars (optionally 0x-prefixed) is hex; anything
+ * else is tried as base64 (the KeygenCard emits 43-char url-safe base64). Both
+ * throw on a non-32-byte result, which handleReconstruct turns into the 'invalid'
+ * state rather than a crash.
+ */
+function parseViewKey(input: string): Uint8Array {
+  const clean = input.trim().replace(/^0x/, '')
+  if (/^[0-9a-fA-F]{64}$/.test(clean)) {
+    return hexToBytes(clean)
+  }
+  return keyFromBase64(input.trim())
+}
+
+type BatchGroup = { ledger: number; txHash: string; notes: AuditorNote[] }
+
+function groupByLedger(notes: AuditorNote[]): BatchGroup[] {
+  const map = new Map<number, BatchGroup>()
+  for (const note of notes) {
+    if (!map.has(note.ledger)) {
+      map.set(note.ledger, { ledger: note.ledger, txHash: note.txHash, notes: [] })
+    }
+    map.get(note.ledger)!.notes.push(note)
+  }
+  return [...map.values()].sort((a, b) => a.ledger - b.ledger)
+}
+
+type ChipTone = 'muted' | 'accent' | 'warn'
+
+function StatusChip({ state }: { state: ConsoleState }) {
+  const map: Record<
+    ConsoleState,
+    { label: string; tone: ChipTone; icon: ReactNode }
+  > = {
+    idle: { label: 'Sealed', tone: 'muted', icon: <Seal size={13} weight="fill" /> },
+    loading: { label: 'Reading the ledger', tone: 'accent', icon: <Eye size={13} /> },
+    done: { label: 'Reconstructed', tone: 'accent', icon: <Eye size={13} weight="fill" /> },
+    empty: { label: 'Valid key · no notes', tone: 'muted', icon: <Seal size={13} /> },
+    invalid: { label: 'Invalid key', tone: 'warn', icon: <Warning size={13} weight="fill" /> },
+    error: { label: 'Reconstruct failed', tone: 'warn', icon: <Warning size={13} weight="fill" /> },
+  }
+  const { label, tone, icon } = map[state]
+  const toneClass =
+    tone === 'accent'
+      ? 'text-accent-soft'
+      : tone === 'warn'
+        ? 'text-accent-warm'
+        : 'text-ink-muted'
+  return (
+    <span
+      className={`inline-flex shrink-0 items-center gap-1.5 rounded-full bg-surface px-3 h-7 ring-1 ring-hairline text-xs ${toneClass}`}
+    >
+      <span className={state === 'loading' ? 'animate-pulse' : ''} aria-hidden>
+        {icon}
+      </span>
+      {label}
+    </span>
+  )
+}
+
+/**
  * Auditor console (`/auditor`, UX-03, D-09 / D-10 / A2).
  *
- * The product's signature interaction. The auditor pastes their X25519 view-key;
- * the browser reconstructs the batch via `reconstructBatch` (reusing the viewkey
- * engine, D-10) entirely client-side; the sealed amount bars slide away to reveal
- * per-employee amounts (Centerpiece, made real); the footer reconciles
- * sum(decrypted) against the on-chain total T.
+ * The product's signature interaction, reframed around one beat: sealed → revealed.
+ * One primary action (paste the view-key, reconstruct) owns the surface; keygen is
+ * a secondary drawer. The batch surface is always present: it teaches the sealed
+ * state up front, then reveals the per-employee amounts and reconciles their sum
+ * against the on-chain total T.
  *
- * D-09 / A2 / T-06-12: the key NEVER leaves the browser. There is NO form action,
- * NO server action, NO API route — `reconstructBatch` runs in this `onClick`
- * handler. T-06-13: the key lives in component state only (never localStorage,
- * never logged, never in the URL).
+ * D-09 / A2 / T-06-12: the key NEVER leaves the browser. No form, no server action,
+ * no API route — reconstructBatch runs in this onClick handler.
  */
 export default function AuditorPage() {
   const [viewKey, setViewKey] = useState('')
   const [state, setState] = useState<ConsoleState>('idle')
   const [summary, setSummary] = useState<BatchSummary | null>(null)
   const [onChainTotal, setOnChainTotal] = useState<bigint>(BigInt(0))
+  const [showKeygen, setShowKeygen] = useState(false)
 
   async function handleReconstruct() {
     setState('loading')
+
+    // Step 1 — validate the key shape FIRST. A parse failure means the pasted
+    // string is malformed, distinct from a valid key that decrypts nothing.
+    let auditorPrivkey: Uint8Array
     try {
-      const auditorPrivkey = hexToBytes(viewKey)
+      auditorPrivkey = parseViewKey(viewKey)
+    } catch {
+      setSummary(null)
+      setState('invalid')
+      return
+    }
+
+    // Step 2 — reconstruct with a known-valid key.
+    try {
       const { rpcUrl, poolContractId, deploymentLedger } = readDeployments()
       const result = await reconstructBatch({
         auditorPrivkey,
         source: {
           rpcUrl,
           poolContractId,
-          // L6 / T-06-14: scan floor is the deployment ledger, never 0, to avoid
-          // replaying stale events and bound the range to the live batch.
+          // L6 / T-06-14: scan floor is the deployment ledger, never 0.
           fromLedger: deploymentLedger,
         },
         poolAddress: poolContractId,
         periodStart: deploymentLedger,
       })
       if (result.notes.length === 0) {
+        // Valid key, zero matching notes — NOT an input error.
         setSummary(null)
         setState('empty')
         return
       }
-      // Real reconciliation source: the USDC actually held by the pool on-chain.
       try {
         setOnChainTotal(await readPoolUsdcBalance())
       } catch {
@@ -78,94 +164,187 @@ export default function AuditorPage() {
       setSummary(result)
       setState('done')
     } catch {
-      // T-06-15: any failure (malformed key, decrypt mismatch, RPC error) sets the
-      // error state and the amber ring — never a crash.
       setSummary(null)
       setState('error')
     }
   }
 
-  // A key that decrypts nothing (wrong/foreign key) is signalled the same as a
-  // malformed one: the amber ring fires and the "did not decrypt" copy shows. The
-  // reconstructor now skips foreign blobs instead of throwing, so the empty result
-  // is the bad-key path under a multi-batch pool.
-  const invalid = state === 'error' || state === 'empty'
+  // Amber ring = a genuine input/operation problem (malformed key or failed
+  // reconstruct). 'empty' is NOT amber: the key is valid, so flagging it as a
+  // mistake would be wrong.
+  const invalid = state === 'invalid' || state === 'error'
   const processing = state === 'loading'
   const reconstructed = state === 'done'
 
   const sumDecrypted = summary
     ? summary.notes.reduce((acc, n) => acc + n.amount, BigInt(0))
     : BigInt(0)
-  const total = onChainTotal
   const match = summary ? sumDecrypted === onChainTotal : false
+  const groups = summary ? groupByLedger(summary.notes) : []
 
   return (
     <main className="min-h-dvh">
-      <section className="py-24 px-4 max-w-5xl mx-auto">
-        {/* Heading block — UI-SPEC Surface 3 copy. */}
+      <section className="py-24 px-4 max-w-3xl mx-auto">
         <Reveal delay={0}>
-          <div className="mb-10">
-            <h2 className="text-h2 font-[900] tracking-[-0.01em] leading-[1.15]">
-              Auditor console
-            </h2>
-            <p className="mt-3 text-lead text-ink-muted">
-              Paste your view-key to reconstruct the payroll batch.
+          <header className="mb-8">
+            <div className="flex items-center justify-between gap-4">
+              <h2 className="text-h2 font-[900] tracking-[-0.01em] leading-[1.15]">
+                Auditor console
+              </h2>
+              <StatusChip state={state} />
+            </div>
+            <p className="mt-3 text-lead text-ink-muted max-w-[52ch]">
+              Hold the one key that turns a publicly sealed batch into the ledger
+              you are entitled to read.
             </p>
-          </div>
+          </header>
         </Reveal>
 
-        <Reveal delay={0.1}>
-          <ViewKeyInput
-            value={viewKey}
-            onChange={(v) => {
-              setViewKey(v)
-              // Clear a prior invalid signal (amber ring) as soon as the auditor edits.
-              if (state === 'error' || state === 'empty') setState('idle')
-            }}
-            onReconstruct={handleReconstruct}
-            processing={processing}
-            invalid={invalid}
-          />
+        {/* Primary action — one panel owns the surface. */}
+        <Reveal delay={0.05}>
+          <DoubleBezel radius="2rem" className="p-5 sm:p-6">
+            <ViewKeyInput
+              value={viewKey}
+              onChange={(v) => {
+                setViewKey(v)
+                if (state === 'invalid' || state === 'empty' || state === 'error')
+                  setState('idle')
+              }}
+              onReconstruct={handleReconstruct}
+              processing={processing}
+              invalid={invalid}
+            />
+
+            <div className="mt-5 border-t border-hairline pt-4">
+              <button
+                type="button"
+                onClick={() => setShowKeygen((v) => !v)}
+                aria-expanded={showKeygen}
+                aria-controls="keygen-drawer"
+                className="inline-flex items-center gap-1.5 text-sm text-ink-muted hover:text-ink transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-md"
+              >
+                <CaretDown
+                  size={14}
+                  weight="bold"
+                  aria-hidden
+                  className={`transition-transform ${showKeygen ? 'rotate-180' : ''}`}
+                />
+                No view-key yet? Generate one
+              </button>
+
+              {showKeygen && (
+                <motion.div
+                  id="keygen-drawer"
+                  initial={{ opacity: 0, y: -6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.25, ease: EASE_BRAND }}
+                  className="mt-5"
+                >
+                  <KeygenCard />
+                </motion.div>
+              )}
+            </div>
+          </DoubleBezel>
         </Reveal>
 
-        {/* Bad key OR a key that decrypts nothing (foreign/empty) — same signal:
-            the amber ring on the textarea plus the did-not-decrypt copy. */}
-        {(state === 'error' || state === 'empty') && (
-          <p className="mt-6 text-lead text-ink-muted">
-            View-key did not decrypt any outputs. Check the key and try again.
-          </p>
-        )}
+        {/* Batch surface — always present, state-driven. The focal point. */}
+        <div className="mt-6">
+          {state === 'idle' && (
+            <DoubleBezel radius="2rem">
+              <SealedState />
+            </DoubleBezel>
+          )}
 
-        {/* Done — reveal + reconciliation. */}
-        {state === 'done' && summary && (
-          <>
-            <Reveal delay={0.1}>
-              <div className="mt-10 mb-8">
-                <h2 className="text-h2 font-[900] tracking-[-0.01em] leading-[1.15]">
-                  Batch reconstructed.
-                </h2>
-                <p className="mt-3 text-lead text-ink-muted">
-                  Individual amounts decrypted client-side from encrypted_outputs.
-                </p>
+          {state === 'loading' && (
+            <DoubleBezel radius="2rem" className="px-6 py-6">
+              <div className="flex flex-col gap-3" aria-label="Reading the ledger">
+                {[0, 1, 2, 3].map((i) => (
+                  <div
+                    key={i}
+                    className="h-5 rounded bg-ink/10 animate-pulse"
+                    style={{ width: `${88 - i * 9}%` }}
+                  />
+                ))}
               </div>
-            </Reveal>
+            </DoubleBezel>
+          )}
 
-            <Reveal delay={0.15}>
-              <div className="mb-6">
-                <AuditorTable notes={summary.notes} reconstructed={reconstructed} />
-              </div>
-            </Reveal>
+          {state === 'invalid' && (
+            <DoubleBezel radius="2rem" className="px-6 py-6">
+              <p
+                className="flex items-start gap-2.5 text-ink"
+                data-testid="auditor-invalid"
+              >
+                <Warning
+                  size={18}
+                  weight="fill"
+                  aria-hidden
+                  className="mt-0.5 shrink-0 text-accent-warm"
+                />
+                <span>
+                  That doesn&apos;t look like a valid view-key. Paste a 64-character
+                  hex key, or the base64 key from Generate one.
+                </span>
+              </p>
+            </DoubleBezel>
+          )}
 
-            <Reveal delay={0.2}>
-              <ReconciliationFooter
-                sumDecrypted={sumDecrypted}
-                total={total}
-                match={match}
-              />
-            </Reveal>
-          </>
-        )}
+          {state === 'error' && (
+            <DoubleBezel radius="2rem" className="px-6 py-6">
+              <p
+                className="flex items-start gap-2.5 text-ink"
+                data-testid="auditor-error"
+              >
+                <Warning
+                  size={18}
+                  weight="fill"
+                  aria-hidden
+                  className="mt-0.5 shrink-0 text-accent-warm"
+                />
+                <span>
+                  Couldn&apos;t reconstruct the batch (network or pool error). Try
+                  again.
+                </span>
+              </p>
+            </DoubleBezel>
+          )}
 
+          {state === 'empty' && (
+            <DoubleBezel radius="2rem" className="px-6 py-6">
+              <p className="text-ink-muted leading-relaxed" data-testid="auditor-empty">
+                This view-key is valid, but no payroll notes are encrypted to it. In
+                this demo the sample batch is sealed to a fixed key, so a freshly
+                generated key won&apos;t decrypt it.
+              </p>
+            </DoubleBezel>
+          )}
+
+          {state === 'done' && summary && (
+            <div className="flex flex-col gap-4">
+              {groups.map((group, gi) => (
+                <Reveal key={group.ledger} delay={gi * 0.06}>
+                  <DoubleBezel radius="2rem" className="py-4">
+                    <BatchGroupHeader
+                      ledger={group.ledger}
+                      txHash={group.txHash}
+                      noteCount={group.notes.length}
+                      subSum={group.notes.reduce((a, n) => a + n.amount, BigInt(0))}
+                    />
+                    <AuditorTable notes={group.notes} reconstructed={reconstructed} />
+                  </DoubleBezel>
+                </Reveal>
+              ))}
+
+              <Reveal delay={groups.length * 0.06}>
+                <ReconciliationFooter
+                  sumDecrypted={sumDecrypted}
+                  total={onChainTotal}
+                  match={match}
+                />
+              </Reveal>
+            </div>
+          )}
+        </div>
       </section>
     </main>
   )

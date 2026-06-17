@@ -36,7 +36,7 @@ export interface ScannedEvent {
   encryptedOutput: Uint8Array;
   /** Ledger sequence the event was emitted at. */
   ledger: number;
-  /** Hash of the transaction that emitted the event (for block-explorer links). */
+  /** Transaction hash of the payroll batch (display, audit-trail identity, block-explorer links). */
   txHash: string;
 }
 

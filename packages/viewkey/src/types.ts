@@ -42,6 +42,10 @@ export interface AuditorNote {
   blinding: bigint;
   /** Employee's X25519 encryption public key (32 bytes), from `PublicKeyEvent`. */
   employeePubkeyX25519: Uint8Array;
+  /** Ledger the event was emitted at — the batch/period grouping key. */
+  ledger: number;
+  /** Transaction hash of the payroll batch this note belongs to. */
+  txHash: string;
 }
 
 /**

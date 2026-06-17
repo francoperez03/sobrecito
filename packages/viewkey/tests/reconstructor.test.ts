@@ -36,7 +36,7 @@ function buildFixtureEvents(auditorPub: Uint8Array): ScannedEvent[] {
       index,
       encryptedOutput,
       ledger: 3_107_100 + index,
-      txHash: `fixture-tx-${index}`,
+      txHash: `deadbeef${index.toString().padStart(56, "0")}`,
     };
   });
 }
@@ -111,5 +111,21 @@ describe("batch reconstructor (PROOF-04)", () => {
     });
     expect(summary.notes).toHaveLength(0);
     expect(summary.total).toBe(0n);
+  });
+
+  it("carries ledger and txHash from each scanned event into the note (AUD-01)", async () => {
+    const auditor = keypair();
+    const events = buildFixtureEvents(auditor.pub);
+    const summary = await reconstructBatch({
+      auditorPrivkey: auditor.priv,
+      source: { events },
+      poolAddress: POOL_ADDRESS,
+      periodStart: PERIOD_START,
+    });
+    for (const note of summary.notes) {
+      const source = events.find((e) => e.index === note.index)!;
+      expect(note.ledger).toBe(source.ledger);
+      expect(note.txHash).toBe(source.txHash);
+    }
   });
 });
