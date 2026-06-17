@@ -19,9 +19,8 @@ export function SealedState() {
         The batch is sealed
       </h3>
       <p className="mt-2 max-w-[34ch] text-ink-muted leading-relaxed">
-        Publicly, only{' '}
-        <span className="font-mono text-accent-soft">sum = T</span> is visible.
-        Your view-key reveals the amounts.
+        The public sees only the total. Your view-key reveals what each person was
+        paid.
       </p>
 
       <p className="mt-6 text-sm text-ink-muted">Nothing to show yet.</p>
