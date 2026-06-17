@@ -18,7 +18,8 @@ interface BatchGroupHeaderProps {
  * covers the pool total; this is informational only.
  */
 export function BatchGroupHeader({ ledger, txHash, noteCount, subSum }: BatchGroupHeaderProps) {
-  const shortTx = txHash.length > 16 ? txHash.slice(0, 8) + '...' + txHash.slice(-8) : txHash
+  const tx = txHash ?? ''
+  const shortTx = tx.length > 16 ? tx.slice(0, 8) + '...' + tx.slice(-8) : tx
 
   return (
     <div className="flex flex-wrap items-baseline justify-between gap-2 px-6 pb-2">

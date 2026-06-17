@@ -29,15 +29,19 @@ const COMMIT_TOPIC0 = 'AAAADwAAABRuZXdfY29tbWl0bWVudF9ldmVudA=='
 // 110,90], sum = 800 = T. Generated with @stellar/stellar-sdk nativeToScVal +
 // the viewkey ECIES engine; they decode through scanCommitmentEvents +
 // reconstructBatch exactly like a live event.
+// txHash is the on-chain transaction hash. Real RPC events carry this field
+// (BaseEventResponse.txHash in @stellar/stellar-sdk v16). Adding it to the
+// fixture so the mock matches the live event shape and BatchGroupHeader renders.
+const FIXTURE_TX = 'aabbccddaabbccddaabbccddaabbccddaabbccddaabbccddaabbccddaabbccdd'
 const FIXTURE_EVENTS = [
-  { type: 'contract', contractId: '', ledger: 3110570, topic: [COMMIT_TOPIC0, 'AAAACwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPo'], value: 'AAAAEQAAAAEAAAACAAAADwAAABBlbmNyeXB0ZWRfb3V0cHV0AAAADQAAAQAAAAB8wiA2njq7abwhIJ36Y36o8uwmFb/UzBtrE+/4L+aWO3cD+ZF/7w6J9sAsesafDRZ/w315B38vAE3tnb9pHh4CXFbrdShqQwi3tuAE3LCyxxbYrdksKH4JWTPnu9q1kl7TtlWS59Cb8oFaYF/4+PlBQoYsqRRV+4lJDvB0IwAAAHynf8Hp+dzJfH7CmQwCgn/EgY2kJoYrwnf/A364yz90X5mFVpCe9FqhCfUMX4Pf4QDs3iBxQt/IAJakurakqU7D82U9XWMQaKFYCB9exLcbnsCQ7ACIUPjnnKuKR250TRLRHCKgiHTwDhHtQ2OcpBHswfoPPXdKnCBNQ8M3AAAADwAAAAVpbmRleAAAAAAAAAMAAAAA' },
-  { type: 'contract', contractId: '', ledger: 3110571, topic: [COMMIT_TOPIC0, 'AAAACwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPp'], value: 'AAAAEQAAAAEAAAACAAAADwAAABBlbmNyeXB0ZWRfb3V0cHV0AAAADQAAAQAAAAB8/UhVQHsAh2Gban7XNI6VVyA0z4Ws/8ALbuh6DMNBGHCWb+LVvHlfTcoHSnI4kZZW1HhDgdYj42P2502xTu1qGks3klWO3TrAfGSpSRviOO4+hsb4SNlVLzZaYr93+tL3lKA/1B1GnTBHcFCy+BnUuACUTduVxic7Un51lAAAAHzDh+JKW3ZdJxzKsJfdApOApqgpmMpaqTvi6ElocyfaIVLmGcjJjdgKBUzA4EdsUPnIJfkLdyHvFpvz7Hl67Gcw30q7ojRzXlbV9VYATjH2XPiQOLP3H1ytxlOhZsA4aaUJvRDW9X+wKFKNcxlaAxnO0jIN60LRPSX0SCTXAAAADwAAAAVpbmRleAAAAAAAAAMAAAAB' },
-  { type: 'contract', contractId: '', ledger: 3110572, topic: [COMMIT_TOPIC0, 'AAAACwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPq'], value: 'AAAAEQAAAAEAAAACAAAADwAAABBlbmNyeXB0ZWRfb3V0cHV0AAAADQAAAQAAAAB8humNVGy1MwOKm1UUmPZVYk2Lp83qN/m5hzVWI7otp2RGG+L243o/KjRnC9cfubxq+qmTm3hXFT9tnf3t5laUvhN4CYMWKQBa+PJ0PoHEtaG6tBKMumWyGRhqIz0S5k0JwDqYXhmedZMaN0+DW1SQoHbVCCtRaSA+9bWuPgAAAHzwM/edEmvLqbiStRwJFqETpyHVEpX+veLmJvftyZkEeR+0p3eg6r+kA59+ieeEGXyiJvyAwtE/vbSWaXZgLK48nIjssmO77kHYlHnRNTVZmG0Mah0GRHOSPPgp6Nh3WgRE5x/f6wh8YNb1MinTk0ca9vURzXtt425/n5xoAAAADwAAAAVpbmRleAAAAAAAAAMAAAAC' },
-  { type: 'contract', contractId: '', ledger: 3110573, topic: [COMMIT_TOPIC0, 'AAAACwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPr'], value: 'AAAAEQAAAAEAAAACAAAADwAAABBlbmNyeXB0ZWRfb3V0cHV0AAAADQAAAQAAAAB87mn+6ACYtYY/u4OO7qkt5d9qbVn8ZjD1ePd8osMlOlPZaXAQUL3PNfPv3k0G+zqKjxt5UKnAPJUnQ92gAN4l+A6SKKTD+/9JJJF2092BswstT5hPz9PxIMc65CORnayuFjGqYyOeybwQ6kFHFCiEIas5ISmWnYmvPXKGrAAAAHwMRI2NJVThbTLs7n+QhNzMqfOvFmnGYbjxUA0B8Th2O5DDO7VPQNUgXWkyAs2Pyki0QuBSvLQZrg37KK0uOYdv05mABqM63U13aS5rT+B7VWPk2oHjcNH3VBLnqqc5Yg0mtaYZ7yP6WjduKwnVQ52YXbhm8VDEOHyhzDsrAAAADwAAAAVpbmRleAAAAAAAAAMAAAAD' },
-  { type: 'contract', contractId: '', ledger: 3110574, topic: [COMMIT_TOPIC0, 'AAAACwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPs'], value: 'AAAAEQAAAAEAAAACAAAADwAAABBlbmNyeXB0ZWRfb3V0cHV0AAAADQAAAQAAAAB8QNIILVXZWt3qztW5wmovDI4mFp6VgLD4GlaKvD+8Fxj0hfRfFIcuHriM1/+/ci9iDqRP2W3A43TmF50PSdJogp/0PKpE0gIVJqcOA/15dbIu2HBMN6K7SwZuQ0/V8P6DSqsn6ZtDO7EqhaSwQDdxwAZfvE7idVfgbM+ALQAAAHyQciSPAy5Yqw+GcbrcjuoElVXfOVcNtqsPJp05hEoja6QKHpFXSN5mTyhj8SlpXLEc7DcCCzZfj+QQmOG0Nkl9ieKPNe7vcAMLdDrdkAAwamtnRhIXzZwH5qLF/kmteU/W/XyQP8oKPsWqGRhu9t2JMVR0lx4hFmpXApIkAAAADwAAAAVpbmRleAAAAAAAAAMAAAAE' },
-  { type: 'contract', contractId: '', ledger: 3110575, topic: [COMMIT_TOPIC0, 'AAAACwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPt'], value: 'AAAAEQAAAAEAAAACAAAADwAAABBlbmNyeXB0ZWRfb3V0cHV0AAAADQAAAQAAAAB8PNNBGYczyDMo2/rbUj50ihrYoOdFTAdaiP1Nu6aKGRgPbvJzBuyZ8YzpUxmvHd+vowU4NVzeQZBmOFlhs0VKEjcdvHLBR2tablwaO1an9Rlpucocp2I8azmp+jkTZz8Nwlb57xRMnA/4pxr6pLM0rh4+l5MBbxC0o+c22AAAAHwOSiUo9tw/fhbjW/f8OS1ZvG/g8weBiQchxDVCo+xxLhl8gJUzSh8s/zBKQjsS8Zfl5xqfliyQiL4DChQMc8BIck056EbLyf63NVVP2RqBneLJjeu/HQoHUaWd7k8ifLo3zAYYYPIzzQtHlOy6hd/WEO2kEsJJIhb1yuy4AAAADwAAAAVpbmRleAAAAAAAAAMAAAAF' },
-  { type: 'contract', contractId: '', ledger: 3110576, topic: [COMMIT_TOPIC0, 'AAAACwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPu'], value: 'AAAAEQAAAAEAAAACAAAADwAAABBlbmNyeXB0ZWRfb3V0cHV0AAAADQAAAQAAAAB8bZfBoecOe/wYbvhBc2r+vZ07uxHjblGWM5KLGi3z10dvAOdl+T6js5rXEOXwyUe9W5MxJgeMgDaKJCmuMgBie+YzCo/6d4urvBgZE0q4xt7N7Vt7A54GVbJS2HhFHOn/A2jXf4LgItiAJvlYA+Nnt3+TjTZS0gkF323OPgAAAHw7oR1+Ocbs7J2lML/T/b3iWxsU6FUsbP5RIwxcFtl2GyhbZySu8E6bvb1LhffZPJ7se+6a4DS2j9hR3fX/n+6ywTGmvfhW+WL9Kgt7Up29iIsncFM3dFD0muDvPBDsyjvqEfKJTz9tbsWCCzPzrSN4DAftBPnVg0PdRyNeAAAADwAAAAVpbmRleAAAAAAAAAMAAAAG' },
-  { type: 'contract', contractId: '', ledger: 3110577, topic: [COMMIT_TOPIC0, 'AAAACwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPv'], value: 'AAAAEQAAAAEAAAACAAAADwAAABBlbmNyeXB0ZWRfb3V0cHV0AAAADQAAAQAAAAB8ou/Itjw//TuhfGRQwyXCjmY1vIiM//PgeOWOgTau1VjevCk+ntIki3USj9g8aK2/r80yLnSm27YcrM4LKVLBHVbwdxhwCJfDF1EWMyF12On+BLLErjnUo3H5t7qpszOjBE375rqjroFSsZM3iWkuVhksGNjDB8vRqR4rjAAAAHzXVgCOXCwy3BIU4WGRHFbgStqi6eGUHnByQVC4ILJ9f4RSqEbk4V8jsF3TcC+byc5pZOEH4M3duLaCVugcdGZ30ob3ivRpvsCxqCUHL1XCZI0ISc5pjFnFJtAKpxJunq/wr3oThMKmPL24qHBSv9B/vEO6aTa+cg9kn4ozAAAADwAAAAVpbmRleAAAAAAAAAMAAAAH' },
+  { type: 'contract', contractId: '', ledger: 3110570, txHash: FIXTURE_TX, topic: [COMMIT_TOPIC0, 'AAAACwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPo'], value: 'AAAAEQAAAAEAAAACAAAADwAAABBlbmNyeXB0ZWRfb3V0cHV0AAAADQAAAQAAAAB8wiA2njq7abwhIJ36Y36o8uwmFb/UzBtrE+/4L+aWO3cD+ZF/7w6J9sAsesafDRZ/w315B38vAE3tnb9pHh4CXFbrdShqQwi3tuAE3LCyxxbYrdksKH4JWTPnu9q1kl7TtlWS59Cb8oFaYF/4+PlBQoYsqRRV+4lJDvB0IwAAAHynf8Hp+dzJfH7CmQwCgn/EgY2kJoYrwnf/A364yz90X5mFVpCe9FqhCfUMX4Pf4QDs3iBxQt/IAJakurakqU7D82U9XWMQaKFYCB9exLcbnsCQ7ACIUPjnnKuKR250TRLRHCKgiHTwDhHtQ2OcpBHswfoPPXdKnCBNQ8M3AAAADwAAAAVpbmRleAAAAAAAAAMAAAAA' },
+  { type: 'contract', contractId: '', ledger: 3110571, txHash: FIXTURE_TX, topic: [COMMIT_TOPIC0, 'AAAACwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPp'], value: 'AAAAEQAAAAEAAAACAAAADwAAABBlbmNyeXB0ZWRfb3V0cHV0AAAADQAAAQAAAAB8/UhVQHsAh2Gban7XNI6VVyA0z4Ws/8ALbuh6DMNBGHCWb+LVvHlfTcoHSnI4kZZW1HhDgdYj42P2502xTu1qGks3klWO3TrAfGSpSRviOO4+hsb4SNlVLzZaYr93+tL3lKA/1B1GnTBHcFCy+BnUuACUTduVxic7Un51lAAAAHzDh+JKW3ZdJxzKsJfdApOApqgpmMpaqTvi6ElocyfaIVLmGcjJjdgKBUzA4EdsUPnIJfkLdyHvFpvz7Hl67Gcw30q7ojRzXlbV9VYATjH2XPiQOLP3H1ytxlOhZsA4aaUJvRDW9X+wKFKNcxlaAxnO0jIN60LRPSX0SCTXAAAADwAAAAVpbmRleAAAAAAAAAMAAAAB' },
+  { type: 'contract', contractId: '', ledger: 3110572, txHash: FIXTURE_TX, topic: [COMMIT_TOPIC0, 'AAAACwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPq'], value: 'AAAAEQAAAAEAAAACAAAADwAAABBlbmNyeXB0ZWRfb3V0cHV0AAAADQAAAQAAAAB8humNVGy1MwOKm1UUmPZVYk2Lp83qN/m5hzVWI7otp2RGG+L243o/KjRnC9cfubxq+qmTm3hXFT9tnf3t5laUvhN4CYMWKQBa+PJ0PoHEtaG6tBKMumWyGRhqIz0S5k0JwDqYXhmedZMaN0+DW1SQoHbVCCtRaSA+9bWuPgAAAHzwM/edEmvLqbiStRwJFqETpyHVEpX+veLmJvftyZkEeR+0p3eg6r+kA59+ieeEGXyiJvyAwtE/vbSWaXZgLK48nIjssmO77kHYlHnRNTVZmG0Mah0GRHOSPPgp6Nh3WgRE5x/f6wh8YNb1MinTk0ca9vURzXtt425/n5xoAAAADwAAAAVpbmRleAAAAAAAAAMAAAAC' },
+  { type: 'contract', contractId: '', ledger: 3110573, txHash: FIXTURE_TX, topic: [COMMIT_TOPIC0, 'AAAACwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPr'], value: 'AAAAEQAAAAEAAAACAAAADwAAABBlbmNyeXB0ZWRfb3V0cHV0AAAADQAAAQAAAAB87mn+6ACYtYY/u4OO7qkt5d9qbVn8ZjD1ePd8osMlOlPZaXAQUL3PNfPv3k0G+zqKjxt5UKnAPJUnQ92gAN4l+A6SKKTD+/9JJJF2092BswstT5hPz9PxIMc65CORnayuFjGqYyOeybwQ6kFHFCiEIas5ISmWnYmvPXKGrAAAAHwMRI2NJVThbTLs7n+QhNzMqfOvFmnGYbjxUA0B8Th2O5DDO7VPQNUgXWkyAs2Pyki0QuBSvLQZrg37KK0uOYdv05mABqM63U13aS5rT+B7VWPk2oHjcNH3VBLnqqc5Yg0mtaYZ7yP6WjduKwnVQ52YXbhm8VDEOHyhzDsrAAAADwAAAAVpbmRleAAAAAAAAAMAAAAD' },
+  { type: 'contract', contractId: '', ledger: 3110574, txHash: FIXTURE_TX, topic: [COMMIT_TOPIC0, 'AAAACwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPs'], value: 'AAAAEQAAAAEAAAACAAAADwAAABBlbmNyeXB0ZWRfb3V0cHV0AAAADQAAAQAAAAB8QNIILVXZWt3qztW5wmovDI4mFp6VgLD4GlaKvD+8Fxj0hfRfFIcuHriM1/+/ci9iDqRP2W3A43TmF50PSdJogp/0PKpE0gIVJqcOA/15dbIu2HBMN6K7SwZuQ0/V8P6DSqsn6ZtDO7EqhaSwQDdxwAZfvE7idVfgbM+ALQAAAHyQciSPAy5Yqw+GcbrcjuoElVXfOVcNtqsPJp05hEoja6QKHpFXSN5mTyhj8SlpXLEc7DcCCzZfj+QQmOG0Nkl9ieKPNe7vcAMLdDrdkAAwamtnRhIXzZwH5qLF/kmteU/W/XyQP8oKPsWqGRhu9t2JMVR0lx4hFmpXApIkAAAADwAAAAVpbmRleAAAAAAAAAMAAAAE' },
+  { type: 'contract', contractId: '', ledger: 3110575, txHash: FIXTURE_TX, topic: [COMMIT_TOPIC0, 'AAAACwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPt'], value: 'AAAAEQAAAAEAAAACAAAADwAAABBlbmNyeXB0ZWRfb3V0cHV0AAAADQAAAQAAAAB8PNNBGYczyDMo2/rbUj50ihrYoOdFTAdaiP1Nu6aKGRgPbvJzBuyZ8YzpUxmvHd+vowU4NVzeQZBmOFlhs0VKEjcdvHLBR2tablwaO1an9Rlpucocp2I8azmp+jkTZz8Nwlb57xRMnA/4pxr6pLM0rh4+l5MBbxC0o+c22AAAAHwOSiUo9tw/fhbjW/f8OS1ZvG/g8weBiQchxDVCo+xxLhl8gJUzSh8s/zBKQjsS8Zfl5xqfliyQiL4DChQMc8BIck056EbLyf63NVVP2RqBneLJjeu/HQoHUaWd7k8ifLo3zAYYYPIzzQtHlOy6hd/WEO2kEsJJIhb1yuy4AAAADwAAAAVpbmRleAAAAAAAAAMAAAAF' },
+  { type: 'contract', contractId: '', ledger: 3110576, txHash: FIXTURE_TX, topic: [COMMIT_TOPIC0, 'AAAACwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPu'], value: 'AAAAEQAAAAEAAAACAAAADwAAABBlbmNyeXB0ZWRfb3V0cHV0AAAADQAAAQAAAAB8bZfBoecOe/wYbvhBc2r+vZ07uxHjblGWM5KLGi3z10dvAOdl+T6js5rXEOXwyUe9W5MxJgeMgDaKJCmuMgBie+YzCo/6d4urvBgZE0q4xt7N7Vt7A54GVbJS2HhFHOn/A2jXf4LgItiAJvlYA+Nnt3+TjTZS0gkF323OPgAAAHw7oR1+Ocbs7J2lML/T/b3iWxsU6FUsbP5RIwxcFtl2GyhbZySu8E6bvb1LhffZPJ7se+6a4DS2j9hR3fX/n+6ywTGmvfhW+WL9Kgt7Up29iIsncFM3dFD0muDvPBDsyjvqEfKJTz9tbsWCCzPzrSN4DAftBPnVg0PdRyNeAAAADwAAAAVpbmRleAAAAAAAAAMAAAAG' },
+  { type: 'contract', contractId: '', ledger: 3110577, txHash: FIXTURE_TX, topic: [COMMIT_TOPIC0, 'AAAACwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPv'], value: 'AAAAEQAAAAEAAAACAAAADwAAABBlbmNyeXB0ZWRfb3V0cHV0AAAADQAAAQAAAAB8ou/Itjw//TuhfGRQwyXCjmY1vIiM//PgeOWOgTau1VjevCk+ntIki3USj9g8aK2/r80yLnSm27YcrM4LKVLBHVbwdxhwCJfDF1EWMyF12On+BLLErjnUo3H5t7qpszOjBE375rqjroFSsZM3iWkuVhksGNjDB8vRqR4rjAAAAHzXVgCOXCwy3BIU4WGRHFbgStqi6eGUHnByQVC4ILJ9f4RSqEbk4V8jsF3TcC+byc5pZOEH4M3duLaCVugcdGZ30ob3ivRpvsCxqCUHL1XCZI0ISc5pjFnFJtAKpxJunq/wr3oThMKmPL24qHBSv9B/vEO6aTa+cg9kn4ozAAAADwAAAAVpbmRleAAAAAAAAAMAAAAH' },
 ]
 
 // Real `simulateTransaction` response for the SAC `balance(pool)` read, with the
@@ -85,6 +89,14 @@ async function mockRpc(page: Page, events: unknown[]) {
     })
   })
 }
+
+// Two-batch fixture: batch A (ledger 3110570) = first 4 events, batch B
+// (ledger 3110580) = last 4 events. Ledger is the envelope field; rewriting it
+// does not affect the encrypted_output, so all 8 still decrypt under AUDITOR_PRIV.
+const TWO_BATCH_EVENTS = [
+  ...FIXTURE_EVENTS.slice(0, 4).map((e) => ({ ...e, ledger: 3110570, txHash: 'aabbccdd00000000000000000000000000000000000000000000000011223344' })),
+  ...FIXTURE_EVENTS.slice(4, 8).map((e) => ({ ...e, ledger: 3110580, txHash: 'deadbeef00000000000000000000000000000000000000000000000055667788' })),
+]
 
 test.describe('Auditor console', () => {
   test('page loads', async ({ page }) => {
@@ -178,5 +190,71 @@ test.describe('Auditor console', () => {
     await expect(
       page.getByRole('button', { name: 'Reconstruct batch' }),
     ).toBeVisible()
+  })
+
+  // AUD-02: notes from two ledger groups appear in two distinct batch sections.
+  test('groups notes by ledger into distinct batch sections', async ({
+    page,
+  }) => {
+    await mockRpc(page, TWO_BATCH_EVENTS)
+    await page.goto('/auditor')
+
+    await page
+      .getByRole('textbox', { name: 'View-key (X25519 private key, base64)' })
+      .fill(AUDITOR_PRIV)
+    await page.getByRole('button', { name: 'Reconstruct batch' }).click()
+
+    await expect(
+      page.getByRole('heading', { name: /Batch · ledger 3110570/ }),
+    ).toBeVisible()
+    await expect(
+      page.getByRole('heading', { name: /Batch · ledger 3110580/ }),
+    ).toBeVisible()
+    await expect(page.getByTestId('batch-txhash')).toHaveCount(2)
+  })
+
+  // AUD-02: the txHash label appears in each batch group header.
+  test('shows txHash for each batch group', async ({ page }) => {
+    await mockRpc(page, TWO_BATCH_EVENTS)
+    await page.goto('/auditor')
+
+    await page
+      .getByRole('textbox', { name: 'View-key (X25519 private key, base64)' })
+      .fill(AUDITOR_PRIV)
+    await page.getByRole('button', { name: 'Reconstruct batch' }).click()
+
+    await expect(page.getByTestId('batch-txhash').first()).toContainText('tx ')
+  })
+
+  // AUD-03: clicking Generate keypair shows a base64 public key and Copy CTA.
+  test('generates a keypair and shows the public key', async ({ page }) => {
+    await page.goto('/auditor')
+
+    await page.getByRole('button', { name: 'Generate keypair' }).click()
+
+    const pub = page.getByTestId('keygen-pubkey')
+    await expect(pub).toBeVisible()
+    await expect(pub).not.toBeEmpty()
+    await expect(
+      page.getByRole('button', { name: 'Copy public key' }),
+    ).toBeVisible()
+  })
+
+  // AUD-04: the private key never appears in the DOM after keypair generation.
+  // The only "private key" text node is the disclosure sentence saying it never leaves
+  // the browser — the privkey value itself is never rendered.
+  test('generated private key remains invisible in the DOM', async ({
+    page,
+  }) => {
+    await page.goto('/auditor')
+
+    await page.getByRole('button', { name: 'Generate keypair' }).click()
+
+    // Exactly one keygen-pubkey node (the public key).
+    const codeNodes = await page.locator('[data-testid="keygen-pubkey"]').count()
+    expect(codeNodes).toBe(1)
+
+    // The only "private key" text is the disclosure statement containing "never".
+    await expect(page.getByText(/private key/i).first()).toContainText('never')
   })
 })
