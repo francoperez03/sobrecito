@@ -117,9 +117,9 @@ test.describe('Auditor console', () => {
     await expect(
       page.getByRole('button', { name: 'Reconstruct batch' }),
     ).toBeVisible()
-    // D-09 disclosure is present.
+    // D-09 disclosure is present (key stays client-side).
     await expect(
-      page.getByText('Your key never leaves this browser.'),
+      page.getByText(/Decryption runs client-side/),
     ).toBeVisible()
   })
 
@@ -140,9 +140,9 @@ test.describe('Auditor console', () => {
     await expect(
       page.getByText('✓ Totals match — batch is sound.'),
     ).toBeVisible()
-    // Post-reveal heading confirms the reconstruction path ran.
+    // A revealed batch section confirms the reconstruction path ran.
     await expect(
-      page.getByRole('heading', { name: 'Batch reconstructed.' }),
+      page.getByRole('heading', { name: /Batch · ledger/ }).first(),
     ).toBeVisible()
   })
 
@@ -254,6 +254,7 @@ test.describe('Auditor console', () => {
   test('generates a keypair and shows the public key', async ({ page }) => {
     await page.goto('/auditor')
 
+    await openKeygen(page)
     await page.getByRole('button', { name: 'Generate keypair' }).click()
 
     const pub = page.getByTestId('keygen-pubkey')
@@ -291,6 +292,11 @@ test.describe('Auditor console', () => {
     })
   }
 
+  // The keygen UI lives in a collapsed "No view-key yet?" drawer; open it first.
+  async function openKeygen(page: Page) {
+    await page.getByRole('button', { name: /no view-key yet/i }).click()
+  }
+
   // AUD-04: the private key value never appears in the DOM. It is copyable exactly
   // once (then wiped from memory); we capture the copied value and assert it is a
   // 32-byte url-safe base64 key that is NOT present anywhere in the rendered DOM.
@@ -300,6 +306,7 @@ test.describe('Auditor console', () => {
     await captureClipboard(page)
     await page.goto('/auditor')
 
+    await openKeygen(page)
     await page.getByRole('button', { name: 'Generate keypair' }).click()
 
     // Exactly one keygen-pubkey node (the public key); the private key is never rendered.
@@ -327,6 +334,7 @@ test.describe('Auditor console', () => {
     await captureClipboard(page)
     await page.goto('/auditor')
 
+    await openKeygen(page)
     await page.getByRole('button', { name: 'Generate keypair' }).click()
 
     const copyPriv = page.getByTestId('keygen-copy-priv')
@@ -348,7 +356,7 @@ test.describe('Auditor console', () => {
     expect(after).toBe(before)
 
     // Regenerating rotates the keypair and re-arms the one-shot copy.
-    await page.getByRole('button', { name: 'Generate keypair' }).click()
+    await page.getByRole('button', { name: 'Regenerate keypair' }).click()
     await expect(copyPriv).toBeEnabled()
   })
 })
