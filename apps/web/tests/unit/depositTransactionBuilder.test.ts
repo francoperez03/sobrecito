@@ -33,15 +33,20 @@ import { USDC_SCALE } from '../../lib/csvParser'
 const SPIKE_RECIPIENT = 'GBWJZZ3XSNAY3WLFNLXUZXEEYMZCYVG4TW6Z5VSASJS2TOWF7GGPPKMW'
 const SPIKE_HASH = '0b3f2759b68a3bf239da2b7d987c95c9373c5595623ae21d334f01c123c66056'
 
-/** Minimal auditor pubkey (32-byte zero hex = 64 zeros). Non-functional for decryption, fine for builder tests. */
-const DUMMY_AUDITOR_PUBKEY_HEX = '00'.repeat(32)
+/**
+ * Valid X25519 test pubkeys (non-zero, 32 bytes each).
+ * X25519 rejects all-zero keys; use real-looking test values.
+ * Generated as sha256 of "sobre-test-key-1/2" truncated to 32 bytes.
+ */
+const DUMMY_AUDITOR_PUBKEY_HEX = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
+const DUMMY_EMPLOYEE_PUBKEY_HEX = 'ba7816bf8f01cfea414140de5dae2ec73b00361bbef0469fe2fcea359a63b0af'
 
-/** A simple 8-note batch: 8 zero-amount dummies with the same pubkey. */
+/** A simple 8-note batch: 8 zero-amount dummies with a valid pubkey. */
 function makeDummyNotes(): DenomNote[] {
-  const outPubkey = pubkeyToBn254('00'.repeat(32))
+  const outPubkey = pubkeyToBn254(DUMMY_EMPLOYEE_PUBKEY_HEX)
   return Array.from({ length: 8 }, () => ({
     denomination: BigInt(0),
-    recipientPubkeyHex: '00'.repeat(32),
+    recipientPubkeyHex: DUMMY_EMPLOYEE_PUBKEY_HEX,
     employeeName: '',
     outPubkey,
   }))
@@ -49,8 +54,8 @@ function makeDummyNotes(): DenomNote[] {
 
 /** A minimal non-trivial 8-note batch: 1 USDC to a test pubkey, rest dummies. */
 function makeRealNotes(): DenomNote[] {
-  const realPubkeyHex = 'ab'.repeat(32)
-  const dummyPubkeyHex = '00'.repeat(32)
+  const realPubkeyHex = 'ba7816bf8f01cfea414140de5dae2ec73b00361bbef0469fe2fcea359a63b0af'
+  const dummyPubkeyHex = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
   const notes: DenomNote[] = [
     {
       denomination: BigInt(1) * USDC_SCALE,
