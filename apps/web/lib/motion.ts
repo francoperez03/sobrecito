@@ -1,6 +1,6 @@
 import type { Variants } from 'motion/react'
 
-// Shared motion language — Crisol-style ease-out, sober reveals, staggered cascades.
+// Shared motion language — sober ease-out reveals, staggered cascades.
 // transform + opacity + blur only (GPU-safe). Reduced-motion is handled at the
 // component layer (Reveal / RevealGroup render static when the user opts out).
 

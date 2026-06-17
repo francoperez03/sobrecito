@@ -36,6 +36,7 @@ function buildFixtureEvents(auditorPub: Uint8Array): ScannedEvent[] {
       index,
       encryptedOutput,
       ledger: 3_107_100 + index,
+      txHash: `fixture-tx-${index}`,
     };
   });
 }

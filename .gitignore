@@ -12,6 +12,9 @@ dist/
 playwright-report/
 test-results/
 
+# Local env files (prod env lives in Vercel project settings)
+.env*.local
+
 # AI harness folders (impeccable installs into multiple targets; .agents is the canonical one)
 .claude/
 .cursor/
@@ -30,3 +33,5 @@ ops/testnet-batch/
 # circuito desplegado (policy_tx_1_8), cuyo par PK/VK debe matchear el verifier.
 packages/zk/testdata/*_proving_key.bin
 !packages/zk/testdata/policy_tx_1_8_proving_key.bin
+.aidesigner/*
+!.aidesigner/.gitkeep

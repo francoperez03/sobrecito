@@ -36,6 +36,8 @@ export interface ScannedEvent {
   encryptedOutput: Uint8Array;
   /** Ledger sequence the event was emitted at. */
   ledger: number;
+  /** Hash of the transaction that emitted the event (for block-explorer links). */
+  txHash: string;
 }
 
 /**
@@ -119,6 +121,7 @@ function parseCommitmentEvent(event: {
   topic: xdr.ScVal[];
   value: xdr.ScVal;
   ledger: number;
+  txHash: string;
 }): ScannedEvent | null {
   const topics = event.topic;
   if (topics.length < 2) {
@@ -145,6 +148,7 @@ function parseCommitmentEvent(event: {
     index,
     encryptedOutput,
     ledger: event.ledger,
+    txHash: event.txHash,
   };
 }
 
