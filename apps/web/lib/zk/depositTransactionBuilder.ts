@@ -194,6 +194,23 @@ export interface DepositInputsParams {
   aspNonMemberRoot: string
   senderAddress: string
   dummyBlinding: bigint
+  /**
+   * Pre-computed Poseidon2 output commitments from the WASM bridge
+   * (compute_commitment(amount, pubkey, blinding) × 8).
+   *
+   * If provided, these values are used INSTEAD of the pure-JS placeholder
+   * computeCommitmentPure(). Wave 3 MUST provide these for actual proof generation.
+   * The unit tests omit this field (pure-JS fallback is sufficient for shape checks).
+   */
+  precomputedCommitments?: bigint[]
+  /**
+   * Pre-computed Poseidon2 nullifier from the WASM bridge
+   * (compute_nullifier(DUMMY_PRIVKEY, dummyBlinding)).
+   *
+   * If provided, used instead of computeNullifierPure(). Wave 3 MUST provide
+   * this for actual proof generation.
+   */
+  precomputedNullifier?: bigint
 }
 
 /**
@@ -228,7 +245,10 @@ export function buildDepositInputs(params: DepositInputsParams): {
   outPubkey: string[]
   outBlinding: string[]
 } {
-  const { notes, blindings, extDataHash, poolRoot, aspMemberRoot, aspNonMemberRoot, dummyBlinding } = params
+  const {
+    notes, blindings, extDataHash, poolRoot, aspMemberRoot, aspNonMemberRoot,
+    dummyBlinding, precomputedCommitments, precomputedNullifier,
+  } = params
 
   if (notes.length !== 8) {
     throw new Error(`buildDepositInputs: expected exactly 8 notes, got ${notes.length}`)
@@ -241,19 +261,18 @@ export function buildDepositInputs(params: DepositInputsParams): {
   const extAmount = notes.reduce((s, n) => s + n.denomination, BigInt(0))
   const publicAmount = toFieldElement(extAmount).toString()
 
-  // Dummy input nullifier: Poseidon2(1, dummyBlinding) — encoded as nullifier placeholder
-  // In the browser WASM, this would be compute_nullifier(dummy_privkey, dummy_blinding).
-  // For the witness builder, we compute a deterministic value based on the dummy blinding.
-  // The circuit accepts any nullifier for inAmount=0 paths (merkle check disabled).
-  const inputNullifier = computeNullifierPure(DUMMY_PRIVKEY, dummyBlinding).toString()
+  // Dummy input nullifier: Poseidon2(DUMMY_PRIVKEY, dummyBlinding) from WASM bridge.
+  // If not pre-computed (unit test context), falls back to a deterministic placeholder.
+  // Wave 3 MUST provide precomputedNullifier for actual proof generation.
+  const inputNullifier = (
+    precomputedNullifier ?? computeNullifierPure(DUMMY_PRIVKEY, dummyBlinding)
+  ).toString()
 
-  // Output commitments: Poseidon2(denomination, outPubkey, blinding)
-  // In the browser WASM bridge, compute_commitment handles this.
-  // Here we compute it as a pure-JS placeholder: the test verifies consistency
-  // (outBlinding === blindings, outAmount === denominations, outPubkey === note.outPubkey)
-  // not the actual Poseidon2 value.
+  // Output commitments: Poseidon2(denomination, outPubkey, blinding) from WASM bridge.
+  // If not pre-computed (unit test context), falls back to a deterministic placeholder.
+  // Wave 3 MUST provide precomputedCommitments for actual proof generation.
   const outputCommitment = notes.map((n, i) =>
-    computeCommitmentPure(n.denomination, n.outPubkey, blindings[i]).toString(),
+    (precomputedCommitments?.[i] ?? computeCommitmentPure(n.denomination, n.outPubkey, blindings[i])).toString(),
   )
 
   return {
