@@ -16,7 +16,7 @@
 
 use anyhow::{Context, Result, anyhow, bail};
 use ark_bn254::Bn254;
-use ark_circom::{CircomBuilder, CircomConfig, CircomReduction};
+use ark_circom::{CircomBuilder, CircomConfig};
 use ark_ff::{BigInteger, PrimeField};
 use ark_groth16::{Groth16, ProvingKey};
 use ark_serialize::CanonicalDeserialize;
@@ -349,6 +349,27 @@ fn main() -> Result<()> {
         non_mem_proof.siblings.clone(),
     );
 
+    // --dump-inputs: output the circom inputs as JSON (for debugging/spike hardcoding)
+    let dump_inputs = args.iter().any(|a| a == "--dump-inputs");
+    if dump_inputs {
+        let mut dump_map: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
+        for (k, v) in inputs.iter() {
+            let jval = match v {
+                InputValue::Single(bi) => serde_json::Value::String(bi.magnitude().to_string()),
+                InputValue::Array(arr) => serde_json::Value::Array(
+                    arr.iter()
+                        .map(|bi| serde_json::Value::String(bi.magnitude().to_string()))
+                        .collect(),
+                ),
+            };
+            dump_map.insert(k.clone(), jval);
+        }
+        let dump_json = serde_json::to_string_pretty(&serde_json::Value::Object(dump_map))?;
+        eprintln!("==> CIRCOM INPUTS JSON:\n{dump_json}");
+    }
+
+    let dump_witness = args.iter().any(|a| a == "--dump-witness");
+
     eprintln!("==> Building Circom circuit with inputs...");
     let cfg = CircomConfig::<ark_bn254::Fr>::new(&wasm, &r1cs)
         .map_err(|e| anyhow!("CircomConfig error: {e}"))?;
@@ -359,6 +380,25 @@ fn main() -> Result<()> {
     }
 
     let circuit = builder.build().map_err(|e| anyhow!("Circom build failed: {e}"))?;
+
+    if dump_witness {
+        use ark_ff::BigInteger;
+        if let Some(witness) = &circuit.witness {
+            // Output witness as hex-encoded LE bytes (32 bytes per element)
+            // Format: WITNESS_HEX:<hex_of_all_bytes>
+            let mut bytes = Vec::with_capacity(witness.len() * 32);
+            for w in witness.iter() {
+                let bi = w.into_bigint();
+                let le_bytes = bi.to_bytes_le();
+                let mut padded = [0u8; 32];
+                let len = le_bytes.len().min(32);
+                padded[..len].copy_from_slice(&le_bytes[..len]);
+                bytes.extend_from_slice(&padded);
+            }
+            let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+            eprintln!("==> WITNESS_HEX:{}", hex);
+        }
+    }
     let pub_inputs = circuit
         .get_public_inputs()
         .ok_or_else(|| anyhow!("get_public_inputs returned None"))?;
@@ -367,12 +407,16 @@ fn main() -> Result<()> {
 
     eprintln!("==> Generating Groth16 proof (this may take a while)...");
     let mut rng = ark_std::rand::thread_rng();
-    let proof = Groth16::<Bn254, CircomReduction>::prove(&keys.pk, circuit.clone(), &mut rng)
+    // LibsnarkReduction (arkworks default, NO CircomReduction) to match the
+    // LibsnarkReduction keys produced by circuits/build.rs and the enclave WASM
+    // prover (prover_bg.wasm). Mixing reductions across prove/verify/keygen makes
+    // verification fail. See 06.2-SPIKE.md.
+    let proof = Groth16::<Bn254>::prove(&keys.pk, circuit.clone(), &mut rng)
         .map_err(|e| anyhow!("Prove failed: {e}"))?;
 
     // Verify locally
     let verified =
-        Groth16::<Bn254, CircomReduction>::verify_with_processed_vk(&keys.pvk, &pub_inputs, &proof)
+        Groth16::<Bn254>::verify_with_processed_vk(&keys.pvk, &pub_inputs, &proof)
             .map_err(|e| anyhow!("verify failed: {e}"))?;
 
     if !verified {

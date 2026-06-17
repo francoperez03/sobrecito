@@ -51,6 +51,12 @@ export interface AuditorNote {
 /**
  * The full reconstructed batch the auditor produces from one payroll period:
  * the declared total plus the per-note desglose, bound to a period context hash.
+ *
+ * `employeeSalaries` groups denomination notes by employee pubkey (hex) and sums
+ * their amounts to recover each employee's salary (D2). The grand total is
+ * preserved: `sum(employeeSalaries.values()) + dummies === total`.
+ * Zero-amount dummy notes are grouped under their own (empty or dummy) pubkey hex
+ * and are isolated from the named employees.
  */
 export interface BatchSummary {
   total: bigint;
@@ -58,6 +64,12 @@ export interface BatchSummary {
   extContextHash: bigint;
   periodStart: number;
   poolAddress: string;
+  /**
+   * Per-employee salary map. Key = hex-encoded X25519 pubkey of the employee;
+   * value = sum of all denomination note amounts for that employee.
+   * Populated by `reconstructBatch` after the accumulation loop (D2).
+   */
+  employeeSalaries: Map<string, bigint>;
 }
 
 /**
