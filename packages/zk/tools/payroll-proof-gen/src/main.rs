@@ -349,6 +349,27 @@ fn main() -> Result<()> {
         non_mem_proof.siblings.clone(),
     );
 
+    // --dump-inputs: output the circom inputs as JSON (for debugging/spike hardcoding)
+    let dump_inputs = args.iter().any(|a| a == "--dump-inputs");
+    if dump_inputs {
+        let mut dump_map: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
+        for (k, v) in inputs.iter() {
+            let jval = match v {
+                InputValue::Single(bi) => serde_json::Value::String(bi.magnitude().to_string()),
+                InputValue::Array(arr) => serde_json::Value::Array(
+                    arr.iter()
+                        .map(|bi| serde_json::Value::String(bi.magnitude().to_string()))
+                        .collect(),
+                ),
+            };
+            dump_map.insert(k.clone(), jval);
+        }
+        let dump_json = serde_json::to_string_pretty(&serde_json::Value::Object(dump_map))?;
+        eprintln!("==> CIRCOM INPUTS JSON:\n{dump_json}");
+    }
+
+    let dump_witness = args.iter().any(|a| a == "--dump-witness");
+
     eprintln!("==> Building Circom circuit with inputs...");
     let cfg = CircomConfig::<ark_bn254::Fr>::new(&wasm, &r1cs)
         .map_err(|e| anyhow!("CircomConfig error: {e}"))?;
@@ -359,6 +380,25 @@ fn main() -> Result<()> {
     }
 
     let circuit = builder.build().map_err(|e| anyhow!("Circom build failed: {e}"))?;
+
+    if dump_witness {
+        use ark_ff::BigInteger;
+        if let Some(witness) = &circuit.witness {
+            // Output witness as hex-encoded LE bytes (32 bytes per element)
+            // Format: WITNESS_HEX:<hex_of_all_bytes>
+            let mut bytes = Vec::with_capacity(witness.len() * 32);
+            for w in witness.iter() {
+                let bi = w.into_bigint();
+                let le_bytes = bi.to_bytes_le();
+                let mut padded = [0u8; 32];
+                let len = le_bytes.len().min(32);
+                padded[..len].copy_from_slice(&le_bytes[..len]);
+                bytes.extend_from_slice(&padded);
+            }
+            let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+            eprintln!("==> WITNESS_HEX:{}", hex);
+        }
+    }
     let pub_inputs = circuit
         .get_public_inputs()
         .ok_or_else(|| anyhow!("get_public_inputs returned None"))?;

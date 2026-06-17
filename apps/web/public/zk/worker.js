@@ -29,11 +29,11 @@ import initWitnessWasm, {
   version as witnessVersion
 } from "./witness/witness.js";
 var DEFAULT_CONFIG = {
-  circuitName: "policy_tx_2_2",
-  circuitWasmUrl: "/circuits/policy_tx_2_2.wasm",
-  provingKeyUrl: "/keys/policy_tx_2_2_proving_key.bin",
-  r1csUrl: "/circuits/policy_tx_2_2.r1cs",
-  cacheName: "zk-proving-artifacts"
+  circuitName: "policy_tx_1_8",
+  circuitWasmUrl: "/zk/circuits/policy_tx_1_8.wasm",
+  provingKeyUrl: "/zk/keys/policy_tx_1_8_proving_key.bin",
+  r1csUrl: "/zk/circuits/policy_tx_1_8.r1cs",
+  cacheName: "sobre-proving-artifacts-v1"
 };
 var config = { ...DEFAULT_CONFIG };
 function validateArtifactUrl(url) {
