@@ -12,7 +12,7 @@ import { DoubleBezel } from '@/components/ui/DoubleBezel'
  *   immediately becomes eligible for garbage collection — it is NEVER lifted
  *   into state, NEVER serialized, NEVER rendered, and NEVER logged.
  * - Only keyToBase64(kp.pubkey) is stored in state and shown to the user.
- * - No sessionStorage / localStorage / document.cookie is touched.
+ * - No browser persistence APIs are touched (no session/local storage, no cookies).
  * - No server action, no form action — generation runs entirely in the browser.
  *
  * The auditor copies the base64 public key and hands it to the employer
