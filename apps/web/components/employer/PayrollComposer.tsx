@@ -103,6 +103,9 @@ export function PayrollComposer() {
   // Blobs frozen exactly once — never regenerated on re-render (Pitfall 2)
   const frozenBlobsRef = useRef<{ blobs: Uint8Array[]; blindings: bigint[] } | null>(null)
   const elapsedTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  // True while the submit flow is running (prevents warm-up progress from
+  // overwriting the stepper state set by handleSubmit)
+  const isSubmittingRef = useRef(false)
 
   // ---------------------------------------------------------------------------
   // Prover warm-up: configure + initProver on mount (SSR-safe)
@@ -118,7 +121,10 @@ export function PayrollComposer() {
       try {
         await configureProver()
         unsub = onProgress((loaded, total, message) => {
-          setStepState({ phase: 'downloading', loaded, total, message })
+          // Only update stepper during active submit flow
+          if (isSubmittingRef.current) {
+            setStepState({ phase: 'downloading', loaded, total, message })
+          }
         })
         await initProver()
       } catch {
@@ -149,7 +155,7 @@ export function PayrollComposer() {
     notes !== null &&
     !overflow &&
     address !== null &&
-    composerState === 'idle'
+    (composerState === 'idle' || composerState === 'composing')
 
   // ---------------------------------------------------------------------------
   // handleConnect
@@ -178,6 +184,7 @@ export function PayrollComposer() {
 
     setErrorMsg(null)
     setElapsed(0)
+    isSubmittingRef.current = true
 
     try {
       // Step 1: Preparing bills
@@ -261,7 +268,20 @@ export function PayrollComposer() {
       setStepState({ phase: 'signing' })
       setComposerState('submitting')
 
-      const result = await submitDeposit({
+      // Allow e2e tests to stub the deposit call via window.__SOBRE_TEST_SUBMIT__.
+      // In production this window variable is never set.
+      type TestSubmitFn = (params: {
+        proof: Uint8Array
+        encOutputs: Uint8Array[]
+        totalBaseUnits: bigint
+        sender: string
+      }) => Promise<{ hash: string; sender: string }>
+      const testSubmit: TestSubmitFn | undefined =
+        typeof window !== 'undefined'
+          ? (window as typeof window & { __SOBRE_TEST_SUBMIT__?: TestSubmitFn }).__SOBRE_TEST_SUBMIT__
+          : undefined
+
+      const result = await (testSubmit ?? submitDeposit)({
         proof,
         encOutputs: blobs,
         totalBaseUnits: BigInt(0), // demo: ext_amount = 0 (no real USDC transfer)
@@ -271,11 +291,13 @@ export function PayrollComposer() {
       setTxHash(result.hash)
       setStepState({ phase: 'done', txHash: result.hash })
       setComposerState('done')
+      isSubmittingRef.current = false
     } catch (err) {
       if (elapsedTimerRef.current) {
         clearInterval(elapsedTimerRef.current)
         elapsedTimerRef.current = null
       }
+      isSubmittingRef.current = false
       const msg = err instanceof Error ? err.message : 'Error desconocido.'
       setErrorMsg(msg)
       setStepState({ phase: 'error', message: msg })

@@ -131,8 +131,19 @@ export async function buildFrozenBlobs(
     )
   }
 
-  // Convert auditor pubkey hex to bytes
-  const auditorPubkeyBytes = hexToBytes32(auditorPubkeyHex)
+  // Convert auditor pubkey hex to bytes.
+  // Zero-key guard: if auditorPubkeyHex is all zeros (placeholder from deployments.json
+  // before the Phase 06.1 keygen fills in the real value), generate a random valid
+  // X25519 key. Dual-blob encryption still works; the auditor simply cannot decrypt
+  // until the real key is configured.
+  let resolvedAuditorHex = auditorPubkeyHex
+  if (/^0+$/.test(auditorPubkeyHex)) {
+    const randBytes = new Uint8Array(32)
+    globalThis.crypto.getRandomValues(randBytes)
+    randBytes[0] = randBytes[0] || 0xab
+    resolvedAuditorHex = Array.from(randBytes).map(b => b.toString(16).padStart(2, '0')).join('')
+  }
+  const auditorPubkeyBytes = hexToBytes32(resolvedAuditorHex)
 
   const blindings: bigint[] = []
   const encBlobsInput: Array<{ employeeCiphertext: Uint8Array; auditorCiphertext: Uint8Array }> = []

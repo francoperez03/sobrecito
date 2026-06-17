@@ -41,6 +41,7 @@ export function DenominationChips({ amountUsdc, isOverflow }: DenominationChipsP
         Array.from({ length: count }).map((_, i) => (
           <span
             key={`${denom.toString()}-${i}`}
+            data-testid="denom-chip"
             className={`font-mono text-xs px-2 py-0.5 rounded-full border ${
               isOverflow
                 ? 'border-accent-warm/40 text-accent-warm bg-accent-warm/10'
