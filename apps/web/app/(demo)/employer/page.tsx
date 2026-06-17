@@ -14,6 +14,7 @@ import {
   formatUsdc,
   explorerTxUrl,
 } from '@/lib/rpc'
+import { PayrollComposer } from '@/components/employer/PayrollComposer'
 
 // The total T shown here is the REAL on-chain USDC balance of the pool (read via
 // a read-only SAC `balance` simulation), not a demo constant. It is the public
@@ -79,6 +80,30 @@ export default function EmployerPage() {
 
   return (
     <main className="min-h-dvh">
+      {/* ------------------------------------------------------------------ */}
+      {/* Composer section — send a new payroll batch (Wave 3, plan 06.2-06) */}
+      {/* Rendered ABOVE the read-only dashboard so the employer can submit  */}
+      {/* before seeing prior batch data.                                    */}
+      {/* ------------------------------------------------------------------ */}
+      <section className="py-24 px-4 max-w-5xl mx-auto border-b border-white/5">
+        <Reveal delay={0}>
+          <div className="mb-10">
+            <h2 className="text-h2 font-[900] tracking-[-0.01em] leading-[1.15]">
+              Enviar nómina
+            </h2>
+            <p className="mt-3 text-lead text-ink-muted">
+              Cargá los salarios, generá la prueba ZK en el navegador y enviá en un paso.
+            </p>
+          </div>
+        </Reveal>
+        <Reveal delay={0.1}>
+          <PayrollComposer />
+        </Reveal>
+      </section>
+
+      {/* ------------------------------------------------------------------ */}
+      {/* Read-only dashboard — A1 window into the live pool (no amounts)   */}
+      {/* ------------------------------------------------------------------ */}
       <section className="py-24 px-4 max-w-5xl mx-auto">
         {/* Heading block — UI-SPEC Surface 2 copy. */}
         <Reveal delay={0}>

@@ -115,6 +115,37 @@ export async function prove(inputs: Record<string, unknown>): Promise<ProveResul
 }
 
 /**
+ * Compute a Poseidon2 commitment via the WASM bridge.
+ * Returns a 32-byte Uint8Array representing the commitment field element.
+ * Used by PayrollComposer (Wave 3) to resolve the pure-JS stub in
+ * buildDepositInputs (precomputedCommitments param).
+ *
+ * Parameters are bigint field elements (BN254 scalar field).
+ * They are serialized as 32-byte big-endian Uint8Arrays for the worker.
+ */
+export async function computeCommitment(
+  amount: bigint,
+  pubkey: bigint,
+  blinding: bigint,
+): Promise<bigint> {
+  if (typeof window === 'undefined') {
+    throw new Error('proverClient.computeCommitment: browser-only')
+  }
+  const pc = await getModule()
+  const result: Uint8Array = await pc.computeCommitment(
+    bigintToFieldBytes(amount),
+    bigintToFieldBytes(pubkey),
+    bigintToFieldBytes(blinding),
+  )
+  // Decode 32-byte big-endian result back to bigint
+  let v = BigInt(0)
+  for (const b of result) {
+    v = (v << BigInt(8)) | BigInt(b)
+  }
+  return v
+}
+
+/**
  * Subscribe to download/init progress events.
  * Returns an unsubscribe function.
  * No-op during SSR (returns a no-op unsubscribe).
@@ -129,4 +160,18 @@ export function onProgress(callback: ProgressCallback): () => void {
   return () => {
     unsubscribe?.()
   }
+}
+
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
+/** Encode a bigint as a 32-byte big-endian Uint8Array (BN254 field element). */
+function bigintToFieldBytes(v: bigint): Uint8Array {
+  const hex = v.toString(16).padStart(64, '0')
+  const out = new Uint8Array(32)
+  for (let i = 0; i < 32; i++) {
+    out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16)
+  }
+  return out
 }
