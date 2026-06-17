@@ -20,7 +20,7 @@
 
 use anyhow::{Context, Result, anyhow, bail};
 use ark_bn254::Bn254;
-use ark_circom::{CircomBuilder, CircomConfig, CircomReduction};
+use ark_circom::{CircomBuilder, CircomConfig};
 use ark_groth16::{Groth16, ProvingKey, VerifyingKey};
 use ark_snark::SNARK;
 use ark_std::rand::thread_rng;
@@ -957,7 +957,12 @@ fn generate_groth16_keys(
     let empty = builder.setup();
     let mut rng = thread_rng();
 
-    let (pk, vk) = Groth16::<Bn254, CircomReduction>::circuit_specific_setup(empty, &mut rng)
+    // LibsnarkReduction (arkworks default, NO CircomReduction) so the generated
+    // keys are compatible with the enclave WASM prover (prover_bg.wasm), which
+    // proves and verifies with `Groth16::<Bn254>` (LibsnarkReduction). Using
+    // CircomReduction here produces a VK that the WASM prover's verify() rejects
+    // (QAP reduction mismatch). See 06.2-SPIKE.md.
+    let (pk, vk) = Groth16::<Bn254>::circuit_specific_setup(empty, &mut rng)
         .map_err(|e| anyhow!("circuit_specific_setup failed: {e}"))?;
 
     Ok((pk, vk))

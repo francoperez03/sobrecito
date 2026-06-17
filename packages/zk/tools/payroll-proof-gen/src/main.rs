@@ -16,7 +16,7 @@
 
 use anyhow::{Context, Result, anyhow, bail};
 use ark_bn254::Bn254;
-use ark_circom::{CircomBuilder, CircomConfig, CircomReduction};
+use ark_circom::{CircomBuilder, CircomConfig};
 use ark_ff::{BigInteger, PrimeField};
 use ark_groth16::{Groth16, ProvingKey};
 use ark_serialize::CanonicalDeserialize;
@@ -407,12 +407,16 @@ fn main() -> Result<()> {
 
     eprintln!("==> Generating Groth16 proof (this may take a while)...");
     let mut rng = ark_std::rand::thread_rng();
-    let proof = Groth16::<Bn254, CircomReduction>::prove(&keys.pk, circuit.clone(), &mut rng)
+    // LibsnarkReduction (arkworks default, NO CircomReduction) to match the
+    // LibsnarkReduction keys produced by circuits/build.rs and the enclave WASM
+    // prover (prover_bg.wasm). Mixing reductions across prove/verify/keygen makes
+    // verification fail. See 06.2-SPIKE.md.
+    let proof = Groth16::<Bn254>::prove(&keys.pk, circuit.clone(), &mut rng)
         .map_err(|e| anyhow!("Prove failed: {e}"))?;
 
     // Verify locally
     let verified =
-        Groth16::<Bn254, CircomReduction>::verify_with_processed_vk(&keys.pvk, &pub_inputs, &proof)
+        Groth16::<Bn254>::verify_with_processed_vk(&keys.pvk, &pub_inputs, &proof)
             .map_err(|e| anyhow!("verify failed: {e}"))?;
 
     if !verified {
