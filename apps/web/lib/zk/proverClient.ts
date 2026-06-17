@@ -178,6 +178,26 @@ export async function computeNullifier(
 }
 
 /**
+ * Derive the BN254 public key from a BN254 private key via the WASM bridge.
+ * Computes Poseidon2(privKey, 0) with domain separation 0x03, exactly as the
+ * circuit's Keypair() template does. This is the source of truth for bn254Pub
+ * throughout the codebase: never derive it client-side without going through here.
+ *
+ * The bridge derivePublicKey(bytes, asHex=false) takes LE field bytes and returns
+ * LE field bytes. We convert bigint to/from LE bytes to match that convention.
+ *
+ * Browser-only: throws during SSR.
+ */
+export async function derivePublicKey(privKey: bigint): Promise<bigint> {
+  if (typeof window === 'undefined') throw new Error('proverClient.derivePublicKey: browser-only')
+  const pc = await getModule()
+  // Convert bigint to 32-byte LE field bytes (the WASM expects LE encoding)
+  const privBytes = bigintToFieldBytesLE(privKey)
+  const pubBytes: Uint8Array = await pc.derivePublicKey(privBytes, false)
+  return fieldBytesLEToBigint(pubBytes)
+}
+
+/**
  * Subscribe to download/init progress events.
  * Returns an unsubscribe function.
  * No-op during SSR (returns a no-op unsubscribe).
@@ -206,4 +226,22 @@ function bigintToFieldBytes(v: bigint): Uint8Array {
     out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16)
   }
   return out
+}
+
+/** Encode a bigint as a 32-byte little-endian Uint8Array (WASM LE field convention). */
+function bigintToFieldBytesLE(v: bigint): Uint8Array {
+  const out = new Uint8Array(32)
+  let val = v
+  for (let i = 0; i < 32; i++) {
+    out[i] = Number(val & BigInt(0xff))
+    val >>= BigInt(8)
+  }
+  return out
+}
+
+/** Decode a 32-byte little-endian Uint8Array to a bigint. */
+function fieldBytesLEToBigint(bytes: Uint8Array): bigint {
+  let result = BigInt(0)
+  for (let i = 31; i >= 0; i--) result = (result << BigInt(8)) | BigInt(bytes[i])
+  return result
 }
