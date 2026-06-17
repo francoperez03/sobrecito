@@ -240,21 +240,91 @@ test.describe('Auditor console', () => {
     ).toBeVisible()
   })
 
-  // AUD-04: the private key never appears in the DOM after keypair generation.
-  // The only "private key" text node is the disclosure sentence saying it never leaves
-  // the browser — the privkey value itself is never rendered.
+  // Capture every navigator.clipboard.writeText payload into window.__copies so a
+  // test can read what the private-key copy actually placed on the clipboard
+  // without needing OS clipboard permissions (cross-browser). Must run before the
+  // page scripts, so call it before page.goto.
+  async function captureClipboard(page: Page) {
+    await page.addInitScript(() => {
+      ;(window as unknown as { __copies: string[] }).__copies = []
+      try {
+        const cb = navigator.clipboard
+        const sink = (t: string) => {
+          ;(window as unknown as { __copies: string[] }).__copies.push(t)
+          return Promise.resolve()
+        }
+        if (cb && typeof cb.writeText === 'function') {
+          cb.writeText = sink as typeof cb.writeText
+        } else {
+          Object.defineProperty(navigator, 'clipboard', {
+            configurable: true,
+            value: { writeText: sink },
+          })
+        }
+      } catch {
+        /* secure-context clipboard unavailable — copy buttons are still inert-safe */
+      }
+    })
+  }
+
+  // AUD-04: the private key value never appears in the DOM. It is copyable exactly
+  // once (then wiped from memory); we capture the copied value and assert it is a
+  // 32-byte url-safe base64 key that is NOT present anywhere in the rendered DOM.
   test('generated private key remains invisible in the DOM', async ({
     page,
   }) => {
+    await captureClipboard(page)
     await page.goto('/auditor')
 
     await page.getByRole('button', { name: 'Generate keypair' }).click()
 
-    // Exactly one keygen-pubkey node (the public key).
+    // Exactly one keygen-pubkey node (the public key); the private key is never rendered.
     const codeNodes = await page.locator('[data-testid="keygen-pubkey"]').count()
     expect(codeNodes).toBe(1)
 
-    // The only "private key" text is the disclosure statement containing "never".
-    await expect(page.getByText(/private key/i).first()).toContainText('never')
+    // Copy the private key, then read what landed on the clipboard.
+    await page.getByTestId('keygen-copy-priv').click()
+    const copies = await page.evaluate(
+      () => (window as unknown as { __copies: string[] }).__copies,
+    )
+    expect(copies).toHaveLength(1)
+    const priv = copies[0]
+    // 32-byte key, url-safe base64, unpadded => exactly 43 chars.
+    expect(priv).toMatch(/^[A-Za-z0-9_-]{43}$/)
+
+    // The private key value must not appear anywhere in the rendered DOM.
+    const body = await page.locator('body').innerText()
+    expect(body).not.toContain(priv)
+  })
+
+  // AUD-04: the private key is a one-shot copy (API-key pattern). After copying it
+  // once the button disables and prompts to regenerate; regenerating re-arms it.
+  test('private key copies once then requires regenerate', async ({ page }) => {
+    await captureClipboard(page)
+    await page.goto('/auditor')
+
+    await page.getByRole('button', { name: 'Generate keypair' }).click()
+
+    const copyPriv = page.getByTestId('keygen-copy-priv')
+    await expect(copyPriv).toBeEnabled()
+    await copyPriv.click()
+
+    // After one copy: disabled, label prompts to regenerate.
+    await expect(copyPriv).toBeDisabled()
+    await expect(copyPriv).toContainText('regenerate')
+
+    // A second (forced) click is inert — no new clipboard write.
+    const before = await page.evaluate(
+      () => (window as unknown as { __copies: string[] }).__copies.length,
+    )
+    await copyPriv.click({ force: true }).catch(() => {})
+    const after = await page.evaluate(
+      () => (window as unknown as { __copies: string[] }).__copies.length,
+    )
+    expect(after).toBe(before)
+
+    // Regenerating rotates the keypair and re-arms the one-shot copy.
+    await page.getByRole('button', { name: 'Generate keypair' }).click()
+    await expect(copyPriv).toBeEnabled()
   })
 })
