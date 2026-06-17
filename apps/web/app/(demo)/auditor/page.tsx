@@ -1,11 +1,13 @@
 'use client'
 
 import { useState } from 'react'
-import { reconstructBatch, type BatchSummary } from 'viewkey'
+import { reconstructBatch, keyFromBase64, type BatchSummary, type AuditorNote } from 'viewkey'
 import { Reveal } from '@/components/motion/Reveal'
 import { ViewKeyInput } from '@/components/auditor/ViewKeyInput'
 import { AuditorTable } from '@/components/auditor/AuditorTable'
 import { ReconciliationFooter } from '@/components/auditor/ReconciliationFooter'
+import { KeygenCard } from '@/components/auditor/KeygenCard'
+import { BatchGroupHeader } from '@/components/auditor/BatchGroupHeader'
 import { readDeployments, readPoolUsdcBalance } from '@/lib/rpc'
 
 // The on-chain total T is the REAL USDC balance of the pool (independent source),
@@ -25,6 +27,37 @@ function hexToBytes(hex: string): Uint8Array {
     out[i] = parseInt(clean.slice(i * 2, i * 2 + 2), 16)
   }
   return out
+}
+
+/**
+ * Parse a pasted view-key into 32 bytes, auto-detecting hex vs base64.
+ *
+ * The existing flow + Playwright fixture use 64-char hex (0x42 x 32); the new
+ * KeygenCard emits URL-safe base64 (43 chars for 32 bytes). Detection rule: a
+ * trimmed string that is exactly 64 hex chars (optionally 0x-prefixed) is hex;
+ * anything else is tried as base64. Both throw downstream if the bytes are not a
+ * valid 32-byte key, and handleReconstruct wraps this in try/catch (T-06-15: a
+ * bad key sets the amber-ring error state, never crashes).
+ */
+function parseViewKey(input: string): Uint8Array {
+  const clean = input.trim().replace(/^0x/, '')
+  if (/^[0-9a-fA-F]{64}$/.test(clean)) {
+    return hexToBytes(clean)
+  }
+  return keyFromBase64(input.trim())
+}
+
+type BatchGroup = { ledger: number; txHash: string; notes: AuditorNote[] }
+
+function groupByLedger(notes: AuditorNote[]): BatchGroup[] {
+  const map = new Map<number, BatchGroup>()
+  for (const note of notes) {
+    if (!map.has(note.ledger)) {
+      map.set(note.ledger, { ledger: note.ledger, txHash: note.txHash, notes: [] })
+    }
+    map.get(note.ledger)!.notes.push(note)
+  }
+  return [...map.values()].sort((a, b) => a.ledger - b.ledger)
 }
 
 /**
@@ -50,7 +83,7 @@ export default function AuditorPage() {
   async function handleReconstruct() {
     setState('loading')
     try {
-      const auditorPrivkey = hexToBytes(viewKey)
+      const auditorPrivkey = parseViewKey(viewKey)
       const { rpcUrl, poolContractId, deploymentLedger } = readDeployments()
       const result = await reconstructBatch({
         auditorPrivkey,
@@ -114,6 +147,12 @@ export default function AuditorPage() {
           </div>
         </Reveal>
 
+        <Reveal delay={0.05}>
+          <div className="mb-8">
+            <KeygenCard />
+          </div>
+        </Reveal>
+
         <Reveal delay={0.1}>
           <ViewKeyInput
             value={viewKey}
@@ -151,8 +190,18 @@ export default function AuditorPage() {
             </Reveal>
 
             <Reveal delay={0.15}>
-              <div className="mb-6">
-                <AuditorTable notes={summary.notes} reconstructed={reconstructed} />
+              <div>
+                {groupByLedger(summary.notes).map((group) => (
+                  <div key={group.ledger} className="mb-6">
+                    <BatchGroupHeader
+                      ledger={group.ledger}
+                      txHash={group.txHash}
+                      noteCount={group.notes.length}
+                      subSum={group.notes.reduce((a, n) => a + n.amount, 0n)}
+                    />
+                    <AuditorTable notes={group.notes} reconstructed={reconstructed} />
+                  </div>
+                ))}
               </div>
             </Reveal>
 
