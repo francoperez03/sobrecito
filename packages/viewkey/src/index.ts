@@ -26,3 +26,11 @@ export type {
   ReconstructOptions,
   EventSource,
 } from "./reconstructor/batchReconstructor.js";
+
+// Auditor keygen: user-facing X25519 keypair generation + base64 (de)serialization.
+export {
+  generateAuditorKeypair,
+  keyToBase64,
+  keyFromBase64,
+} from "./crypto/keygen.js";
+export type { AuditorKeypair } from "./crypto/keygen.js";

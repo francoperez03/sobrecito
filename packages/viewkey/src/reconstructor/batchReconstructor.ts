@@ -105,6 +105,8 @@ export async function reconstructBatch(
       amount: payload.amount,
       blinding: payload.blinding,
       employeePubkeyX25519,
+      ledger: event.ledger,
+      txHash: event.txHash,
     });
 
     total += payload.amount;
