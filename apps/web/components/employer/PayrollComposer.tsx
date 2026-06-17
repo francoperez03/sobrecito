@@ -21,6 +21,8 @@ import { AnonymityMeter } from './AnonymityMeter'
 import { ProvingStepper, type StepState } from './ProvingStepper'
 import {
   decompose,
+  DENOMS,
+  MAX_NOTES,
   type DenomNote,
 } from '@/lib/zk/denominationBuilder'
 import { usdcToBaseUnits, isHex64 } from '@/lib/csvParser'
@@ -68,6 +70,20 @@ function toDecomposeInput(
         return []
       }
     })
+}
+
+/** Count how many {100,10,1} USDC notes a single amount decomposes into
+ *  (uncapped — used to surface the true batch size, even when it exceeds 8). */
+function countNotes(amountUsdc: bigint): number {
+  let remaining = amountUsdc
+  let count = 0
+  for (const denomBase of DENOMS) {
+    while (remaining >= denomBase) {
+      count += 1
+      remaining -= denomBase
+    }
+  }
+  return count
 }
 
 /** Generate a cryptographically random BN254 field element (for dummyBlinding). */
@@ -146,12 +162,15 @@ export function PayrollComposer() {
   // ---------------------------------------------------------------------------
 
   const decomposeInput = toDecomposeInput(rows)
+  // Real, UNCAPPED total note count across all rows (so an over-budget batch
+  // shows e.g. "9/8" instead of collapsing to 0 when decompose() returns null).
+  const usedNotes = decomposeInput.reduce((s, r) => s + countNotes(r.amountUsdc), 0)
+  const overflow = usedNotes > MAX_NOTES
+  // The committable batch: null when over budget or any amount is non-decomposable.
   const notes: DenomNote[] | null = decomposeInput.length > 0
     ? decompose(decomposeInput)
     : null
-  const usedNotes = notes ? notes.filter((n) => n.denomination > BigInt(0)).length : 0
   const groupCount = decomposeInput.length
-  const overflow = notes === null && decomposeInput.length > 0
 
   const canSubmit =
     notes !== null &&
@@ -375,6 +394,17 @@ export function PayrollComposer() {
       {/* Editable payroll table */}
       <Reveal delay={0.05}>
         <PayrollEditableTable rows={rows} onChange={setRows} />
+      </Reveal>
+
+      {/* How it works — what the notes are, the budget, and the reassurance */}
+      <Reveal delay={0.08}>
+        <p className="text-sm text-ink-muted leading-relaxed max-w-2xl">
+          Each payment is split into standard <span className="text-ink">1 / 10 / 100 USDC</span> notes.
+          Equal-value notes look identical on-chain, which is what keeps every salary private. A batch
+          holds up to <span className="text-ink">8 notes in total</span> — keep the breakdown within that
+          budget (the meter below tracks it). Your collaborator can claim all of their notes together, so
+          splitting the payment changes nothing for them.
+        </p>
       </Reveal>
 
       {/* Meters */}

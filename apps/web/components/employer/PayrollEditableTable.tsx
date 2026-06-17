@@ -220,8 +220,13 @@ export function PayrollEditableTable({ rows, onChange }: PayrollEditableTablePro
                     transition={{ duration: 0.25, ease: EASE_BRAND }}
                     className="overflow-hidden"
                   >
-                    <div className="px-2 pb-3">
+                    {/* Grid mirrors the input row so the vertical chips sit directly under "View details" */}
+                    <div className="grid grid-cols-[auto_6fr_1fr_3fr_auto] gap-4 pb-3">
+                      <span aria-hidden />
+                      <span aria-hidden />
+                      <span aria-hidden />
                       <DenominationChips amountUsdc={rowAmountUsdc as bigint} isOverflow={isOverflow} />
+                      <span aria-hidden />
                     </div>
                   </motion.div>
                 )}

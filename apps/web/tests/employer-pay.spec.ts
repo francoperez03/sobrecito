@@ -339,6 +339,9 @@ test.describe('PayrollComposer employer pay flow', () => {
     await page.getByRole('button', { name: 'Import CSV' }).click()
     await importCsv(page, DEMO_CSV)
 
+    // The breakdown is collapsed by default — open the first row's "View details"
+    await page.getByRole('button', { name: /View details/ }).first().click()
+
     // Denomination chips should appear for Alice (10 USDC → one $10 chip)
     // and Bob (1 USDC → one $1 chip)
     await expect(page.locator('[data-testid="denom-chip"]').first()).toBeVisible({

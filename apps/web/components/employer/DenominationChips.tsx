@@ -36,7 +36,7 @@ export function DenominationChips({ amountUsdc, isOverflow }: DenominationChipsP
   }
 
   return (
-    <div className="flex flex-wrap gap-1">
+    <div className="flex flex-col items-start gap-1">
       {chips.map(({ denom, count }) =>
         Array.from({ length: count }).map((_, i) => (
           <span
