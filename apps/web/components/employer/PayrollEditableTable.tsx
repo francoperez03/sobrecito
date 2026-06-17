@@ -5,8 +5,8 @@ import { motion, AnimatePresence } from 'motion/react'
 import { CaretDown } from '@phosphor-icons/react'
 import { DenominationChips } from './DenominationChips'
 import { parseCsvText } from '@/lib/csvParser'
-import { decompose } from '@/lib/zk/denominationBuilder'
-import { usdcToBaseUnits, isHex64 } from '@/lib/csvParser'
+import { countNotes } from '@/lib/zk/denominationBuilder'
+import { usdcToBaseUnits } from '@/lib/csvParser'
 import { EASE_BRAND } from '@/lib/motion'
 
 /** A single editable row in the payroll table. Amounts are kept as strings for
@@ -43,23 +43,17 @@ export function PayrollEditableTable({ rows, onChange }: PayrollEditableTablePro
   // Indices of rows whose denomination breakdown is expanded.
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set())
 
-  // Compute total notes across all rows to detect overflow
+  // Total notes across all rows — counted from the AMOUNTS alone (no public key
+  // required) so the 8-note overflow shows the moment a too-large amount is typed.
   function computeTotalNotes(): number {
-    const validRows = rows
-      .filter((r) => r.amount && r.publicKey && isHex64(r.publicKey))
-      .map((r) => {
-        try {
-          return { name: '', amountUsdc: usdcToBaseUnits(r.amount), pubkeyHex: r.publicKey }
-        } catch {
-          return null
-        }
-      })
-      .filter(Boolean) as { name: string; amountUsdc: bigint; pubkeyHex: string }[]
-
-    if (validRows.length === 0) return 0
-    const notes = decompose(validRows)
-    if (!notes) return 999 // overflow indicator
-    return notes.filter((n) => n.denomination > BigInt(0)).length
+    return rows.reduce((sum, r) => {
+      if (!r.amount || !/^\d+(\.\d{1,7})?$/.test(r.amount)) return sum
+      try {
+        return sum + countNotes(usdcToBaseUnits(r.amount))
+      } catch {
+        return sum
+      }
+    }, 0)
   }
 
   const totalNotes = computeTotalNotes()

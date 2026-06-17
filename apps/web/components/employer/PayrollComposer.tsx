@@ -21,7 +21,7 @@ import { AnonymityMeter } from './AnonymityMeter'
 import { ProvingStepper, type StepState } from './ProvingStepper'
 import {
   decompose,
-  DENOMS,
+  countNotes,
   MAX_NOTES,
   type DenomNote,
 } from '@/lib/zk/denominationBuilder'
@@ -70,20 +70,6 @@ function toDecomposeInput(
         return []
       }
     })
-}
-
-/** Count how many {100,10,1} USDC notes a single amount decomposes into
- *  (uncapped — used to surface the true batch size, even when it exceeds 8). */
-function countNotes(amountUsdc: bigint): number {
-  let remaining = amountUsdc
-  let count = 0
-  for (const denomBase of DENOMS) {
-    while (remaining >= denomBase) {
-      count += 1
-      remaining -= denomBase
-    }
-  }
-  return count
 }
 
 /** Generate a cryptographically random BN254 field element (for dummyBlinding). */
@@ -162,11 +148,21 @@ export function PayrollComposer() {
   // ---------------------------------------------------------------------------
 
   const decomposeInput = toDecomposeInput(rows)
-  // Real, UNCAPPED total note count across all rows (so an over-budget batch
-  // shows e.g. "9/8" instead of collapsing to 0 when decompose() returns null).
-  const usedNotes = decomposeInput.reduce((s, r) => s + countNotes(r.amountUsdc), 0)
+  // Note budget is a property of the AMOUNTS alone — count every row with a
+  // valid amount, even before its public key is filled in, so the 8-note limit
+  // is enforced/shown the moment a too-large amount is typed (UNCAPPED so an
+  // over-budget batch shows e.g. "22/8" instead of collapsing to 0).
+  const usedNotes = rows.reduce((s, r) => {
+    if (!r.amount || !/^\d+(\.\d{1,7})?$/.test(r.amount)) return s
+    try {
+      return s + countNotes(usdcToBaseUnits(r.amount))
+    } catch {
+      return s
+    }
+  }, 0)
   const overflow = usedNotes > MAX_NOTES
-  // The committable batch: null when over budget or any amount is non-decomposable.
+  // The committable batch: needs valid public keys (decomposeInput) and is null
+  // when over budget or any amount is non-decomposable.
   const notes: DenomNote[] | null = decomposeInput.length > 0
     ? decompose(decomposeInput)
     : null
@@ -399,25 +395,26 @@ export function PayrollComposer() {
       {/* How it works — what the notes are, the budget, and the reassurance */}
       <Reveal delay={0.08}>
         <p className="text-sm text-ink-muted leading-relaxed max-w-2xl">
-          Each payment is split into standard <span className="text-ink">1 / 10 / 100 USDC</span> notes.
-          Equal-value notes look identical on-chain, which is what keeps every salary private. A batch
-          holds up to <span className="text-ink">8 notes in total</span> — keep the breakdown within that
-          budget (the meter below tracks it). Your collaborator can claim all of their notes together, so
-          splitting the payment changes nothing for them.
+          Each salary is split into standard <span className="text-ink">1, 10 and 100 USDC</span> notes,
+          so equal amounts look identical on-chain and no one can tell who earns what. A batch holds up to{' '}
+          <span className="text-ink">8 notes</span>, so keep the breakdown within that budget (the meter
+          below tracks it). Your team claims all their notes in one step, so the split costs them nothing.
         </p>
       </Reveal>
 
-      {/* Meters */}
-      {decomposeInput.length > 0 && (
-        <>
-          <Reveal delay={0.1}>
-            <NoteBudgetMeter usedNotes={usedNotes} />
-          </Reveal>
+      {/* Note budget — appears as soon as any amount is entered, so the 8-note
+          cap is enforced/visible even before a public key is filled in. */}
+      {usedNotes > 0 && (
+        <Reveal delay={0.1}>
+          <NoteBudgetMeter usedNotes={usedNotes} />
+        </Reveal>
+      )}
 
-          <Reveal delay={0.15}>
-            <AnonymityMeter noteCount={usedNotes} groupCount={groupCount} />
-          </Reveal>
-        </>
+      {/* Anonymity — needs real recipients (valid public keys). */}
+      {decomposeInput.length > 0 && (
+        <Reveal delay={0.15}>
+          <AnonymityMeter noteCount={usedNotes} groupCount={groupCount} />
+        </Reveal>
       )}
 
       {/* Submit button */}
