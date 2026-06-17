@@ -228,6 +228,58 @@ fn serialization_equivalence_circuit_keys_vs_soroban_utils() {
     );
 }
 
+/// Verify that a LibsnarkReduction proof (used by payroll-proof-gen) passes
+/// the Soroban verifier when the VK was also generated with LibsnarkReduction.
+/// This matches the production flow: keygen (circuits/build.rs) and proving
+/// (payroll-proof-gen) both use Groth16::<Bn254> (default = LibsnarkReduction).
+#[test]
+fn verifies_libsnark_reduction_proof_with_circuit_keys_vk() {
+    use ark_groth16::r1cs_to_qap::LibsnarkReduction;
+    let env = test_env();
+    let mut rng = seeded_rng();
+    let inputs = [ArkFr::from(42u64); 11];
+    let circuit = ElevenInputCircuit { inputs };
+
+    // Keygen with LibsnarkReduction (arkworks default) — matches circuits/build.rs
+    let params = Groth16::<Bn254, LibsnarkReduction>::generate_random_parameters_with_reduction(
+        circuit.clone(),
+        &mut rng,
+    )
+    .expect("params failed");
+
+    // Prove with LibsnarkReduction — matches payroll-proof-gen
+    let proof = Groth16::<Bn254, LibsnarkReduction>::create_random_proof_with_reduction(
+        circuit, &params, &mut rng,
+    )
+    .expect("prove failed");
+
+    // Build VK bytes using soroban_utils (same path as vk_bytes_from_ark in build.rs)
+    let vk_bytes_ext = vk_bytes_from_ark(&env, &params.vk);
+    let vk_bytes = contract_types::VerificationKeyBytes {
+        alpha: vk_bytes_ext.alpha,
+        beta: vk_bytes_ext.beta,
+        gamma: vk_bytes_ext.gamma,
+        delta: vk_bytes_ext.delta,
+        ic: vk_bytes_ext.ic,
+    };
+    let vk = verification_key_from_bytes(&env, &vk_bytes);
+
+    // Serialize proof with circuit_keys (production path in payroll-proof-gen)
+    let soroban_proof = groth16_proof_from_ark_circuit_keys(&env, &proof);
+
+    let mut public_inputs: Vec<Bn254Fr> = Vec::new(&env);
+    for value in inputs {
+        public_inputs.push_back(fr_from_ark(&env, value));
+    }
+
+    let result = CircomGroth16Verifier::verify_with_vk(&env, &vk, soroban_proof, public_inputs);
+    assert_eq!(
+        result,
+        Ok(true),
+        "LibsnarkReduction proof with LibsnarkReduction VK should verify in Soroban verifier"
+    );
+}
+
 /// Verify that a proof serialized with `circuit_keys` (the production path used
 /// by `payroll-proof-gen`) passes the Soroban verifier, just as the proof
 /// serialized with `soroban_utils` does.
