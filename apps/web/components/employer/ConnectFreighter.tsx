@@ -9,6 +9,8 @@ export interface ConnectFreighterProps {
   error: string | null
   /** Called when the user clicks the connect button. */
   onConnect: () => void
+  /** Connected wallet's USDC balance, formatted (e.g. "3.0000000"), or null until loaded. */
+  usdcBalance?: string | null
 }
 
 /**
@@ -30,6 +32,7 @@ export function ConnectFreighter({
   connecting,
   error,
   onConnect,
+  usdcBalance,
 }: ConnectFreighterProps) {
   const isConnected = address !== null && !connecting
 
@@ -40,18 +43,31 @@ export function ConnectFreighter({
 
   return (
     <div className="flex flex-col gap-3 self-start">
-      <button
-        type="button"
-        onClick={onConnect}
-        disabled={connecting || isConnected}
-        className="bg-accent-fill text-white font-[900] text-base px-6 h-[52px] rounded-full hover:opacity-90 active:scale-[0.98] transition-all self-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg disabled:opacity-70"
-      >
-        {connecting
-          ? 'Connecting…'
-          : isConnected
-            ? displayAddress
-            : 'Connect Freighter'}
-      </button>
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={onConnect}
+          disabled={connecting || isConnected}
+          className="bg-accent-fill text-white font-[900] text-base px-6 h-[52px] rounded-full hover:opacity-90 active:scale-[0.98] transition-all self-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg disabled:opacity-70"
+        >
+          {connecting
+            ? 'Connecting…'
+            : isConnected
+              ? displayAddress
+              : 'Connect Freighter'}
+        </button>
+
+        {isConnected && (
+          <span
+            className="flex items-center h-[52px] px-5 rounded-full ring-1 ring-hairline text-ink font-mono text-sm tabular-nums"
+            title="Wallet USDC balance"
+          >
+            {usdcBalance === null || usdcBalance === undefined
+              ? '… USDC'
+              : `${usdcBalance} USDC`}
+          </span>
+        )}
+      </div>
 
       {error && (
         <p className="text-xs text-accent-warm">{error}</p>

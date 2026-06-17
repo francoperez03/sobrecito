@@ -89,10 +89,10 @@ export default function EmployerPage() {
         <Reveal delay={0}>
           <div className="mb-10">
             <h2 className="text-h2 font-[900] tracking-[-0.01em] leading-[1.15]">
-              Enviar nómina
+              Send payroll
             </h2>
             <p className="mt-3 text-lead text-ink-muted">
-              Cargá los salarios, generá la prueba ZK en el navegador y enviá en un paso.
+              Load the salaries, generate the ZK proof in your browser, and send in one step.
             </p>
           </div>
         </Reveal>

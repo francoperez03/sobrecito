@@ -41,7 +41,7 @@ import {
   connectFreighter,
   submitDeposit,
 } from '@/lib/employer-deposit'
-import { readDeployments, fetchPoolRoot, fetchASPRoots } from '@/lib/rpc'
+import { readDeployments, fetchPoolRoot, fetchASPRoots, fetchUsdcBalance, formatUsdc } from '@/lib/rpc'
 
 // ---------------------------------------------------------------------------
 // State machine type
@@ -94,6 +94,7 @@ export function PayrollComposer() {
     { name: '', amount: '', publicKey: '' },
   ])
   const [address, setAddress] = useState<string | null>(null)
+  const [usdcBalance, setUsdcBalance] = useState<string | null>(null)
   const [connectError, setConnectError] = useState<string | null>(null)
   const [connecting, setConnecting] = useState(false)
   const [txHash, setTxHash] = useState<string | null>(null)
@@ -162,6 +163,16 @@ export function PayrollComposer() {
   // handleConnect
   // ---------------------------------------------------------------------------
 
+  async function refreshUsdcBalance(addr: string) {
+    setUsdcBalance(null)
+    try {
+      const base = await fetchUsdcBalance(addr)
+      setUsdcBalance(formatUsdc(base))
+    } catch {
+      setUsdcBalance(null)
+    }
+  }
+
   async function handleConnect() {
     setConnecting(true)
     setConnectError(null)
@@ -169,8 +180,9 @@ export function PayrollComposer() {
       const addr = await connectFreighter()
       setAddress(addr)
       setComposerState('composing')
+      void refreshUsdcBalance(addr)
     } catch (err) {
-      setConnectError(err instanceof Error ? err.message : 'No se pudo conectar.')
+      setConnectError(err instanceof Error ? err.message : 'Could not connect.')
     } finally {
       setConnecting(false)
     }
@@ -203,7 +215,7 @@ export function PayrollComposer() {
       // Step 2: Download engine (progress updates come via onProgress subscription)
       // The initProver() warm-up already started downloading; if it cached,
       // this phase is instant. The onProgress subscription updates stepState.
-      setStepState({ phase: 'downloading', loaded: 0, total: 0, message: 'Verificando caché…' })
+      setStepState({ phase: 'downloading', loaded: 0, total: 0, message: 'Checking cache…' })
 
       // Fetch roots from chain
       const [poolRoot, aspRoots] = await Promise.all([
@@ -306,6 +318,8 @@ export function PayrollComposer() {
       setStepState({ phase: 'done', txHash: result.hash })
       setComposerState('done')
       isSubmittingRef.current = false
+      // Balance dropped by the batch total — refresh so the employer sees it.
+      void refreshUsdcBalance(address)
     } catch (err) {
       if (elapsedTimerRef.current) {
         clearInterval(elapsedTimerRef.current)
@@ -344,6 +358,7 @@ export function PayrollComposer() {
           connecting={connecting}
           error={connectError}
           onConnect={handleConnect}
+          usdcBalance={usdcBalance}
         />
       </Reveal>
 
@@ -375,23 +390,18 @@ export function PayrollComposer() {
             disabled={!canSubmit || isWorking || isDone}
             className="bg-accent-fill text-white font-[900] text-base px-8 h-[52px] rounded-full hover:opacity-90 active:scale-[0.98] transition-all self-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg disabled:opacity-40"
           >
-            {isWorking ? 'Procesando…' : isDone ? 'Nómina enviada' : 'Enviar nómina'}
+            {isWorking ? 'Processing…' : isDone ? 'Payroll sent' : 'Send payroll'}
           </button>
 
           {overflow && (
             <p className="text-xs text-accent-warm">
-              Los montos superan 8 notas. Ajustá los salarios para que entren en un batch.
+              Amounts exceed 8 notes. Adjust the salaries so they fit in one batch.
             </p>
           )}
 
           {composerState === 'error' && errorMsg && (
             <p className="text-sm text-ink-muted">{errorMsg}</p>
           )}
-
-          {/* Demo disclosure */}
-          <div className="bg-accent-warm/10 text-accent-warm text-xs px-3 py-2 rounded-full self-start">
-            PoC · testnet · mueve USDC real: el empleador fondea el pool con el total del batch.
-          </div>
         </div>
       </Reveal>
 
