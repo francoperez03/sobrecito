@@ -116,12 +116,14 @@ export async function prove(inputs: Record<string, unknown>): Promise<ProveResul
 
 /**
  * Compute a Poseidon2 commitment via the WASM bridge.
- * Returns a 32-byte Uint8Array representing the commitment field element.
+ * Returns the commitment as a bigint (BN254 scalar field element).
+ *
  * Used by PayrollComposer (Wave 3) to resolve the pure-JS stub in
  * buildDepositInputs (precomputedCommitments param).
  *
- * Parameters are bigint field elements (BN254 scalar field).
- * They are serialized as 32-byte big-endian Uint8Arrays for the worker.
+ * Parameters are bigint field elements. They are sent as decimal strings so
+ * the worker can convert them to little-endian bytes (as required by the WASM
+ * via from_le_bytes_mod_order) without byte-order confusion.
  */
 export async function computeCommitment(
   amount: bigint,
@@ -132,17 +134,47 @@ export async function computeCommitment(
     throw new Error('proverClient.computeCommitment: browser-only')
   }
   const pc = await getModule()
-  const result: Uint8Array = await pc.computeCommitment(
-    bigintToFieldBytes(amount),
-    bigintToFieldBytes(pubkey),
-    bigintToFieldBytes(blinding),
+  const decResult: string = await pc.computeCommitment(
+    amount.toString(10),
+    pubkey.toString(10),
+    blinding.toString(10),
   )
-  // Decode 32-byte big-endian result back to bigint
-  let v = BigInt(0)
-  for (const b of result) {
-    v = (v << BigInt(8)) | BigInt(b)
+  return BigInt(decResult)
+}
+
+/**
+ * Compute the Poseidon2 nullifier for a dummy input note via the WASM bridge.
+ * Returns a 32-byte Uint8Array (field element, big-endian) decoded to bigint.
+ *
+ * For the dummy input (inAmount=0), the full chain is:
+ *   1. derive_public_key(privKey)
+ *   2. compute_commitment(0, pubkey, blinding)
+ *   3. compute_signature(privKey, commitment, pathIndices)
+ *   4. compute_nullifier(commitment, pathIndices, signature)
+ *
+ * This satisfies policyTransaction.circom line 105:
+ *   inNullifierHasher[tx].out === inputNullifier[tx]
+ *
+ * Parameters:
+ *   privKey     — BN254 scalar; DUMMY_PRIVKEY=1n for the deposit dummy input
+ *   blinding    — Fresh random BN254 blinding for the dummy note (per proof run)
+ *   pathIndices — Merkle path indices for the dummy input (default: 0n = deposit path)
+ */
+export async function computeNullifier(
+  privKey: bigint,
+  blinding: bigint,
+  pathIndices: bigint = BigInt(0),
+): Promise<bigint> {
+  if (typeof window === 'undefined') {
+    throw new Error('proverClient.computeNullifier: browser-only')
   }
-  return v
+  const pc = await getModule()
+  const decResult: string = await pc.computeNullifier(
+    privKey.toString(10),
+    blinding.toString(10),
+    pathIndices.toString(10),
+  )
+  return BigInt(decResult)
 }
 
 /**

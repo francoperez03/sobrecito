@@ -309,21 +309,51 @@ export async function derivePublicKey(privateKey, asHex = false) {
 }
 
 /**
- * Compute note commitment.
- * 
- * @param {Uint8Array} amount - Amount as field bytes
- * @param {Uint8Array} publicKey - Public key as field bytes
- * @param {Uint8Array} blinding - Blinding factor as field bytes
- * @returns {Promise<Uint8Array>}
+ * Compute note commitment via the WASM Poseidon2 bridge.
+ *
+ * Field elements are passed as decimal strings so the worker can convert
+ * them to little-endian bytes (as expected by the WASM) without byte-order
+ * confusion. Returns the commitment as a decimal string.
+ *
+ * @param {string} amountDec - Amount as decimal string (BN254 scalar)
+ * @param {string} publicKeyDec - Public key as decimal string
+ * @param {string} blindingDec - Blinding factor as decimal string
+ * @returns {Promise<string>} commitment as decimal string
  */
-export async function computeCommitment(amount, publicKey, blinding) {
+export async function computeCommitment(amountDec, publicKeyDec, blindingDec) {
     const result = await sendMessage('COMPUTE_COMMITMENT', {
-        amount: Array.from(amount),
-        publicKey: Array.from(publicKey),
-        blinding: Array.from(blinding),
+        amountDec: String(amountDec),
+        publicKeyDec: String(publicKeyDec),
+        blindingDec: String(blindingDec),
     });
 
-    return new Uint8Array(result.commitment);
+    return result.commitmentDec;
+}
+
+/**
+ * Compute the nullifier for a dummy input note (inAmount=0).
+ *
+ * Field elements are passed as decimal strings. Internally runs:
+ *   1. derive_public_key(privKey)  → pubkey
+ *   2. compute_commitment(0, pubkey, blinding)  → commitment
+ *   3. compute_signature(privKey, commitment, pathIndices)  → sig
+ *   4. compute_nullifier(commitment, pathIndices, sig)  → nullifier
+ *
+ * Matches policyTransaction.circom lines 81-104.
+ *
+ * @param {string} privateKeyDec - Private key as decimal string
+ * @param {string} blindingDec   - Blinding factor as decimal string
+ * @param {string} pathIndicesDec - Merkle path indices as decimal string (default: '0')
+ * @returns {Promise<string>} nullifier as decimal string
+ */
+export async function computeNullifier(privateKeyDec, blindingDec, pathIndicesDec) {
+    const result = await sendMessage('COMPUTE_NULLIFIER', {
+        privateKeyDec: String(privateKeyDec),
+        blindingDec: String(blindingDec),
+        pathIndicesDec: String(pathIndicesDec || '0'),
+    });
+
+    return result.nullifierDec;
 }
 
 /**
@@ -381,6 +411,7 @@ export default {
     verify,
     derivePublicKey,
     computeCommitment,
+    computeNullifier,
     getVerifyingKey,
     getCircuitInfo,
     terminate,

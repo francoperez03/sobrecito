@@ -35,6 +35,7 @@ import {
   onProgress,
   prove,
   computeCommitment,
+  computeNullifier,
 } from '@/lib/zk/proverClient'
 import {
   connectFreighter,
@@ -241,6 +242,14 @@ export function PayrollComposer() {
       // Fresh dummyBlinding per proof run (prevents AlreadySpentNullifier — Pitfall 4)
       const dummyBlinding = generateRandomBlinding()
 
+      // Compute dummy-input nullifier via WASM Poseidon2 bridge.
+      // The circuit enforces inNullifierHasher.out === inputNullifier[0] unconditionally
+      // (policyTransaction.circom line 105). Using the pure-JS placeholder here causes
+      // an unsatisfied constraint and proof failure. WASM chain:
+      //   privKey=1, amount=0, pathIndices=0 (deposit path, Merkle check disabled)
+      const DUMMY_PRIVKEY = BigInt(1)
+      const precomputedNullifier = await computeNullifier(DUMMY_PRIVKEY, dummyBlinding, BigInt(0))
+
       const inputs = buildDepositInputs({
         notes,
         blindings,
@@ -252,8 +261,7 @@ export function PayrollComposer() {
         senderAddress: address,
         dummyBlinding,
         precomputedCommitments, // WASM Poseidon2 values — pure-JS stub overridden
-        // precomputedNullifier omitted: dummy input nullifier uses pure-JS fallback
-        // (acceptable: dummy notes carry no real value; only output commitments need Poseidon2)
+        precomputedNullifier,   // WASM Poseidon2 nullifier — pure-JS stub overridden (gap closure)
       })
 
       const { proof } = await prove(inputs)

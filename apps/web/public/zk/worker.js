@@ -549,13 +549,50 @@ function handleDerivePublicKey(data) {
 }
 function handleComputeCommitment(data) {
   try {
-    const { amount, publicKey, blinding } = data;
-    const commitment = compute_commitment(
-      new Uint8Array(amount),
-      new Uint8Array(publicKey),
-      new Uint8Array(blinding)
-    );
-    return { success: true, commitment: Array.from(commitment) };
+    // Accept field elements as decimal strings (base 10) and convert to LE bytes
+    // via hex_to_field_bytes so the WASM receives the correct LE encoding.
+    const { amountDec, publicKeyDec, blindingDec } = data;
+    const amountBytes = hex_to_field_bytes('0x' + BigInt(amountDec).toString(16).padStart(64, '0'));
+    const pubkeyBytes = hex_to_field_bytes('0x' + BigInt(publicKeyDec).toString(16).padStart(64, '0'));
+    const blindingBytes = hex_to_field_bytes('0x' + BigInt(blindingDec).toString(16).padStart(64, '0'));
+    const commitment = compute_commitment(amountBytes, pubkeyBytes, blindingBytes);
+    // commitment is LE bytes; convert back to decimal string via field_bytes_to_hex then BigInt
+    const hexResult = field_bytes_to_hex(commitment);
+    const decResult = BigInt(hexResult).toString(10);
+    return { success: true, commitmentDec: decResult };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+}
+function handleComputeNullifier(data) {
+  try {
+    // Nullifier computation for a dummy input note (inAmount=0):
+    //   1. Derive pubkey from privKey  (Poseidon2(privKey, 0, domainSep=3))
+    //   2. Compute commitment = Poseidon2(0, pubkey, blinding, domainSep=1)
+    //   3. Compute signature  = Poseidon2(privKey, commitment, pathIdx, domainSep=4)
+    //   4. Compute nullifier  = Poseidon2(commitment, pathIdx, sig, domainSep=2)
+    // Matches policyTransaction.circom lines 81-104 (Keypair + Signature + inNullifierHasher).
+    //
+    // All inputs arrive as decimal strings; convert to LE bytes via hex_to_field_bytes
+    // so the WASM receives the correct encoding (WASM uses from_le_bytes_mod_order internally).
+    const { privateKeyDec, blindingDec, pathIndicesDec } = data;
+    const privKeyBytes = hex_to_field_bytes('0x' + BigInt(privateKeyDec).toString(16).padStart(64, '0'));
+    const blindingBytes = hex_to_field_bytes('0x' + BigInt(blindingDec).toString(16).padStart(64, '0'));
+    const pathIdxBytes = hex_to_field_bytes('0x' + BigInt(pathIndicesDec).toString(16).padStart(64, '0'));
+    // amount=0
+    const zeroAmountBytes = hex_to_field_bytes('0x' + '0'.padStart(64, '0'));
+    // Step 1: derive public key = Poseidon2(privKey, 0, domainSep=3)
+    const pubkeyBytes = derive_public_key(privKeyBytes);
+    // Step 2: commitment = Poseidon2(0, pubkey, blinding, domainSep=1)
+    const commitmentBytes = compute_commitment(zeroAmountBytes, pubkeyBytes, blindingBytes);
+    // Step 3: signature = Poseidon2(privKey, commitment, pathIndices, domainSep=4)
+    const signatureBytes = compute_signature(privKeyBytes, commitmentBytes, pathIdxBytes);
+    // Step 4: nullifier = Poseidon2(commitment, pathIndices, signature, domainSep=2)
+    const nullifierBytes = compute_nullifier(commitmentBytes, pathIdxBytes, signatureBytes);
+    // Convert LE result to decimal string
+    const hexResult = field_bytes_to_hex(nullifierBytes);
+    const decResult = BigInt(hexResult).toString(10);
+    return { success: true, nullifierDec: decResult };
   } catch (error) {
     return { success: false, error: error.message };
   }
@@ -631,6 +668,9 @@ self.onmessage = async function(event) {
       break;
     case "COMPUTE_COMMITMENT":
       result = handleComputeCommitment(data);
+      break;
+    case "COMPUTE_NULLIFIER":
+      result = handleComputeNullifier(data);
       break;
     // Info
     case "GET_VERIFYING_KEY":

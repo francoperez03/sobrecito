@@ -17,6 +17,9 @@
  *
  * Cómo correr (desde apps/web):
  *   npx playwright test tests/spike-prover.spec.mjs --project=chromium
+ *
+ * Gap-closure test (Truth 7):
+ *   npx playwright test tests/spike-prover.spec.mjs --project=chromium -g "nullifier"
  */
 
 import { test, expect } from '@playwright/test'
@@ -260,4 +263,205 @@ test('policy_tx_1_8 browser proof spike', async ({ page }) => {
   } else {
     console.log(`\nProve time ${proveSeconds.toFixed(1)}s is within demo pacing (<=60s). GO.\n`)
   }
+})
+
+/**
+ * GAP-CLOSURE: Truth 7 — WASM nullifier matches circuit constraint.
+ *
+ * Uses the same hardcoded inputs as the spike test above (privKey=424242, blinding=515151,
+ * pathIndices=11) but derives the inputNullifier via the new WASM computeNullifier bridge
+ * instead of the hardcoded value. Asserts the proof verifies locally (verifyProofLocal=true).
+ *
+ * If computeNullifier returns the wrong value, the R1CS constraint
+ *   inNullifierHasher.out === inputNullifier[0]  (policyTransaction.circom:105)
+ * is unsatisfied and verifyProofLocal will be false.
+ */
+test('Truth 7: WASM computeNullifier satisfies circuit constraint', async ({ page }) => {
+  page.on('console', msg => {
+    if (msg.type() === 'error') {
+      console.error('[browser:error]', msg.text())
+    } else {
+      console.log(`[browser:${msg.type()}]`, msg.text())
+    }
+  })
+  page.on('pageerror', err => {
+    console.error('[browser:pageerror]', err.message)
+  })
+
+  await page.goto('/')
+  await page.waitForLoadState('networkidle', { timeout: 30_000 })
+
+  const result = await page.evaluate(async () => {
+    function sleep(ms) { return new Promise(r => setTimeout(r, ms)) }
+
+    // Import prover-client.js
+    let pc
+    try {
+      pc = await import('/zk/prover-client.js?gap=1')
+    } catch (e) {
+      return { error: `prover-client.js import failed: ${e.message || String(e)}` }
+    }
+
+    // Initialize prover (downloads artifacts from cache if available)
+    try {
+      await pc.initializeProver({
+        onProgress: (loaded, total, message) => {
+          const pct = total ? Math.round(loaded / total * 100) : '?'
+          console.log(`[gap-closure:progress] ${pct}% — ${message}`)
+        }
+      })
+    } catch (err) {
+      return { error: `initProver failed: ${err.message || String(err)}` }
+    }
+
+    // Compute WASM nullifier for the same inputs used in the spike test:
+    //   privKey=424242, blinding=515151, pathIndices=11
+    // Expected: 10750441395378640351657048998234664946407212920486280317664290047085770603502
+    // (confirmed by Rust payroll-proof-gen tool)
+    console.log('[gap-closure] Computing WASM nullifier for privKey=424242, blinding=515151, pathIndices=11...')
+    const nullifierStart = performance.now()
+    let nullifierDecimal
+    try {
+      // computeNullifier now accepts decimal strings (no byte-order confusion)
+      nullifierDecimal = await pc.computeNullifier('424242', '515151', '11')
+    } catch (e) {
+      return { error: `computeNullifier failed: ${e.message || String(e)}` }
+    }
+    const nullifierMs = performance.now() - nullifierStart
+
+    const expectedNullifier = '10750441395378640351657048998234664946407212920486280317664290047085770603502'
+    const nullifierMatches = nullifierDecimal === expectedNullifier
+
+    console.log(`[gap-closure] WASM nullifier:     ${nullifierDecimal}`)
+    console.log(`[gap-closure] Expected nullifier: ${expectedNullifier}`)
+    console.log(`[gap-closure] Nullifier matches:  ${nullifierMatches}`)
+    console.log(`[gap-closure] Nullifier computed in ${nullifierMs.toFixed(0)}ms`)
+
+    if (!nullifierMatches) {
+      return {
+        error: `WASM nullifier mismatch: got ${nullifierDecimal}, expected ${expectedNullifier}`,
+        nullifierDecimal,
+        expectedNullifier,
+      }
+    }
+
+    // Now run a real proof using the WASM-computed nullifier.
+    // Same inputs as spike test (privKey=424242, blinding=515151, pathIndices=11, all-zero amounts).
+    const inputs = {
+      root: '0',
+      publicAmount: '0',
+      extDataHash: '0',
+      inputNullifier: [nullifierDecimal],
+      outputCommitment: [
+        '6598968747609044301287791487680131637207335724766472642030855543293332998703',
+        '5307568197866304202866682264771277887571928225109364476454523485756312947458',
+        '13513549717940813671455596062633255756397017126020655926699419851911902801829',
+        '360098509097231575176828263104772092336936958860251011333477615464617839434',
+        '3793537864092133166954310424220455378200694657008626939833248800577914997509',
+        '21493541725416265409796050211178348092340331544030988121219605160630853240300',
+        '13549628593492339367686539431975748442771629846338253914594059917212031874382',
+        '10510791208479734664652732474427612827141116544412083058555157277602004730142',
+      ],
+      membershipRoots: [['21469248025944430904811230013963704341332885446897450976146734701928101288715']],
+      nonMembershipRoots: [['0']],
+      inAmount: ['0'],
+      inPrivateKey: ['424242'],
+      inBlinding: ['515151'],
+      inPathIndices: ['11'],
+      inPathElements: [[
+        '0',
+        '15621590199821056450610068202457788725601603091791048810523422053872049975191',
+        '15180302612178352054084191513289999058431498575847349863917170755410077436260',
+        '20846426933296943402289409165716903143674406371782261099735847433924593192150',
+        '19570709311100149041770094415303300085749902031216638721752284824736726831172',
+        '2228324872857501911302113615008765872803935554954657770529611363966611619305',
+        '20416443549622666710233975593556113378154989695856435611928054834435941395398',
+        '12569915650234273506358566713337180006575902738181966114015666972516618110668',
+        '10760583946844578960511197660626836206814268757087348940265781932673199486090',
+        '13259685456536416976294895654007569436222517679987932079162454207895698164241',
+      ]],
+      outAmount: ['0', '0', '0', '0', '0', '0', '0', '0'],
+      outPubkey: ['1000', '1001', '1002', '1003', '1004', '1005', '1006', '1007'],
+      outBlinding: ['2000', '2001', '2002', '2003', '2004', '2005', '2006', '2007'],
+      'membershipProofs[0][0].leaf': '6799258402115901949608087973981428867466362583773158470615191365995989285381',
+      'membershipProofs[0][0].blinding': '0',
+      'membershipProofs[0][0].pathIndices': '8',
+      'membershipProofs[0][0].pathElements': [
+        '16820622405745174042249830601237189755928192602553897283642901160942722677198',
+        '15359050681704068253727521732087759823223946488317706303920832946299986235400',
+        '6671095670782301971433680779252611368794999320551466812674353318786817161024',
+        '6916313619167403688849602073223335054266628613380478544182480260933072247447',
+        '2879429835226299550189553787486868267114983869369763300964302542438202562182',
+        '11566551566833248982804491834987496395634853997927932418962431202486620538724',
+        '18312102343585188862241826829911822382205993342087453656483747193932088506816',
+        '14224209785328822587607423535934963302697475128513779413243648192259251120844',
+        '11095627874297306182376029332709185052812444271679323433770968369044736864771',
+        '18704999456835296287788791351223869084488976505945213474169158574576063641344',
+      ],
+      'nonMembershipProofs[0][0].key': '430441881861402007315334860956977145795171156495387641622836002198432238715',
+      'nonMembershipProofs[0][0].oldKey': '0',
+      'nonMembershipProofs[0][0].oldValue': '0',
+      'nonMembershipProofs[0][0].isOld0': '1',
+      'nonMembershipProofs[0][0].siblings': ['0', '0', '0', '0', '0', '0', '0', '0', '0', '0'],
+    }
+
+    console.log('[gap-closure] Starting real proof with WASM-computed nullifier...')
+    const proveStart = performance.now()
+    let proveCompressed
+    try {
+      proveCompressed = await pc.prove(inputs, { sorobanFormat: false })
+    } catch (err) {
+      return {
+        error: `prove() failed: ${err.message || String(err)}`,
+        nullifierDecimal,
+        nullifierMatches,
+      }
+    }
+    const proveMs = performance.now() - proveStart
+    console.log(`[gap-closure] Proof generated in ${proveMs.toFixed(0)}ms`)
+
+    // Soroban format proof (256 bytes)
+    let proofSoroban
+    try {
+      proofSoroban = await pc.prove(inputs, { sorobanFormat: true })
+    } catch (err) {
+      proofSoroban = null
+    }
+    const proofLength = proofSoroban ? proofSoroban.proof.length : 0
+
+    // Local verification
+    let verifyProofLocal = false
+    try {
+      verifyProofLocal = await pc.verify(proveCompressed.proof, proveCompressed.publicInputs)
+    } catch (err) {
+      console.error('[gap-closure] verify error:', err.message || String(err))
+    }
+
+    console.log(`[gap-closure] verifyProofLocal = ${verifyProofLocal}`)
+    console.log(`[gap-closure] proof.length (Soroban) = ${proofLength}`)
+
+    pc.terminate()
+
+    return {
+      nullifierDecimal,
+      expectedNullifier,
+      nullifierMatches,
+      nullifierMs: Math.round(nullifierMs),
+      proveMs: Math.round(proveMs),
+      proofLength,
+      verifyProofLocal,
+    }
+  })
+
+  console.log('\n=== GAP-CLOSURE RESULTS (Truth 7) ===')
+  console.log(JSON.stringify(result, null, 2))
+  console.log('======================================\n')
+
+  if (result.error) {
+    throw new Error(`Gap-closure failed: ${result.error}`)
+  }
+
+  expect(result.nullifierMatches, 'WASM nullifier must match expected value from Rust payroll-proof-gen').toBe(true)
+  expect(result.verifyProofLocal, 'verifyProofLocal must be true with WASM-computed nullifier').toBe(true)
+  expect(result.proofLength, 'proof must be 256 bytes (Soroban format)').toBe(256)
 })

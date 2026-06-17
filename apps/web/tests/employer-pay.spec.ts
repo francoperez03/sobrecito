@@ -115,8 +115,14 @@ export async function prove(_inputs, _opts) {
 }
 
 export async function computeCommitment(_amount, _pubkey, _blinding) {
-  // Return a fake 32-byte commitment field element
-  return new Uint8Array(32).fill(1);
+  // Return a fake commitment as a decimal string (matches new proverClient interface).
+  // proverClient.ts now expects computeCommitment to return a string (BigInt-parseable).
+  return '1';
+}
+
+export async function computeNullifier(_privKey, _blinding, _pathIdx) {
+  // Return a fake nullifier as a decimal string.
+  return '2';
 }
 `
     route.fulfill({
