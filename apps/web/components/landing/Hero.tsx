@@ -32,7 +32,7 @@ export function Hero() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, ease: EASE_OUT }}
         >
-          On-chain payroll · USDC
+          On-chain payroll
         </motion.p>
 
         {/* H1 — Fraunces display, light weight, editorial */}

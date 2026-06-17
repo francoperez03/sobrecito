@@ -8,7 +8,12 @@ import {
   PayrollTable,
   type PayrollRow,
 } from '@/components/dashboard/PayrollTable'
-import { readDeployments, readPoolUsdcBalance, formatUsdc } from '@/lib/rpc'
+import {
+  readDeployments,
+  readPoolUsdcBalance,
+  formatUsdc,
+  explorerTxUrl,
+} from '@/lib/rpc'
 
 // The total T shown here is the REAL on-chain USDC balance of the pool (read via
 // a read-only SAC `balance` simulation), not a demo constant. It is the public
@@ -124,6 +129,7 @@ function toRows(events: ScannedEvent[]): PayrollRow[] {
       employeeLabel: `Employee #${event.index + 1}`,
       status: 'proven' as const,
       date: `ledger ${event.ledger}`,
+      explorerUrl: explorerTxUrl(event.txHash),
     }))
 }
 

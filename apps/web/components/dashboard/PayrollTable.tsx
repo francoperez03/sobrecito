@@ -9,7 +9,8 @@ import { CaretLeft, CaretRight } from '@phosphor-icons/react'
  * A1 (sealed-for-the-public) by construction: there is NO Amount column. The
  * employer dashboard deliberately matches what the public sees — status +
  * commitment — without ever exposing an individual amount. The grid is
- * grid-cols-[auto_1fr_auto_auto]: #, Employee, Status, Date.
+ * grid-cols-[auto_1fr_auto_auto_auto]: #, Employee, Status, Date, Tx (a link to
+ * the commitment's transaction on the block explorer).
  *
  * Long batches paginate at PAGE_SIZE rows per page so the dashboard never dumps
  * the whole ledger at once.
@@ -27,6 +28,8 @@ export interface PayrollRow {
   status: PayrollStatus
   /** Commitment date/time label. */
   date: string
+  /** Block-explorer URL for the commitment's transaction (optional). */
+  explorerUrl?: string
 }
 
 /** Status cell — color + symbol, no destructive palette (UI-SPEC Surface 2). */
@@ -52,11 +55,12 @@ export function PayrollTable({ rows }: { rows: PayrollRow[] }) {
     <div className="w-full">
       {/* Table header — one span per column, weight 400 (Centerpiece pattern).
           Columns: #, Employee, Status, Date. Amount is ABSENT by design (A1). */}
-      <div className="grid grid-cols-[auto_1fr_auto_auto] gap-4 px-6 pb-2 border-b border-white/5">
+      <div className="grid grid-cols-[auto_1fr_auto_auto_auto] gap-4 px-6 pb-2 border-b border-white/5">
         <span className="text-xs text-ink-muted uppercase tracking-widest">#</span>
         <span className="text-xs text-ink-muted uppercase tracking-widest">Employee</span>
         <span className="text-xs text-ink-muted uppercase tracking-widest">Status</span>
         <span className="text-xs text-ink-muted uppercase tracking-widest">Date</span>
+        <span className="text-xs text-ink-muted uppercase tracking-widest">Tx</span>
       </div>
 
       {/* Table rows (current page) */}
@@ -64,7 +68,7 @@ export function PayrollTable({ rows }: { rows: PayrollRow[] }) {
         {visible.map((row) => (
           <div
             key={row.index}
-            className="grid grid-cols-[auto_1fr_auto_auto] gap-4 py-3 border-b border-white/5 last:border-0"
+            className="grid grid-cols-[auto_1fr_auto_auto_auto] gap-4 py-3 border-b border-white/5 last:border-0"
           >
             <span className="text-sm text-ink-muted self-center tabular-nums">{row.index}</span>
             <span className="text-sm text-ink-muted self-center">{row.employeeLabel}</span>
@@ -72,6 +76,18 @@ export function PayrollTable({ rows }: { rows: PayrollRow[] }) {
             <span className="text-sm text-ink-muted self-center font-mono tabular-nums">
               {row.date}
             </span>
+            {row.explorerUrl ? (
+              <a
+                href={row.explorerUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-sm text-accent-soft self-center underline underline-offset-4 decoration-white/20 hover:decoration-current transition-colors"
+              >
+                view ↗
+              </a>
+            ) : (
+              <span className="text-sm text-ink-muted/40 self-center">—</span>
+            )}
           </div>
         ))}
       </div>

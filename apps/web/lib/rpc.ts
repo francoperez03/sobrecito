@@ -27,6 +27,11 @@ export function readDeployments() {
   }
 }
 
+/** Block-explorer (stellar.expert, testnet) transaction URL for a tx hash. */
+export function explorerTxUrl(txHash: string): string {
+  return `https://stellar.expert/explorer/testnet/tx/${txHash}`
+}
+
 /** Format USDC base units (7 decimals) as a human string, trimming trailing zeros.
  *  Uses BigInt() (not `0n`/`1n` literals) because the web tsconfig targets ES2017. */
 export function formatUsdc(base: bigint): string {
