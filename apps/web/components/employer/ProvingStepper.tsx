@@ -240,7 +240,7 @@ export function ProvingStepper({ step }: ProvingStepperProps) {
           {/* Honest PoC disclosure: amber note visible during proving */}
           {(step.phase === 'proving' || step.phase === 'downloading' || step.phase === 'preparing') && (
             <div className="bg-accent-warm/10 text-accent-warm text-xs px-3 py-2 rounded-full self-start">
-              Demo PoC · testnet · ext_amount = 0 USDC (sin transferencia real)
+              PoC · testnet · transferencia real de USDC del empleador al pool
             </div>
           )}
 

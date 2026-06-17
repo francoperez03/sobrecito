@@ -222,10 +222,16 @@ export function PayrollComposer() {
         setStepState({ phase: 'proving', elapsed: secs })
       }, 1000)
 
+      // Real deposit: the employer funds the pool with the batch total in USDC.
+      // ext_amount MUST equal the proof's publicAmount (= sum of note denominations).
+      // The pool enforces proof.public_amount == calculate_public_amount(ext_amount)
+      // (pool.rs) and transfers this many USDC base units from the sender into the pool.
+      const totalBaseUnits = notes.reduce((s, n) => s + n.denomination, BigInt(0))
+
       // Hash ext_data (blobs must be frozen before computing this hash)
       const { bigInt: extDataHash } = hashExtDataSobre({
         recipient: address,
-        ext_amount: BigInt(0), // demo: no real USDC transferred (testnet cap = 1 USDC)
+        ext_amount: totalBaseUnits, // real USDC moved from the employer into the pool (testnet)
         encrypted_outputs: blobs,
       })
 
@@ -292,7 +298,7 @@ export function PayrollComposer() {
       const result = await (testSubmit ?? submitDeposit)({
         proof,
         encOutputs: blobs,
-        totalBaseUnits: BigInt(0), // demo: ext_amount = 0 (no real USDC transfer)
+        totalBaseUnits, // real USDC moved from employer into the pool
         sender: address,
       })
 
@@ -384,7 +390,7 @@ export function PayrollComposer() {
 
           {/* Demo disclosure */}
           <div className="bg-accent-warm/10 text-accent-warm text-xs px-3 py-2 rounded-full self-start">
-            Demo PoC · testnet · los montos son valores de campo BN254, no USDC real.
+            PoC · testnet · mueve USDC real: el empleador fondea el pool con el total del batch.
           </div>
         </div>
       </Reveal>
