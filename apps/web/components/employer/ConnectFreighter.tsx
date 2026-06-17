@@ -9,6 +9,8 @@ export interface ConnectFreighterProps {
   error: string | null
   /** Called when the user clicks the connect button. */
   onConnect: () => void
+  /** Called when the user disconnects the wallet (clears local connection state). */
+  onDisconnect?: () => void
   /** Connected wallet's USDC balance, formatted (e.g. "3.0000000"), or null until loaded. */
   usdcBalance?: string | null
 }
@@ -32,6 +34,7 @@ export function ConnectFreighter({
   connecting,
   error,
   onConnect,
+  onDisconnect,
   usdcBalance,
 }: ConnectFreighterProps) {
   const isConnected = address !== null && !connecting
@@ -66,6 +69,16 @@ export function ConnectFreighter({
               ? '… USDC'
               : `${usdcBalance} USDC`}
           </span>
+        )}
+
+        {isConnected && onDisconnect && (
+          <button
+            type="button"
+            onClick={onDisconnect}
+            className="flex items-center h-[52px] px-4 rounded-full text-ink-muted text-sm hover:text-ink hover:bg-white/5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          >
+            Disconnect
+          </button>
         )}
       </div>
 

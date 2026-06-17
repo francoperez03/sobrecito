@@ -108,34 +108,8 @@ export function PayrollEditableTable({ rows, onChange }: PayrollEditableTablePro
 
   return (
     <div className="w-full flex flex-col gap-4">
-      {/* CSV import controls */}
-      <div className="flex items-center gap-3">
-        <button
-          type="button"
-          onClick={() => fileInputRef.current?.click()}
-          className="text-sm text-accent-soft border border-accent/30 px-4 py-1.5 rounded-full hover:bg-accent/10 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-        >
-          Import CSV
-        </button>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".csv,text/csv"
-          className="hidden"
-          onChange={handleFileChange}
-        />
-        <span className="text-xs text-ink-muted">columns: name, amount, public_key</span>
-      </div>
-
-      {/* Inline CSV parse error */}
-      {csvError && (
-        <div className="bg-accent-warm/10 text-accent-warm text-xs px-3 py-2 rounded-full self-start">
-          {csvError}
-        </div>
-      )}
-
       {/* Table header */}
-      <div className="grid grid-cols-[auto_1fr_auto_auto_auto] gap-4 px-2 pb-2 border-b border-white/5">
+      <div className="grid grid-cols-[auto_3fr_1fr_6fr_auto] gap-4 px-2 pb-2 border-b border-white/5">
         <span className="text-xs text-ink-muted uppercase tracking-widest">#</span>
         <span className="text-xs text-ink-muted uppercase tracking-widest">Name</span>
         <span className="text-xs text-ink-muted uppercase tracking-widest">Amount</span>
@@ -159,7 +133,7 @@ export function PayrollEditableTable({ rows, onChange }: PayrollEditableTablePro
           return (
             <div
               key={i}
-              className="grid grid-cols-[auto_1fr_auto_auto_auto] gap-4 py-3 border-b border-white/5 last:border-0 items-center"
+              className="grid grid-cols-[auto_3fr_1fr_6fr_auto] gap-4 py-3 border-b border-white/5 last:border-0 items-center"
             >
               <span className="text-sm text-ink-muted tabular-nums">{i + 1}</span>
 
@@ -168,7 +142,7 @@ export function PayrollEditableTable({ rows, onChange }: PayrollEditableTablePro
                 placeholder="Employee name"
                 value={row.name}
                 onChange={(e) => handleCellChange(i, 'name', e.target.value)}
-                className="text-sm bg-transparent border-b border-white/10 focus:border-accent outline-none py-1 text-ink"
+                className="text-sm bg-transparent border-b border-white/10 focus:border-accent outline-none py-1 text-ink w-full min-w-0"
               />
 
               {/* Amount column: input + live denomination chips */}
@@ -178,7 +152,7 @@ export function PayrollEditableTable({ rows, onChange }: PayrollEditableTablePro
                   placeholder="e.g. 100"
                   value={row.amount}
                   onChange={(e) => handleCellChange(i, 'amount', e.target.value)}
-                  className="text-sm bg-transparent border-b border-white/10 focus:border-accent outline-none py-1 text-ink w-24"
+                  className="text-sm bg-transparent border-b border-white/10 focus:border-accent outline-none py-1 text-ink w-full min-w-0"
                 />
                 {rowAmountUsdc !== null && rowAmountUsdc > BigInt(0) && (
                   <DenominationChips
@@ -193,7 +167,7 @@ export function PayrollEditableTable({ rows, onChange }: PayrollEditableTablePro
                 placeholder="64-char hex pubkey"
                 value={row.publicKey}
                 onChange={(e) => handleCellChange(i, 'publicKey', e.target.value)}
-                className="font-mono text-sm text-ink-muted bg-transparent border-b border-white/10 focus:border-accent outline-none py-1 w-32"
+                className="font-mono text-sm text-ink-muted bg-transparent border-b border-white/10 focus:border-accent outline-none py-1 w-full min-w-0"
               />
 
               <button
@@ -217,6 +191,32 @@ export function PayrollEditableTable({ rows, onChange }: PayrollEditableTablePro
       >
         + Add row
       </button>
+
+      {/* CSV import — below the table, for bulk fill (manual entry is the default above) */}
+      <div className="flex items-center gap-3 pt-2 border-t border-white/5">
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          className="text-sm text-accent-soft border border-accent/30 px-4 py-1.5 rounded-full hover:bg-accent/10 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        >
+          Import CSV
+        </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".csv,text/csv"
+          className="hidden"
+          onChange={handleFileChange}
+        />
+        <span className="text-xs text-ink-muted">columns: name, amount, public_key</span>
+      </div>
+
+      {/* Inline CSV parse error */}
+      {csvError && (
+        <div className="bg-accent-warm/10 text-accent-warm text-xs px-3 py-2 rounded-full self-start">
+          {csvError}
+        </div>
+      )}
     </div>
   )
 }

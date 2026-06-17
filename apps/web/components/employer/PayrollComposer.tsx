@@ -188,6 +188,15 @@ export function PayrollComposer() {
     }
   }
 
+  // Disconnect clears the dapp's local connection state (Freighter has no
+  // programmatic revoke). Resets the wallet + balance and returns to idle.
+  function handleDisconnect() {
+    setAddress(null)
+    setUsdcBalance(null)
+    setConnectError(null)
+    setComposerState('idle')
+  }
+
   // ---------------------------------------------------------------------------
   // handleSubmit — the freeze-once path (Pitfall 2 mitigated)
   // ---------------------------------------------------------------------------
@@ -358,6 +367,7 @@ export function PayrollComposer() {
           connecting={connecting}
           error={connectError}
           onConnect={handleConnect}
+          onDisconnect={handleDisconnect}
           usdcBalance={usdcBalance}
         />
       </Reveal>
