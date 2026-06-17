@@ -19,7 +19,9 @@ import { reconstructBatch } from '../src/reconstructor/batchReconstructor.js'
 
 /** Generate a deterministic X25519 keypair from a single seed byte. */
 function makeKeypair(seed: number) {
-  const priv = new Uint8Array(32).fill(seed)
+  // Build a 32-byte private key: byte 0 = seed, rest = seed+1 (avoids all-zero key)
+  const priv = new Uint8Array(32).fill(seed + 1)
+  priv[0] = seed
   const pub = x25519.getPublicKey(priv)
   return { priv, pub }
 }
@@ -53,7 +55,7 @@ describe('reconstructBatch — per-employee salary grouping', () => {
   it('groups 2 denomination notes for Alice + 6 dummies; maps Alice → summed salary; total==T', async () => {
     const auditor = makeKeypair(0x01)
     const alice = makeKeypair(0x02)
-    const dummyPub = new Uint8Array(32) // all-zero dummy pubkey
+    const dummy = makeKeypair(0xfe) // use valid dummy keypair
 
     const aliceAmount1 = BigInt(100) // denomination note 1
     const aliceAmount2 = BigInt(10)  // denomination note 2
@@ -62,18 +64,18 @@ describe('reconstructBatch — per-employee salary grouping', () => {
     const events: ScannedEvent[] = [
       makeEvent(0, BigInt(1001), aliceAmount1, auditor.pub, alice.pub),
       makeEvent(1, BigInt(1002), aliceAmount2, auditor.pub, alice.pub),
-      makeEvent(2, BigInt(1003), dummyAmount, auditor.pub, dummyPub),
-      makeEvent(3, BigInt(1004), dummyAmount, auditor.pub, dummyPub),
-      makeEvent(4, BigInt(1005), dummyAmount, auditor.pub, dummyPub),
-      makeEvent(5, BigInt(1006), dummyAmount, auditor.pub, dummyPub),
-      makeEvent(6, BigInt(1007), dummyAmount, auditor.pub, dummyPub),
-      makeEvent(7, BigInt(1008), dummyAmount, auditor.pub, dummyPub),
+      makeEvent(2, BigInt(1003), dummyAmount, auditor.pub, dummy.pub),
+      makeEvent(3, BigInt(1004), dummyAmount, auditor.pub, dummy.pub),
+      makeEvent(4, BigInt(1005), dummyAmount, auditor.pub, dummy.pub),
+      makeEvent(5, BigInt(1006), dummyAmount, auditor.pub, dummy.pub),
+      makeEvent(6, BigInt(1007), dummyAmount, auditor.pub, dummy.pub),
+      makeEvent(7, BigInt(1008), dummyAmount, auditor.pub, dummy.pub),
     ]
 
     const employeePubkeys = new Map<number, Uint8Array>([
       [0, alice.pub],
       [1, alice.pub],
-      // indices 2-7 have no entry → empty Uint8Array(0)
+      // indices 2-7 have no entry → empty Uint8Array(0) (zero-length, not in map)
     ])
 
     const summary = await reconstructBatch({

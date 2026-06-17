@@ -1,3 +1,4 @@
+import { bytesToHex } from "@noble/hashes/utils.js";
 import { decodeDualBlob } from "../crypto/encoding.js";
 import { decryptNote } from "../crypto/ecies.js";
 import { buildExtContextHash } from "../types.js";
@@ -110,6 +111,27 @@ export async function reconstructBatch(
     total += payload.amount;
   }
 
+  // Group notes by employee pubkey hex and sum denomination amounts (D2).
+  // Notes with an empty pubkey (zero-length Uint8Array(0)) are dummies; they are
+  // grouped under their own hex key ("") and isolated from named employees.
+  // Choice: dummies are kept in the map rather than excluded, so the caller can
+  // inspect the full picture (e.g., count padding); callers that only want real
+  // employees should filter out the "" key.
+  const byEmployee = new Map<string, { notes: AuditorNote[]; salary: bigint }>();
+  for (const note of notes) {
+    const key = bytesToHex(note.employeePubkeyX25519);
+    const existing = byEmployee.get(key) ?? { notes: [], salary: BigInt(0) };
+    existing.notes.push(note);
+    existing.salary += note.amount;
+    byEmployee.set(key, existing);
+  }
+
+  // Flatten byEmployee to Map<string, bigint> for the BatchSummary.
+  const employeeSalaries = new Map<string, bigint>();
+  for (const [key, val] of byEmployee) {
+    employeeSalaries.set(key, val.salary);
+  }
+
   const extContextHash = buildExtContextHash(opts.poolAddress, opts.periodStart);
 
   return {
@@ -118,5 +140,6 @@ export async function reconstructBatch(
     extContextHash,
     periodStart: opts.periodStart,
     poolAddress: opts.poolAddress,
+    employeeSalaries,
   };
 }
