@@ -24,6 +24,12 @@ export function readDeployments() {
     deploymentLedger: deployments.pools[0].deploymentLedger,
     usdcContractId: deployments.pools[0].tokenContractId,
     deployer: deployments.deployer,
+    /** Published auditor X25519 pubkey (64-char hex). Persisted in deployments.json (D3).
+     *  IMPORTANT: fill with the real auditor pubkey from the Phase 06.1 keygen before the testnet demo. */
+    auditorPubkeyHex: (deployments as { auditorPubkeyHex?: string }).auditorPubkeyHex ?? '',
+    /** ASP contract IDs for the membership/non-membership proofs. */
+    aspMembershipId: deployments.asp_membership,
+    aspNonMembershipId: deployments.asp_non_membership,
   }
 }
 
@@ -44,6 +50,70 @@ export function formatUsdc(base: bigint): string {
   let s = int.toString()
   if (frac > ZERO) s += '.' + frac.toString().padStart(7, '0').replace(/0+$/, '')
   return (neg ? '-' : '') + s
+}
+
+/**
+ * Fetch the live Merkle root of the pool contract via a read-only Soroban
+ * simulation of `pool.get_root()`. Returns a DECIMAL STRING (the witness builder
+ * needs decimal-string field elements). No signing or gas required.
+ */
+export async function fetchPoolRoot(): Promise<string> {
+  const { rpcUrl, poolContractId, deployer } = readDeployments()
+  const server = new Server(rpcUrl)
+  const pool = new Contract(poolContractId)
+  const source = new Account(deployer, '0')
+  const tx = new TransactionBuilder(source, {
+    fee: '100',
+    networkPassphrase: Networks.TESTNET,
+  })
+    .addOperation(pool.call('get_root'))
+    .setTimeout(30)
+    .build()
+
+  const sim = await server.simulateTransaction(tx)
+  if ('error' in sim && sim.error) throw new Error(sim.error)
+  const retval = (sim as { result?: { retval?: unknown } }).result?.retval
+  if (!retval) throw new Error('fetchPoolRoot: simulation returned no value')
+  return BigInt(scValToNative(retval as never) as bigint | number).toString()
+}
+
+/**
+ * Fetch the live Merkle roots of both ASP contracts (membership and non-membership)
+ * via read-only Soroban simulations of `get_root()`. Returns decimal strings.
+ * No signing or gas required.
+ */
+export async function fetchASPRoots(): Promise<{
+  memberRoot: string
+  nonMemberRoot: string
+}> {
+  const { rpcUrl, aspMembershipId, aspNonMembershipId, deployer } =
+    readDeployments()
+  const server = new Server(rpcUrl)
+
+  async function getRootDecimal(contractId: string): Promise<string> {
+    const contract = new Contract(contractId)
+    const source = new Account(deployer, '0')
+    const tx = new TransactionBuilder(source, {
+      fee: '100',
+      networkPassphrase: Networks.TESTNET,
+    })
+      .addOperation(contract.call('get_root'))
+      .setTimeout(30)
+      .build()
+
+    const sim = await server.simulateTransaction(tx)
+    if ('error' in sim && sim.error) throw new Error(sim.error)
+    const retval = (sim as { result?: { retval?: unknown } }).result?.retval
+    if (!retval) throw new Error(`fetchASPRoots: simulation returned no value for ${contractId}`)
+    return BigInt(scValToNative(retval as never) as bigint | number).toString()
+  }
+
+  const [memberRoot, nonMemberRoot] = await Promise.all([
+    getRootDecimal(aspMembershipId),
+    getRootDecimal(aspNonMembershipId),
+  ])
+
+  return { memberRoot, nonMemberRoot }
 }
 
 /**
