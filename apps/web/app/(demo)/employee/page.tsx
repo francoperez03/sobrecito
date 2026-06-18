@@ -2,7 +2,14 @@
 
 import { useState, type ReactNode } from 'react'
 import { motion } from 'motion/react'
-import { Seal, Eye, Warning } from '@phosphor-icons/react'
+import {
+  Seal,
+  Eye,
+  KeyReturn,
+  ArrowsClockwise,
+  MagnifyingGlass,
+  WifiSlash,
+} from '@phosphor-icons/react'
 import { Reveal } from '@/components/motion/Reveal'
 import { DoubleBezel } from '@/components/ui/DoubleBezel'
 import { EmployeeKeyInput } from '@/components/employee/EmployeeKeyInput'
@@ -39,13 +46,16 @@ const EASE_BRAND = [0.32, 0.72, 0, 1] as const
 type ChipTone = 'muted' | 'accent' | 'warn'
 
 function StatusChip({ state }: { state: DashboardState }) {
+  // The chip is a calm status marker, not an alarm. invalid/error stay muted
+  // (the input ring + the panel below already carry the corrective signal), so
+  // the header never shouts a red "Invalid key" over the whole page.
   const map: Record<DashboardState, { label: string; tone: ChipTone; icon: ReactNode }> = {
-    idle:     { label: 'Sealed',       tone: 'muted',  icon: <Seal size={13} weight="fill" /> },
+    idle:     { label: 'Sealed',        tone: 'muted',  icon: <Seal size={13} weight="fill" /> },
     scanning: { label: 'Scanning pool', tone: 'accent', icon: <Eye size={13} /> },
-    done:     { label: 'Notes found',  tone: 'accent', icon: <Eye size={13} weight="fill" /> },
-    empty:    { label: 'No notes',     tone: 'muted',  icon: <Seal size={13} /> },
-    invalid:  { label: 'Invalid key',  tone: 'warn',   icon: <Warning size={13} weight="fill" /> },
-    error:    { label: 'Scan failed',  tone: 'warn',   icon: <Warning size={13} weight="fill" /> },
+    done:     { label: 'Notes found',   tone: 'accent', icon: <Eye size={13} weight="fill" /> },
+    empty:    { label: 'No notes',      tone: 'muted',  icon: <Seal size={13} /> },
+    invalid:  { label: 'Check key',     tone: 'muted',  icon: <KeyReturn size={13} /> },
+    error:    { label: 'Retry',         tone: 'muted',  icon: <ArrowsClockwise size={13} /> },
   }
   const { label, tone, icon } = map[state]
   const toneClass =
@@ -59,6 +69,55 @@ function StatusChip({ state }: { state: DashboardState }) {
       </span>
       {label}
     </span>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// StatePanel — editorial empty/invalid/error surface (icon medallion + copy)
+// ---------------------------------------------------------------------------
+
+/**
+ * A single visual language for the non-result states so they read as part of the
+ * dashboard, not a generic gray alert box. Each state gets a themed medallion
+ * (icon in a tinted ring), a short title, and one calm explanatory line.
+ *
+ * tone:
+ *   'warm' — corrective/transient (invalid key, network error): amber accent.
+ *   'calm' — valid key, nothing yet (empty): neutral accent, no alarm. A valid
+ *            key with no notes is the sealed model working, not an error.
+ */
+function StatePanel({
+  testId,
+  tone,
+  icon,
+  title,
+  body,
+}: {
+  testId: string
+  tone: 'warm' | 'calm'
+  icon: ReactNode
+  title: string
+  body: string
+}) {
+  const medallion =
+    tone === 'warm'
+      ? 'bg-accent-warm/10 text-accent-warm ring-accent-warm/25'
+      : 'bg-accent/10 text-accent-soft ring-hairline'
+  return (
+    <div className="flex items-start gap-4" data-testid={testId}>
+      <span
+        className={`mt-0.5 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl ring-1 ${medallion}`}
+        aria-hidden
+      >
+        {icon}
+      </span>
+      <div className="flex flex-col gap-1.5">
+        <h3 className="text-base font-[700] tracking-[-0.01em] text-ink leading-snug">
+          {title}
+        </h3>
+        <p className="text-sm text-ink-muted leading-relaxed max-w-[54ch]">{body}</p>
+      </div>
+    </div>
   )
 }
 
@@ -259,35 +318,38 @@ export default function EmployeePage() {
           )}
 
           {state === 'invalid' && (
-            <DoubleBezel radius="2rem" className="px-6 py-6">
-              <p className="flex items-start gap-2.5 text-ink" data-testid="employee-invalid">
-                <Warning size={18} weight="fill" aria-hidden className="mt-0.5 shrink-0 text-accent-warm" />
-                <span>
-                  That doesn&apos;t look like a valid employee key. Paste a 64-character hex
-                  key or the base64 stable key from your employer.
-                </span>
-              </p>
+            <DoubleBezel radius="2rem" className="px-6 py-7">
+              <StatePanel
+                testId="employee-invalid"
+                tone="warm"
+                icon={<KeyReturn size={20} weight="bold" aria-hidden />}
+                title="That key didn't parse"
+                body="An employee key is a 64-character hex string (or the base64 key from Generate one). Check for a missing or extra character and paste it again."
+              />
             </DoubleBezel>
           )}
 
           {state === 'error' && (
-            <DoubleBezel radius="2rem" className="px-6 py-6">
-              <p className="flex items-start gap-2.5 text-ink" data-testid="employee-error">
-                <Warning size={18} weight="fill" aria-hidden className="mt-0.5 shrink-0 text-accent-warm" />
-                <span>
-                  Could not scan the pool (network or pool error). Try again.
-                </span>
-              </p>
+            <DoubleBezel radius="2rem" className="px-6 py-7">
+              <StatePanel
+                testId="employee-error"
+                tone="warm"
+                icon={<WifiSlash size={20} weight="bold" aria-hidden />}
+                title="Couldn't reach the pool"
+                body="A network or pool error interrupted the scan. Your key never left the browser. Click Scan pool to try again."
+              />
             </DoubleBezel>
           )}
 
           {state === 'empty' && (
-            <DoubleBezel radius="2rem" className="px-6 py-6">
-              <p className="text-ink-muted leading-relaxed" data-testid="employee-empty">
-                This key is valid but no notes were found in the pool. If you have
-                recently received a payment, wait for the transaction to confirm and
-                scan again.
-              </p>
+            <DoubleBezel radius="2rem" className="px-6 py-7">
+              <StatePanel
+                testId="employee-empty"
+                tone="calm"
+                icon={<MagnifyingGlass size={20} weight="bold" aria-hidden />}
+                title="Key is valid, nothing sealed to it yet"
+                body="No notes in the pool decrypt under this key. If your employer just ran payroll, wait for the deposit to confirm on-chain, then scan again."
+              />
             </DoubleBezel>
           )}
 
