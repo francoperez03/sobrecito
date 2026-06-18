@@ -379,13 +379,8 @@ function toRows(events: ScannedEvent[]): PayrollRow[] {
       index: event.index + 1,
       // Display the commitment as a decimal string; truncation handled in PayrollTable.
       commitmentHex: event.commitment.toString(),
-      status: 'proven' as const,
-      date: `ledger ${event.ledger}`,
+      date: String(event.ledger),
       explorerUrl: event.txHash ? explorerTxUrl(event.txHash) : undefined,
-      // TODO(06.3): set claimStatus from NullifierSpentEvent scanner once
-      // phase 06.3 (plans 02–04) delivers the nullifier scanner. Until then,
-      // leave undefined so ClaimCell renders "—" gracefully.
-      claimStatus: undefined,
     }))
 }
 
