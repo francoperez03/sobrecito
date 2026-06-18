@@ -31,10 +31,10 @@ export interface ClaimStepperProps {
 // ---------------------------------------------------------------------------
 
 const STEPS = [
-  { key: 'fetching-proof', label: '1. Obteniendo Merkle proof' },
-  { key: 'downloading',    label: '2. Descargando motor de pruebas' },
-  { key: 'proving',        label: '3. Generando prueba ZK' },
-  { key: 'signing',        label: '4. Firma en Freighter' },
+  { key: 'fetching-proof', label: '1. Fetching Merkle proof' },
+  { key: 'downloading',    label: '2. Downloading proving engine' },
+  { key: 'proving',        label: '3. Generating ZK proof' },
+  { key: 'signing',        label: '4. Sign in Freighter' },
 ] as const
 
 function stepIndex(phase: string): number {
@@ -158,9 +158,9 @@ export function ClaimStepper({ step }: ClaimStepperProps) {
                           <span className="text-xs text-ink-muted font-mono">
                             {step.total > 0
                               ? `${formatBytes(step.loaded)} / ${formatBytes(step.total)}`
-                              : 'Descargando…'}
+                              : 'Downloading…'}
                             {' · '}
-                            <span className="text-accent-soft">se cachea tras la primera vez</span>
+                            <span className="text-accent-soft">cached after the first time</span>
                           </span>
                           {step.message && (
                             <span className="text-xs text-ink-muted/60">{step.message}</span>
@@ -177,10 +177,10 @@ export function ClaimStepper({ step }: ClaimStepperProps) {
                           className="flex flex-col gap-1.5"
                         >
                           <span className="font-mono text-xs text-accent-soft">
-                            {step.elapsed}s transcurridos (~20-40s en total)
+                            {step.elapsed}s elapsed (~20-40s total)
                           </span>
                           <div className="bg-accent/10 text-accent-soft text-xs px-3 py-1.5 rounded-full self-start">
-                            Corre local, no se sube nada.
+                            Runs locally, nothing is uploaded.
                           </div>
                         </motion.div>
                       )}
@@ -194,8 +194,8 @@ export function ClaimStepper({ step }: ClaimStepperProps) {
                         >
                           <span className="text-xs text-ink-muted">
                             {step.phase === 'signing'
-                              ? 'Aceptá la transacción en Freighter…'
-                              : 'Enviando a la red…'}
+                              ? 'Approve the transaction in Freighter…'
+                              : 'Submitting to the network…'}
                           </span>
                         </motion.div>
                       )}
@@ -258,7 +258,7 @@ export function ClaimStepper({ step }: ClaimStepperProps) {
             step.phase === 'downloading' ||
             step.phase === 'proving') && (
             <div className="bg-accent-warm/10 text-accent-warm text-xs px-3 py-2 rounded-full self-start">
-              Demo PoC · testnet · al cobrar el monto queda visible on-chain.
+              Demo PoC · testnet · claiming reveals the amount on-chain.
             </div>
           )}
 
