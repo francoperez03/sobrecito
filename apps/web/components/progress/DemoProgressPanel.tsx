@@ -24,12 +24,14 @@ import { EASE_OUT } from '@/lib/motion'
  * product flow; each step ticks when the visitor performs the real action (see
  * lib/progressStore). It teaches the flow and tracks progress at once.
  *
- * Closed on load: a progress value restored from localStorage never auto-opens
- * (the first value observed after mount is a silent baseline). When a step
- * genuinely ticks, the panel opens, the freshly-checked step pulses once, and it
- * closes itself after a beat — deferred until the pointer leaves if you are
- * hovering, so it never demands a manual close. The per-step hint ("Go to … /
- * click …") renders inline under the active step and follows it down the list.
+ * Opens on entry: the panel slides open once the page loads so the visitor sees
+ * the flow to run, and stays open until they close it (no auto-close on the
+ * entry open). A progress value restored from localStorage is still a silent
+ * baseline — it never re-triggers the open/pulse logic. When a step genuinely
+ * ticks, the panel opens, the freshly-checked step pulses once, and it closes
+ * itself after a beat — deferred until the pointer leaves if you are hovering,
+ * so it never demands a manual close. The per-step hint ("Go to … / click …")
+ * renders inline under the active step and follows it down the list.
  * Reduced-motion = instant.
  */
 
@@ -65,6 +67,16 @@ export function DemoProgressPanel() {
   useEffect(() => {
     setMounted(true)
   }, [])
+
+  // Open on entry. Deferred to the next frame so AnimatePresence renders once
+  // closed and the panel animates in (instead of popping open). The tick-driven
+  // auto-close never fires for this open, so it stays open until the visitor
+  // closes it or navigates away.
+  useEffect(() => {
+    if (!mounted) return
+    const id = requestAnimationFrame(() => setOpen(true))
+    return () => cancelAnimationFrame(id)
+  }, [mounted])
 
   // Open + pulse + schedule auto-close on a genuine step tick (never on the
   // restored baseline / page load).

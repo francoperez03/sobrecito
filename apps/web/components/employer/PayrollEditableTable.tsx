@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { CaretDown } from '@phosphor-icons/react'
 import { DenominationChips } from './DenominationChips'
+import { EmployeeKeyField } from './EmployeeKeyField'
 import { countNotes } from '@/lib/zk/denominationBuilder'
 import { usdcToBaseUnits, USDC_SCALE } from '@/lib/csvParser'
 import { EASE_BRAND } from '@/lib/motion'
@@ -35,9 +36,10 @@ export interface PayrollEditableTableProps {
  * "View details" toggle fades in; clicking it expands the chips downward (the
  * input row stays put).
  *
- * The roster selector (above the public-key input) lets the employer pick a saved
- * employee alias to autofill the public key column. Hidden when the roster is empty
- * to avoid visual noise.
+ * The public-key cell is a single EmployeeKeyField combobox: the employer can
+ * paste a 128-hex key directly, or type to search the saved-employee library
+ * (loaded on the employee console) and pick an entry. When the value resolves to
+ * a saved employee, the field shows that alias inline.
  */
 export function PayrollEditableTable({ rows, onChange }: PayrollEditableTableProps) {
   // Indices of rows whose denomination breakdown is expanded.
@@ -132,39 +134,14 @@ export function PayrollEditableTable({ rows, onChange }: PayrollEditableTablePro
               <div className="grid grid-cols-[auto_6fr_1fr_3fr_auto] gap-4 py-3 items-center">
                 <span className="text-sm text-ink-muted tabular-nums">{i + 1}</span>
 
-                {/* Public key column: roster selector (when available) + text input */}
-                <div className="flex flex-col gap-1 min-w-0">
-                  {roster.length > 0 && (
-                    <select
-                      data-testid={`roster-select-${i}`}
-                      defaultValue=""
-                      onChange={(e) => {
-                        const entry = roster.find((r) => r.alias === e.target.value)
-                        if (entry) handleCellChange(i, 'publicKey', entry.publicKey)
-                        // Reset to placeholder after autocomplete so the select
-                        // doesn't show a stale alias when the user edits the input.
-                        e.target.value = ''
-                      }}
-                      className="text-xs bg-bg text-ink-muted border border-white/10 rounded py-0.5 px-1.5 focus:border-accent outline-none w-full"
-                    >
-                      <option value="" disabled>
-                        Select saved employee
-                      </option>
-                      {roster.map((entry) => (
-                        <option key={entry.alias} value={entry.alias}>
-                          {entry.alias}
-                        </option>
-                      ))}
-                    </select>
-                  )}
-                  <input
-                    type="text"
-                    placeholder="employee public key (128-hex)"
-                    value={row.publicKey}
-                    onChange={(e) => handleCellChange(i, 'publicKey', e.target.value)}
-                    className="font-mono text-sm text-ink-muted bg-transparent border-b border-white/10 focus:border-accent outline-none py-1 w-full min-w-0"
-                  />
-                </div>
+                {/* Public key column: one field — paste a key, or search the
+                    saved-employee library and pick one. */}
+                <EmployeeKeyField
+                  rowIndex={i}
+                  value={row.publicKey}
+                  onChange={(v) => handleCellChange(i, 'publicKey', v)}
+                  roster={roster}
+                />
 
                 <input
                   type="text"

@@ -60,6 +60,9 @@ importers:
       '@types/react':
         specifier: ^19.2.17
         version: 19.2.17
+      '@types/react-dom':
+        specifier: ^19
+        version: 19.2.3(@types/react@19.2.17)
       tailwindcss:
         specifier: 4.3.1
         version: 4.3.1
@@ -1382,6 +1385,14 @@ packages:
     resolution: {integrity: sha512-603BddQMv3pUcr4U2dhujk83N2tTDVr/34wII2B6bJy6g+8WD6yUb11jszNs0gdi4PesVWl7ABt8nYMVpnLUcg==}
     dependencies:
       undici-types: 7.24.6
+    dev: true
+
+  /@types/react-dom@19.2.3(@types/react@19.2.17):
+    resolution: {integrity: sha512-jp2L/eY6fn+KgVVQAOqYItbF0VY/YApe5Mz2F0aykSO8gx31bYCZyvSeYxCHKvzHG5eZjc+zyaS5BrBWya2+kQ==}
+    peerDependencies:
+      '@types/react': ^19.2.0
+    dependencies:
+      '@types/react': 19.2.17
     dev: true
 
   /@types/react@19.2.17:
