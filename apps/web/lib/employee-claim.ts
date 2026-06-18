@@ -97,7 +97,9 @@ export async function claimNote(
     path = await fetchMerkleProof(note.index)
   } catch {
     // A2 fallback: reconstruct from event history (pool.get_proof absent in pool.rs).
-    path = reconstructMerklePathFromEvents(scannedEvents, note.index)
+    // Uses the WASM MerkleTree (real Poseidon2) so the path elements are valid
+    // field elements the withdraw witness generator accepts.
+    path = await reconstructMerklePathFromEvents(scannedEvents, note.index)
   }
 
   // Step 2: download and initialize the in-browser WASM prover.

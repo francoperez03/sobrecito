@@ -88,7 +88,12 @@ async function getModule(): Promise<ProverClientModule> {
 export async function configureProver(): Promise<void> {
   if (typeof window === 'undefined') return
   const pc = await getModule()
-  pc.configure(CIRCUIT_CONFIG)
+  // The worker falls back to its DEFAULT_CONFIG (policy_tx_1_8 URLs) when the
+  // bundle does not export a `configure` hook, so a missing function is not a
+  // failure — guard it instead of throwing into the claim/deposit flow.
+  if (typeof pc.configure === 'function') {
+    pc.configure(CIRCUIT_CONFIG)
+  }
 }
 
 /**
@@ -175,6 +180,30 @@ export async function computeNullifier(
     pathIndices.toString(10),
   )
   return BigInt(decResult)
+}
+
+/**
+ * Reconstruct the Merkle path for a leaf via the WASM MerkleTree (real Poseidon2
+ * hash, the same one the circuit uses). A2 fallback for the employee claim when
+ * pool.get_proof is absent. The returned pathElements/pathIndices are decimal
+ * strings the withdraw witness builder consumes directly.
+ *
+ * Browser-only: the MerkleTree lives in the prover WASM bridge.
+ */
+export async function reconstructMerklePath(
+  leaves: bigint[],
+  targetIndex: number,
+  depth = 10,
+): Promise<{ pathElements: string[]; pathIndices: string }> {
+  if (typeof window === 'undefined') {
+    throw new Error('proverClient.reconstructMerklePath: browser-only')
+  }
+  const pc = await getModule()
+  return pc.reconstructMerklePath(
+    leaves.map((l) => l.toString(10)),
+    targetIndex,
+    depth,
+  ) as Promise<{ pathElements: string[]; pathIndices: string }>
 }
 
 /**

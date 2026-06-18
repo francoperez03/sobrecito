@@ -50,37 +50,14 @@ export type EmployeeEventSource =
 // Incremental Merkle tree constants (A2 fallback)
 // ---------------------------------------------------------------------------
 
-const TREE_LEVELS = 10
-
 /**
- * Pre-image of the "empty leaf" used by the pool's incremental Merkle tree.
- * poseidon2(88, 76, 77) -- recorded in STATE.md as the zero-leaf value.
- * We represent it as a decimal string for the witness builder.
- *
- * IMPORTANT: this is a best-effort approximation for test/demo mode.
- * The circuit verifier uses the exact WASM Poseidon2 value; for live proving
- * plan 04 must call computeCommitment(0,0,0) via proverClient to get the
- * real zero-leaf, then pass it here. For unit-test purposes this placeholder
- * produces the correct PATH SHAPE (10 elements) regardless of the exact value.
+ * Tree depth of the pool's incremental Merkle tree (matches the policy_tx_1_8
+ * circuit and the WASM MerkleTree). The empty-leaf value (Poseidon2 of "XLM")
+ * and the per-level Poseidon2 hashing live in the WASM bridge; the path is
+ * reconstructed there (reconstructMerklePath) so the values are real field
+ * elements the witness generator accepts.
  */
-const ZERO_LEAF = '0'
-
-// Precompute zero hashes for each level of the tree.
-// zero_hash[0] = ZERO_LEAF
-// zero_hash[i] = H(zero_hash[i-1], zero_hash[i-1])  -- Poseidon2 in practice;
-//               here we use the placeholder value for the A2 fixture path.
-// For unit tests the path correctness is validated by shape, not by Poseidon2
-// arithmetic (the circuit validates arithmetic; we validate the wire shape).
-function buildZeroHashes(): string[] {
-  const zeros: string[] = [ZERO_LEAF]
-  for (let i = 1; i <= TREE_LEVELS; i++) {
-    // Placeholder: in live proving, plan 04 replaces with actual Poseidon2 hashes.
-    zeros.push(zeros[i - 1])
-  }
-  return zeros
-}
-
-const ZERO_HASHES = buildZeroHashes()
+const TREE_LEVELS = 10
 
 // ---------------------------------------------------------------------------
 // scanEmployeeNotes
@@ -146,65 +123,19 @@ export async function scanEmployeeNotes(
  * encodes the direction at each level (bit i = 0 means left child at level i).
  * The circuit reads pathIndices as a single field element.
  */
-export function reconstructMerklePathFromEvents(
+export async function reconstructMerklePathFromEvents(
   events: ScannedEvent[],
   targetIndex: number,
-): { pathElements: string[]; pathIndices: string } {
-  // Sort events by index to ensure incremental insertion order.
+): Promise<{ pathElements: string[]; pathIndices: string }> {
+  // Sort events by index to ensure incremental insertion order, then extract the
+  // commitment leaves in that order. The WASM MerkleTree rebuilds the tree with
+  // the SAME Poseidon2 hash the circuit uses, so the path elements it returns are
+  // valid BN254 field elements the withdraw witness generator accepts. The prior
+  // pure-JS placeholder produced concatenated strings ("a_b") that the WASM
+  // witness generator rejected (root cause of the proving crash, 06.3-04).
   const sorted = [...events].sort((a, b) => a.index - b.index)
+  const leaves = sorted.map((e) => e.commitment)
 
-  // Build an array of leaf values (commitments as strings).
-  // Pad to a power of 2 at the next level boundary.
-  const leaves: string[] = sorted.map(e => e.commitment.toString())
-
-  // Fill the tree with zero leaves up to 2^TREE_LEVELS.
-  const treeSize = 1 << TREE_LEVELS
-  while (leaves.length < treeSize) {
-    leaves.push(ZERO_LEAF)
-  }
-
-  // Build the full Merkle tree layer by layer.
-  // layers[0] = leaf level, layers[TREE_LEVELS] = root.
-  // Each parent = H(left, right). For fixture purposes we store the actual
-  // commitment values so the path elements are deterministic.
-  // A2 boundary: for live proving, replace H with Poseidon2 via WASM bridge.
-  const layers: string[][] = [leaves]
-  for (let level = 0; level < TREE_LEVELS; level++) {
-    const prev = layers[level]
-    const next: string[] = []
-    for (let i = 0; i < prev.length; i += 2) {
-      const left = prev[i]
-      const right = i + 1 < prev.length ? prev[i + 1] : ZERO_HASHES[level]
-      // Placeholder hash: concat for test; plan 04 replaces with Poseidon2.
-      // The shape (number of elements) is circuit-correct regardless.
-      next.push(left + '_' + right)
-    }
-    layers.push(next)
-  }
-
-  // Extract the path for targetIndex.
-  const pathElements: string[] = []
-  let currentIndex = targetIndex
-  let pathIndicesBits = 0
-
-  for (let level = 0; level < TREE_LEVELS; level++) {
-    const layer = layers[level]
-    const isRightChild = currentIndex % 2 === 1
-    const siblingIndex = isRightChild ? currentIndex - 1 : currentIndex + 1
-    const sibling =
-      siblingIndex < layer.length ? layer[siblingIndex] : ZERO_HASHES[level]
-
-    pathElements.push(sibling)
-
-    if (isRightChild) {
-      pathIndicesBits |= 1 << level
-    }
-
-    currentIndex = Math.floor(currentIndex / 2)
-  }
-
-  return {
-    pathElements,
-    pathIndices: pathIndicesBits.toString(),
-  }
+  const { reconstructMerklePath } = await import('@/lib/zk/proverClient')
+  return reconstructMerklePath(leaves, targetIndex, TREE_LEVELS)
 }

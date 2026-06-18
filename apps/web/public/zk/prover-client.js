@@ -357,6 +357,26 @@ export async function computeNullifier(privateKeyDec, blindingDec, pathIndicesDe
 }
 
 /**
+ * Reconstruct the Merkle path for a leaf by rebuilding the pool's incremental
+ * tree with the REAL circuit hash (Poseidon2 via the WASM MerkleTree). This is
+ * the A2 fallback used by the employee claim when pool.get_proof is absent.
+ *
+ * @param {string[]} leavesDec - Commitment leaves (decimal strings), insertion order
+ * @param {number}   targetIndex - Leaf index whose path to extract
+ * @param {number}   [depth=10]  - Tree depth (TREE_LEVELS)
+ * @returns {Promise<{ pathElements: string[]; pathIndices: string }>}
+ */
+export async function reconstructMerklePath(leavesDec, targetIndex, depth = 10) {
+    const result = await sendMessage('RECONSTRUCT_MERKLE_PATH', {
+        leavesDec: leavesDec.map(String),
+        targetIndex,
+        depth,
+    });
+
+    return { pathElements: result.pathElements, pathIndices: result.pathIndices };
+}
+
+/**
  * Get the verifying key.
  * @param {Object} options
  * @param {boolean} options.sorobanFormat - Return VK in Soroban-compatible format

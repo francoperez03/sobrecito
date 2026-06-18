@@ -6,11 +6,22 @@
  * fetchNullifierStatus (rpc.ts).
  */
 
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { deriveX25519 } from '@/lib/zk/keyDerivation'
 import { makeEmployeeFixtureEvents, EMPLOYEE_TEST_SEED_HEX } from '../fixtures/employeeFixtures'
 import { scanEmployeeNotes, reconstructMerklePathFromEvents } from '@/lib/employee-scan'
 import type { EmployeeNote } from '@/lib/employee-scan'
+
+// reconstructMerklePathFromEvents delegates the Poseidon2 tree build to the WASM
+// bridge (browser-only). In Node we mock that bridge call to assert the JS glue
+// (event sort -> leaf extraction -> delegation) and the returned path shape. The
+// real Poseidon2 arithmetic is exercised in the browser by the Playwright suite.
+vi.mock('@/lib/zk/proverClient', () => ({
+  reconstructMerklePath: vi.fn(async (leaves: bigint[], targetIndex: number, depth = 10) => ({
+    pathElements: Array(depth).fill('0'),
+    pathIndices: targetIndex.toString(),
+  })),
+}))
 
 function hexToBytes(hex: string): Uint8Array {
   const out = new Uint8Array(hex.length / 2)
@@ -69,7 +80,7 @@ describe('scanEmployeeNotes', () => {
 describe('reconstructMerklePathFromEvents', () => {
   it('returns an object with pathElements array and pathIndices string', async () => {
     const events = makeEmployeeFixtureEvents([BigInt(1), BigInt(2), BigInt(3)]) as never[]
-    const result = reconstructMerklePathFromEvents(events as never, 0)
+    const result = await reconstructMerklePathFromEvents(events as never, 0)
     expect(result).toHaveProperty('pathElements')
     expect(result).toHaveProperty('pathIndices')
     expect(Array.isArray(result.pathElements)).toBe(true)
@@ -78,15 +89,31 @@ describe('reconstructMerklePathFromEvents', () => {
 
   it('returns pathElements of the expected tree-depth length', async () => {
     const events = makeEmployeeFixtureEvents([BigInt(1), BigInt(2)]) as never[]
-    const result = reconstructMerklePathFromEvents(events as never, 0)
+    const result = await reconstructMerklePathFromEvents(events as never, 0)
     // Tree depth = 10 levels (from depositTransactionBuilder inPathElements pattern)
     expect(result.pathElements.length).toBe(10)
   })
 
   it('returns pathIndices as a string of bits (binary chars)', async () => {
     const events = makeEmployeeFixtureEvents([BigInt(1), BigInt(2)]) as never[]
-    const result = reconstructMerklePathFromEvents(events as never, 1)
+    const result = await reconstructMerklePathFromEvents(events as never, 1)
     // pathIndices should be a string (could be a bitmask or direction string)
     expect(typeof result.pathIndices).toBe('string')
+  })
+
+  it('sorts events by index before extracting leaves', async () => {
+    const { reconstructMerklePath } = await import('@/lib/zk/proverClient')
+    const mocked = vi.mocked(reconstructMerklePath)
+    mocked.mockClear()
+    // Events out of order; commitments tagged by index so we can assert ordering.
+    const events = [
+      { commitment: BigInt(30), index: 2, encryptedOutput: new Uint8Array(0), ledger: 3, txHash: 'c' },
+      { commitment: BigInt(10), index: 0, encryptedOutput: new Uint8Array(0), ledger: 1, txHash: 'a' },
+      { commitment: BigInt(20), index: 1, encryptedOutput: new Uint8Array(0), ledger: 2, txHash: 'b' },
+    ]
+    await reconstructMerklePathFromEvents(events as never, 0)
+    expect(mocked).toHaveBeenCalledOnce()
+    const [leaves] = mocked.mock.calls[0]
+    expect(leaves).toEqual([BigInt(10), BigInt(20), BigInt(30)])
   })
 })

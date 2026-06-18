@@ -597,6 +597,41 @@ function handleComputeNullifier(data) {
     return { success: false, error: error.message };
   }
 }
+async function handleReconstructMerklePath(data) {
+  try {
+    // Rebuild the pool's incremental Merkle tree with the REAL circuit hash
+    // (Poseidon2 via WASM MerkleTree) and extract the path for the target leaf.
+    // This is the A2 fallback for withdraw: pool.get_proof is absent, so the
+    // employee reconstructs the path from the commitment event history. The path
+    // elements MUST be Poseidon2 hashes (not a JS placeholder) or the circuit
+    // witness generator rejects them.
+    const { leavesDec, targetIndex, depth } = data;
+    // The bridge WASM (MerkleTree, zero_leaf) must be instantiated first.
+    await initProverWasm();
+    const treeDepth = typeof depth === "number" ? depth : 10;
+    // The pool uses a non-zero empty leaf: zero_leaf() = Poseidon2("XLM").
+    const tree = MerkleTree.new_with_zero_leaf(treeDepth, zero_leaf());
+    for (const leafDec of leavesDec) {
+      const leafBytes = hex_to_field_bytes(
+        "0x" + BigInt(leafDec).toString(16).padStart(64, "0")
+      );
+      tree.insert(leafBytes);
+    }
+    const proof = tree.get_proof(targetIndex);
+    // path_elements is flat (levels * 32 bytes, LE); split into per-level decimals.
+    const flat = proof.path_elements;
+    const levels = proof.levels;
+    const pathElements = [];
+    for (let i = 0; i < levels; i++) {
+      const slice = flat.slice(i * 32, i * 32 + 32);
+      pathElements.push(BigInt(field_bytes_to_hex(slice)).toString(10));
+    }
+    const pathIndicesDec = BigInt(field_bytes_to_hex(proof.path_indices)).toString(10);
+    return { success: true, pathElements, pathIndices: pathIndicesDec };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+}
 function handleGetVerifyingKey(data = {}) {
   if (!proverReady) {
     return { success: false, error: "Prover not initialized" };
@@ -671,6 +706,9 @@ self.onmessage = async function(event) {
       break;
     case "COMPUTE_NULLIFIER":
       result = handleComputeNullifier(data);
+      break;
+    case "RECONSTRUCT_MERKLE_PATH":
+      result = await handleReconstructMerklePath(data);
       break;
     // Info
     case "GET_VERIFYING_KEY":

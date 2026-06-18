@@ -196,6 +196,10 @@ export async function prove(_inputs, _opts) {
 export async function computeCommitment(_a, _p, _b) { return '1'; }
 export async function computeNullifier(_priv, _blind, _idx) { return '2'; }
 export async function derivePublicKey(_priv) { return new Uint8Array(32).fill(0); }
+export async function reconstructMerklePath(_leaves, _targetIndex, depth = 10) {
+  // Stub: return a decimal-string path of the requested depth (no real WASM).
+  return { pathElements: Array(depth).fill('3'), pathIndices: '0' };
+}
 `
     route.fulfill({
       status: 200,

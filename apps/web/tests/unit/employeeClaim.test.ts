@@ -40,7 +40,7 @@ vi.mock('@/lib/employee-scan', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/employee-scan')>()
   return {
     ...actual,
-    reconstructMerklePathFromEvents: vi.fn().mockReturnValue({ pathElements: Array(10).fill('0'), pathIndices: '0' }),
+    reconstructMerklePathFromEvents: vi.fn().mockResolvedValue({ pathElements: Array(10).fill('0'), pathIndices: '0' }),
   }
 })
 
