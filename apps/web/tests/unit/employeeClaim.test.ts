@@ -24,11 +24,24 @@ vi.mock('@/lib/zk/proverClient', () => ({
   initProver: vi.fn().mockResolvedValue(undefined),
   onProgress: vi.fn().mockReturnValue(() => {}),
   computeNullifier: vi.fn().mockResolvedValue(BigInt(42)),
+  computeCommitment: vi.fn().mockResolvedValue(BigInt(7)),
+  derivePublicKey: vi.fn().mockResolvedValue(BigInt(123)),
+  computeMembershipLeaf: vi.fn().mockResolvedValue(BigInt(456)),
+  reconstructMerklePath: vi
+    .fn()
+    .mockResolvedValue({ root: '1', pathElements: Array(10).fill('0'), pathIndices: '0' }),
   prove: vi.fn().mockResolvedValue({ proof: new Uint8Array(256).fill(1), publicInputs: new Uint8Array(32), sorobanFormat: true }),
 }))
 
 vi.mock('@/lib/zk/withdrawTransactionBuilder', () => ({
-  buildWithdrawInputs: vi.fn().mockReturnValue({}),
+  buildWithdrawInputs: vi.fn().mockReturnValue({
+    root: '1',
+    publicAmount: '0',
+    inputNullifier: ['42'],
+    outputCommitment: ['7'],
+    membershipRoots: [['1']],
+    nonMembershipRoots: [['2']],
+  }),
 }))
 
 vi.mock('@/lib/zk/depositTransactionBuilder', () => ({
