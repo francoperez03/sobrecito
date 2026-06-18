@@ -93,8 +93,8 @@ export function KeyGenerator({ onGenerated }: KeyGeneratorProps) {
         disabled={busy}
         data-testid="keygen-generate"
         className={[
-          'inline-flex items-center gap-2 bg-accent-fill text-white font-[900] text-sm px-5 h-[44px] rounded-full',
-          'hover:opacity-90 active:scale-[0.98] transition-all w-fit',
+          'inline-flex items-center gap-2 bg-surface text-ink font-[700] text-sm px-5 h-[44px] rounded-full w-fit',
+          'ring-1 ring-hairline hover:bg-white/5 active:scale-[0.98] transition-all',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
           'focus-visible:ring-offset-2 focus-visible:ring-offset-bg',
           busy ? 'opacity-80 animate-pulse cursor-wait' : '',
@@ -152,12 +152,10 @@ export function KeyGenerator({ onGenerated }: KeyGeneratorProps) {
               onClick={handleCopySeed}
               data-testid="keygen-copy-seed"
               className={[
-                'inline-flex items-center justify-center gap-2 w-fit px-5 h-[44px] rounded-full font-[900] text-sm transition-all',
-                'active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+                'inline-flex items-center justify-center gap-2 w-fit px-5 h-[44px] rounded-full font-[700] text-sm transition-all',
+                'ring-1 ring-hairline text-ink hover:bg-white/5 active:scale-[0.98]',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
                 'focus-visible:ring-offset-2 focus-visible:ring-offset-bg',
-                seedCopied
-                  ? 'bg-accent-soft/15 text-accent-soft ring-1 ring-accent-soft/30'
-                  : 'bg-ink text-bg hover:opacity-90',
               ].join(' ')}
             >
               {seedCopied ? (
