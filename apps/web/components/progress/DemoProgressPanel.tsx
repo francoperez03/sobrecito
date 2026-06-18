@@ -22,8 +22,15 @@ import { EASE_OUT } from '@/lib/motion'
 /**
  * Global demo-progress panel. Slides out from the top-left and shows the 5-step
  * product flow; each step ticks when the visitor performs the real action (see
- * lib/progressStore). It teaches the flow and tracks progress at once. Collapsed
- * by default; auto-opens briefly when a step ticks. Reduced-motion = instant.
+ * lib/progressStore). It teaches the flow and tracks progress at once.
+ *
+ * Closed on load: a progress value restored from localStorage never auto-opens
+ * (the first value observed after mount is a silent baseline). When a step
+ * genuinely ticks, the panel opens, the freshly-checked step pulses once, and it
+ * closes itself after a beat — deferred until the pointer leaves if you are
+ * hovering, so it never demands a manual close. The per-step hint ("Go to … /
+ * click …") renders inline under the active step and follows it down the list.
+ * Reduced-motion = instant.
  */
 
 // `cta` names the exact button to click on the destination tab.
@@ -42,28 +49,42 @@ export function DemoProgressPanel() {
   const reduce = useReducedMotion()
   const [mounted, setMounted] = useState(false)
   const [open, setOpen] = useState(false)
+  // Index of the step whose check should pulse once (the just-completed step).
+  const [pulseIdx, setPulseIdx] = useState<number | null>(null)
   const hovering = useRef(false)
+  // The first completed value observed after mount is a silent baseline: whatever
+  // localStorage restores must NOT auto-open the panel. Only increments past the
+  // baseline (genuine ticks) open it.
+  const baseline = useRef<number | null>(null)
   const prev = useRef(completed)
-  // Armed only after the hydration settle (server snapshot 0 -> real value) so the
-  // initial localStorage read is not mistaken for a fresh tick on page load.
-  const armed = useRef(false)
+  // Set when the auto-close timer fired while the pointer was over the panel —
+  // we then close on mouseleave instead, so the panel always closes itself.
+  const pendingClose = useRef(false)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     setMounted(true)
-    const t = setTimeout(() => {
-      armed.current = true
-    }, 200)
-    return () => clearTimeout(t)
   }, [])
 
-  // Auto-open for a moment whenever a new step ticks (only after arming).
+  // Open + pulse + schedule auto-close on a genuine step tick (never on the
+  // restored baseline / page load).
   useEffect(() => {
-    if (armed.current && completed > prev.current && completed > 0) {
+    if (baseline.current === null) {
+      baseline.current = completed
+      prev.current = completed
+      return
+    }
+    if (completed > prev.current && completed > 0) {
+      setPulseIdx(completed - 1)
       setOpen(true)
+      pendingClose.current = false
       if (timer.current) clearTimeout(timer.current)
       timer.current = setTimeout(() => {
-        if (!hovering.current) setOpen(false)
+        if (hovering.current) {
+          pendingClose.current = true // defer: close when the pointer leaves
+        } else {
+          setOpen(false)
+        }
       }, AUTO_CLOSE_MS)
     }
     prev.current = completed
@@ -77,20 +98,34 @@ export function DemoProgressPanel() {
 
   const done = completed >= TOTAL_STEPS
 
+  function handleMouseLeave() {
+    hovering.current = false
+    if (pendingClose.current) {
+      pendingClose.current = false
+      setOpen(false)
+    }
+  }
+
+  // Manual toggle wins: drop any deferred auto-close so it can't yank the panel
+  // shut while the user is reading it.
+  function toggleOpen() {
+    pendingClose.current = false
+    if (timer.current) clearTimeout(timer.current)
+    setOpen((o) => !o)
+  }
+
   return (
     <div
       className="fixed left-4 top-6 z-30 w-[min(20rem,calc(100vw-2rem))]"
       onMouseEnter={() => {
         hovering.current = true
       }}
-      onMouseLeave={() => {
-        hovering.current = false
-      }}
+      onMouseLeave={handleMouseLeave}
     >
       {/* Launcher */}
       <button
         type="button"
-        onClick={() => setOpen((o) => !o)}
+        onClick={toggleOpen}
         aria-expanded={open}
         aria-controls="demo-progress"
         aria-label={`Demo progress: ${completed} of ${TOTAL_STEPS} steps done`}
@@ -151,8 +186,13 @@ export function DemoProgressPanel() {
                         isNext ? 'bg-white/[0.03]' : ''
                       }`}
                     >
-                      {/* check / circle */}
-                      <span
+                      {/* check / circle — pulses once when this step just completed */}
+                      <motion.span
+                        animate={i === pulseIdx ? { scale: [1, 1.15, 1] } : { scale: 1 }}
+                        transition={{ duration: reduce ? 0 : 0.3, ease: EASE_OUT }}
+                        onAnimationComplete={() => {
+                          if (i === pulseIdx) setPulseIdx(null)
+                        }}
                         className={`grid size-5 shrink-0 place-items-center rounded-full ${
                           isDone
                             ? 'bg-accent-fill text-white'
@@ -163,7 +203,7 @@ export function DemoProgressPanel() {
                         aria-hidden
                       >
                         {isDone && <Check size={12} weight="bold" />}
-                      </span>
+                      </motion.span>
 
                       <StepIcon
                         size={15}
@@ -183,48 +223,70 @@ export function DemoProgressPanel() {
                         {s.role}
                       </span>
                     </Link>
+
+                    {/* Per-step detail, inline under the active step. It moves to a
+                        different slot as `completed` advances (isNext follows down). */}
+                    <AnimatePresence initial={false}>
+                      {isNext && (
+                        <motion.div
+                          key="step-hint"
+                          initial={reduce ? false : { opacity: 0, height: 0 }}
+                          animate={{ opacity: 1, height: 'auto' }}
+                          exit={reduce ? { opacity: 0 } : { opacity: 0, height: 0 }}
+                          transition={{ duration: reduce ? 0 : 0.22, ease: EASE_OUT }}
+                          className="overflow-hidden"
+                        >
+                          {/* pl aligns under the label: row px-2.5 + size-5 circle +
+                              gap-3 + ~15px icon + gap-3 ≈ 3.6rem. */}
+                          <Link
+                            href={s.href}
+                            onClick={() => setOpen(false)}
+                            className="group flex flex-col gap-0.5 pl-[3.6rem] pr-3 pb-2 pt-0.5 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent rounded"
+                          >
+                            <span className="inline-flex items-center gap-1.5 font-mono text-xs text-accent-soft transition-colors group-hover:text-accent">
+                              Go to {s.href}
+                              <ArrowRight
+                                size={12}
+                                weight="bold"
+                                className="transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] group-hover:translate-x-0.5"
+                              />
+                            </span>
+                            <span className="font-mono text-[0.625rem] text-ink-muted">
+                              click &ldquo;{s.cta}&rdquo;
+                            </span>
+                          </Link>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
                   </li>
                 )
               })}
             </ol>
 
-            <div className="border-t border-hairline px-3 py-2.5 flex items-start justify-between gap-3">
-              {completed < TOTAL_STEPS ? (
-                <Link
-                  href={STEPS[completed].href}
-                  onClick={() => setOpen(false)}
-                  className="group flex flex-col gap-0.5 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent rounded"
-                >
-                  <span className="inline-flex items-center gap-1.5 font-mono text-xs text-accent-soft transition-colors group-hover:text-accent">
-                    Go to {STEPS[completed].href}
-                    <ArrowRight
-                      size={12}
-                      weight="bold"
-                      className="transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] group-hover:translate-x-0.5"
-                    />
+            {/* Slim footer: renders only when there is something to show, so an
+                empty border-t never appears at completed === 0. */}
+            {completed > 0 && (
+              <div
+                className={`border-t border-hairline px-3 py-2.5 flex items-center gap-3 ${
+                  done ? 'justify-between' : 'justify-end'
+                }`}
+              >
+                {done && (
+                  <span className="inline-flex items-center gap-1.5 font-mono text-xs text-accent-soft">
+                    <Check size={12} weight="bold" aria-hidden />
+                    All steps done
                   </span>
-                  <span className="font-mono text-[0.625rem] text-ink-muted">
-                    click &ldquo;{STEPS[completed].cta}&rdquo;
-                  </span>
-                </Link>
-              ) : (
-                <span className="inline-flex items-center gap-1.5 font-mono text-xs text-accent-soft">
-                  <Check size={12} weight="bold" aria-hidden />
-                  All steps done
-                </span>
-              )}
-
-              {completed > 0 && (
+                )}
                 <button
                   type="button"
                   onClick={() => resetProgress()}
-                  className="shrink-0 mt-0.5 inline-flex items-center gap-1.5 font-mono text-[0.625rem] uppercase tracking-[0.16em] text-ink-muted transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent rounded"
+                  className="shrink-0 inline-flex items-center gap-1.5 font-mono text-[0.625rem] uppercase tracking-[0.16em] text-ink-muted transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent rounded"
                 >
                   <ArrowCounterClockwise size={12} weight="bold" />
                   Reset
                 </button>
-              )}
-            </div>
+              </div>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
