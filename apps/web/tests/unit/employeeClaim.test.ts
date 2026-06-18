@@ -44,10 +44,6 @@ vi.mock('@/lib/zk/withdrawTransactionBuilder', () => ({
   }),
 }))
 
-vi.mock('@/lib/zk/depositTransactionBuilder', () => ({
-  hashExtDataSobre: vi.fn().mockReturnValue({ bigInt: BigInt(0), bytes: new Uint8Array(32) }),
-}))
-
 vi.mock('@/lib/employee-scan', async (importOriginal) => {
   // We only stub reconstructMerklePathFromEvents here; types are imported normally.
   const actual = await importOriginal<typeof import('@/lib/employee-scan')>()
@@ -57,8 +53,18 @@ vi.mock('@/lib/employee-scan', async (importOriginal) => {
   }
 })
 
-vi.mock('@/lib/employee-unshield', () => ({
-  unshieldNote: vi.fn().mockResolvedValue({ hash: 'txhash_abc123', recipient: 'G_FAKE' }),
+// claimNote now reaches the chain through the adapter: wallet.connect (recipient +
+// access), encoding.hashExtData (ext_data binding), writer.withdraw (sign + submit).
+vi.mock('@/lib/chain', () => ({
+  getChainAdapter: () => ({
+    wallet: { connect: vi.fn().mockResolvedValue('GFAKE_CONNECTED') },
+    encoding: {
+      hashExtData: vi.fn().mockReturnValue({ bigInt: BigInt(0), bytes: new Uint8Array(32) }),
+    },
+    writer: {
+      withdraw: vi.fn().mockResolvedValue({ hash: 'txhash_abc123', recipient: 'G_FAKE' }),
+    },
+  }),
 }))
 
 // Import after mocks are registered.

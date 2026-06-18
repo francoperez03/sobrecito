@@ -34,9 +34,10 @@ export function createStellarWriter(config: ChainConfig, wallet: WalletAdapter):
   const { rpcUrl, networkId, baseFee, poolId } = config
 
   async function deposit(args: DepositArgs): Promise<DepositResult> {
-    // 1. Resolve sender + network guard.
-    const sender = args.sender ?? (await wallet.connect())
-    await wallet.assertExpectedNetwork()
+    // 1. Ensure wallet access + network guard (connect is idempotent). When the
+    //    caller pre-resolved the sender, use it as-is; otherwise the connected one.
+    const connected = await wallet.connect()
+    const sender = args.sender ?? connected
 
     const server = new StellarRpc.Server(rpcUrl)
     const source = await server.getAccount(sender)
@@ -67,10 +68,11 @@ export function createStellarWriter(config: ChainConfig, wallet: WalletAdapter):
   }
 
   async function withdraw(args: WithdrawArgs): Promise<WithdrawResult> {
-    // 1. Resolve recipient + network guard. When claimNote pre-resolved the
-    //    recipient (it binds into ext_data_hash), use it as-is.
-    const recipient = args.recipient ?? (await wallet.connect())
-    await wallet.assertExpectedNetwork()
+    // 1. Ensure wallet access + network guard (connect is idempotent). When
+    //    claimNote pre-resolved the recipient (it binds into ext_data_hash), use
+    //    it as-is; otherwise the connected address.
+    const connected = await wallet.connect()
+    const recipient = args.recipient ?? connected
 
     const server = new StellarRpc.Server(rpcUrl)
     const source = await server.getAccount(recipient)

@@ -21,8 +21,9 @@
  * reconstruction runs against real on-chain events.
  */
 
-import { scanCommitmentEvents, decodeDualBlob, decryptNote } from 'viewkey'
+import { decodeDualBlob, decryptNote } from 'viewkey'
 import type { ScannedEvent } from 'viewkey'
+import { getChainAdapter } from '@/lib/chain'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -78,7 +79,7 @@ export async function scanEmployeeNotes(
   const events =
     'events' in source
       ? source.events
-      : await scanCommitmentEvents(source)
+      : await getChainAdapter().events.scanCommitments({ fromLedger: source.fromLedger })
 
   const notes: EmployeeNote[] = []
 

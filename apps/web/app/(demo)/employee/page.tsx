@@ -23,11 +23,11 @@ import {
   reconstructMerklePathFromEvents,
   type EmployeeNote,
 } from '@/lib/employee-scan'
-import { readDeployments } from '@/lib/rpc'
+import { getChainAdapter } from '@/lib/chain'
 import { computeNullifier } from '@/lib/zk/proverClient'
 import { claimNote } from '@/lib/employee-claim'
 import { markStep } from '@/lib/progressStore'
-import { scanCommitmentEvents, scanSpentNullifiers, type ScannedEvent } from 'viewkey'
+import { type ScannedEvent } from 'viewkey'
 
 // ---------------------------------------------------------------------------
 // Dashboard state machine
@@ -169,11 +169,10 @@ export default function EmployeePage() {
       const { bn254Priv, x25519Priv } = await deriveEmployeeKeys(seed)
       setBn254PrivKey(bn254Priv)
 
-      const { rpcUrl, poolContractId, deploymentLedger } = readDeployments()
-      const source = { rpcUrl, poolContractId, fromLedger: deploymentLedger }
+      const events = getChainAdapter().events
       // Scan the pool ONCE; reuse the raw events for both note discovery and the
       // claim-time Merkle path reconstruction (a single RPC round-trip).
-      const allEvents = await scanCommitmentEvents(source)
+      const allEvents = await events.scanCommitments()
       const found = await scanEmployeeNotes(x25519Priv, { events: allEvents })
 
       if (found.length === 0) {
@@ -184,7 +183,7 @@ export default function EmployeePage() {
       // Determine claimed status from the pool's spent-nullifier event log.
       // pool.is_spent is a PRIVATE contract fn (not invocable via simulate), so we
       // read the set of burned nullifiers from the NewNullifierEvent log instead.
-      const spentNullifiers = await scanSpentNullifiers(source)
+      const spentNullifiers = await events.scanSpentNullifiers()
 
       const withStatus: EmployeeNoteWithStatus[] = await Promise.all(
         found.map(async (n) => {

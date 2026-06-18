@@ -1,11 +1,8 @@
 /**
  * depositTransactionBuilder.ts — 1→8 deposit witness assembly for policy_tx_1_8.
  *
- * Three exports:
- *   hashExtDataSobre   — keccak256(XDR(extData)) mod BN254. Field order is
- *                        alphabetical (encrypted_outputs → ext_amount → recipient)
- *                        matching pool.rs #[contracttype] XDR serialization. SPIKE-
- *                        confirmed byte-for-byte vs the contract (prefix 0b3f2759).
+ * Two exports (chain-agnostic domain logic — the ext_data_hash encoding moved to
+ * lib/chain/stellar/encoding.ts, reached via getChainAdapter().encoding.hashExtData):
  *   buildFrozenBlobs   — generate one blinding per note, encrypt each note payload
  *                        to BOTH the employee AND the auditor pubkey (dual ECIES),
  *                        and return the 8 frozen blobs + 8 blindings in one call.
@@ -20,8 +17,6 @@
  * No default export — callers import named functions.
  */
 
-import { keccak_256 } from '@noble/hashes/sha3.js'
-import { Address, XdrLargeInt, xdr } from '@stellar/stellar-sdk'
 import { encryptNote, buildEncryptedOutputs, BN254_FIELD_MODULUS } from 'viewkey'
 import type { DenomNote } from './denominationBuilder'
 
@@ -40,75 +35,6 @@ const BN254_MOD = BigInt('218882428718392752222464057452572750885483644004160343
 // the proof is locally invalid. Aligned with the Rust payroll-proof-gen reference
 // (priv_key = Scalar::from(424242u64)) and ops/scripts/measure-verify-cost.sh.
 const DUMMY_PRIVKEY = BigInt(424242)
-
-// ---------------------------------------------------------------------------
-// hashExtDataSobre
-// ---------------------------------------------------------------------------
-
-/**
- * Compute the ext_data_hash for a pool.transact call.
- *
- * The Sobre pool's ExtData is `{ recipient, ext_amount, encrypted_outputs: Vec<Bytes> }`.
- * Soroban #[contracttype] serializes struct fields in ALPHABETICAL order, so the
- * XDR map entries are: encrypted_outputs → ext_amount → recipient.
- *
- * Algorithm:
- *   1. Build an ScMap from the three fields in alphabetical order.
- *   2. Serialize to XDR bytes via scvMap().toXDR().
- *   3. keccak256 the bytes.
- *   4. Reduce the 256-bit digest modulo BN254_FIELD_MODULUS.
- *
- * SPIKE-confirmed: the demo fixture (mikey, ext_amount=0, 8 empty blobs)
- * produces `0b3f2759b68a3bf239da2b7d987c95c9373c5595623ae21d334f01c123c66056`,
- * matching the contract byte-for-byte.
- */
-export function hashExtDataSobre(params: {
-  recipient: string
-  ext_amount: bigint
-  encrypted_outputs: Uint8Array[]
-}): { bigInt: bigint; bytes: Uint8Array } {
-  // Build the three map entries — alphabetical order is: encrypted_outputs, ext_amount, recipient
-  const entries = [
-    {
-      key: 'encrypted_outputs',
-      val: xdr.ScVal.scvVec(
-        params.encrypted_outputs.map(b => xdr.ScVal.scvBytes(Buffer.from(b))),
-      ),
-    },
-    {
-      key: 'ext_amount',
-      val: new XdrLargeInt('i256', params.ext_amount.toString()).toScVal(),
-    },
-    {
-      key: 'recipient',
-      val: Address.fromString(params.recipient).toScVal(),
-    },
-  ]
-
-  // Sort alphabetically (the pool contract serializes fields in this order)
-  entries.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
-
-  const scEntries = entries.map(
-    e => new xdr.ScMapEntry({ key: xdr.ScVal.scvSymbol(e.key), val: e.val }),
-  )
-  const xdrBytes = xdr.ScVal.scvMap(scEntries).toXDR()
-  const digest = keccak_256(xdrBytes)
-
-  // Reduce the 32-byte big-endian digest into the BN254 scalar field
-  let digestBig = BigInt(0)
-  for (const byte of digest) {
-    digestBig = (digestBig << BigInt(8)) | BigInt(byte)
-  }
-  const reduced = digestBig % BN254_MOD
-
-  // Return both the bigint and a 32-byte big-endian representation
-  const hexPadded = reduced.toString(16).padStart(64, '0')
-  const bytes = new Uint8Array(32)
-  for (let i = 0; i < 32; i++) {
-    bytes[i] = parseInt(hexPadded.slice(i * 2, i * 2 + 2), 16)
-  }
-  return { bigInt: reduced, bytes }
-}
 
 // ---------------------------------------------------------------------------
 // buildFrozenBlobs — SINGLE CALL SITE (Pitfall 2)
