@@ -24,15 +24,13 @@ function roleFromPath(pathname: string): string | null {
   return null
 }
 
-// Pre-generated demo claim token (one note of the live testnet batch) so
-// "Play as → Employee" opens a real claim card instead of the invalid-link state.
-const EMPLOYEE_DEMO_TOKEN =
-  'eyJwb29sQ29udHJhY3RJZCI6IkNESEo2VzVaQ0s3U1RORUQ3QVQ3U0tDVVJRREZWQ0ZKTDZaQkY2WFc3UU1QT0lCS0hBT0xDVkwyIiwiY29tbWl0bWVudEluZGV4IjoyMCwiYW1vdW50IjoiMjUwMDAwMCIsIm5vdGVQcml2a2V5SGV4IjoiMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMCIsImJsaW5kaW5nIjoiMzAwNCJ9'
-
 // The three demo surfaces. "Play as" lets a visitor step into each role.
 // Employee leads (the salary-claim story) before Employer.
+// Employee points straight at the stable-key dashboard. The old per-token route
+// (/employee/[token]) was retired in 06.3 and only redirects here, so linking it
+// produced a long token URL that bounced to /employee — link /employee directly.
 const PLAY_AS = [
-  { label: 'Employee', href: `/employee/${EMPLOYEE_DEMO_TOKEN}` },
+  { label: 'Employee', href: '/employee' },
   { label: 'Employer', href: '/employer' },
   { label: 'Auditor', href: '/auditor' },
 ]
