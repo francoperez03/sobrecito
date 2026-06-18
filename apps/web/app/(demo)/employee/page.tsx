@@ -18,7 +18,11 @@ import { DashboardSummary } from '@/components/employee/DashboardSummary'
 import { NoteCard } from '@/components/employee/NoteCard'
 import { ClaimStepper, type ClaimStep } from '@/components/employee/ClaimStepper'
 import { parseEmployeeKey, deriveEmployeeKeys } from '@/lib/zk/keyDerivation'
-import { scanEmployeeNotes, type EmployeeNote } from '@/lib/employee-scan'
+import {
+  scanEmployeeNotes,
+  reconstructMerklePathFromEvents,
+  type EmployeeNote,
+} from '@/lib/employee-scan'
 import { fetchNullifierStatus, readDeployments } from '@/lib/rpc'
 import { computeNullifier } from '@/lib/zk/proverClient'
 import { claimNote } from '@/lib/employee-claim'
@@ -181,8 +185,20 @@ export default function EmployeePage() {
         found.map(async (n) => {
           let status: NoteStatus = 'pending'
           try {
-            // computeNullifier calls WASM; SSR guard is inside proverClient.
-            const nullifier = await computeNullifier(bn254Priv, n.blinding, BigInt(0))
+            // The spent nullifier is bound to the note's REAL amount and Merkle
+            // path index (see claimNote: computeNullifier with path.pathIndices +
+            // note.amount). The status check MUST recompute it the same way, or it
+            // queries a nullifier that was never recorded on-chain and the note
+            // keeps showing "claimable" even after a successful claim. We rebuild
+            // the same path the claim uses (reconstruct from the full event
+            // history) so the index matches exactly.
+            const { pathIndices } = await reconstructMerklePathFromEvents(allEvents, n.index)
+            const nullifier = await computeNullifier(
+              bn254Priv,
+              n.blinding,
+              BigInt(pathIndices),
+              n.amount,
+            )
             const spent = await fetchNullifierStatus(nullifier)
             status = spent ? 'claimed' : 'pending'
           } catch {

@@ -164,22 +164,6 @@ export async function claimNote(
     },
   })
 
-  // --- CLAIM DIAGNOSTICS (temporary): pinpoint the withdraw R1CS failure ---
-  const reconRoot = (path as { root?: string }).root
-  const inCommitment = (await computeCommitment(note.amount, employeePubkey, note.blinding)).toString()
-  console.log('[Claim] === WITHDRAW DIAGNOSTICS ===')
-  console.log('[Claim] poolRoot (fetched, = circuit root input):', poolRoot)
-  console.log('[Claim] reconstructed pool root from events     :', reconRoot)
-  console.log('[Claim] POOL ROOT MATCH:', reconRoot === poolRoot ? '✓' : '✗')
-  console.log('[Claim] note.index:', note.index, '· amount:', note.amount.toString())
-  console.log('[Claim] path.pathIndices:', path.pathIndices)
-  console.log('[Claim] note.commitment (on-chain leaf):', note.commitment.toString())
-  console.log('[Claim] computed inCommitment Poseidon2(amount,bn254Pub,blinding):', inCommitment)
-  console.log('[Claim] IN-COMMITMENT MATCH:', inCommitment === note.commitment.toString() ? '✓' : '✗')
-  console.log('[Claim] employeePubkey:', employeePubkey.toString(), '· membershipLeaf:', membershipLeaf.toString())
-  console.log('[Claim] inputNullifier:', inputNullifier.toString())
-  // --- END CLAIM DIAGNOSTICS ---
-
   let elapsed = 0
   const timer = setInterval(() => {
     elapsed++
