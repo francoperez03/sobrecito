@@ -11,18 +11,54 @@
  * nothing. `--verbose` prints the honest-disclosure footnote on start.
  */
 import { randomBytes } from "node:crypto";
-import { x25519 } from "@noble/curves/ed25519.js";
+import { readFileSync } from "node:fs";
 import { parseCSV } from "../pipeline/parseCSV.js";
 import { genBatchFromCSV } from "../pipeline/genKeys.js";
 import { proofGen } from "../pipeline/proofGen.js";
 import { submitBatch } from "../pipeline/submit.js";
-import { OUT_DIR } from "../pipeline/paths.js";
+import { OUT_DIR, deploymentsJson } from "../pipeline/paths.js";
 import { step, successSummary, formatUsdc, HONEST_DISCLOSURE } from "../output.js";
 
 export interface PayOptions {
   dryRun?: boolean;
   verbose?: boolean;
   network?: string;
+}
+
+/** Convert a 64-char hex string to a 32-byte Uint8Array. */
+function hexToBytes(hex: string): Uint8Array {
+  const out = new Uint8Array(32);
+  for (let i = 0; i < 32; i++) {
+    out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  }
+  return out;
+}
+
+/**
+ * Load the auditor public key from deployments.json for the given network.
+ * Throws clearly when the key is missing, all zeros, or not valid 64-char hex.
+ * The CLI never mints or holds the auditor private key: the auditor publishes
+ * its pubkey and keeps the private key outside the CLI.
+ */
+function loadAuditorPubkey(network: string): Uint8Array {
+  const path = deploymentsJson(network);
+  const deployments = JSON.parse(readFileSync(path, "utf8")) as {
+    auditorPubkeyHex?: string;
+  };
+  const hex = deployments.auditorPubkeyHex ?? "";
+
+  if (!hex || /^0+$/.test(hex)) {
+    throw new Error(
+      `auditorPubkeyHex is missing or all zeros in ${path}. ` +
+        "Run the Phase 06.1 auditor keygen and set auditorPubkeyHex in deployments.json before paying.",
+    );
+  }
+  if (!/^[0-9a-fA-F]{64}$/.test(hex)) {
+    throw new Error(
+      `auditorPubkeyHex in ${path} must be exactly 64 hex characters (32 bytes), got: "${hex}"`,
+    );
+  }
+  return hexToBytes(hex);
 }
 
 /**
@@ -49,15 +85,13 @@ export function payCommand(file: string, opts: PayOptions = {}): void {
   const names = rows.map((r) => r.name);
   const blindings = rows.map((_, i) => BigInt(3000 + i));
 
-  // Auditor keypair: generate a fresh one for this batch (persisted in keys.json).
-  // A real deployment would load the auditor's published pubkey; for the demo the
-  // CLI mints the pair so the auditor console can reconstruct against it.
-  const auditorPriv = x25519.utils.randomSecretKey();
-  const auditorPub = x25519.getPublicKey(auditorPriv);
+  // Auditor pubkey: loaded from deployments.json for the target network.
+  // The auditor publishes its pubkey; the CLI encrypts to it and never holds
+  // or mints the auditor private key.
+  const auditorPub = loadAuditorPubkey(network);
 
   // 3. freeze the dual blobs ONCE (L3 — single call site, never regenerated).
   const frozen = genBatchFromCSV(amounts, employeePubkeys, auditorPub, blindings, {
-    auditorPriv,
     names,
   });
 
