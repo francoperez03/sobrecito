@@ -2,6 +2,7 @@
 
 import { MotionConfig } from 'motion/react'
 import { FloatingNav } from '@/components/nav/FloatingNav'
+import { DemoProgressPanel } from '@/components/progress/DemoProgressPanel'
 import { Footer } from '@/components/landing/Footer'
 
 // Shared site chrome mounted once at the root layout. Living above the
@@ -13,6 +14,7 @@ export function SiteChrome({ children }: { children: React.ReactNode }) {
     <MotionConfig reducedMotion="user">
       <div className="min-h-dvh bg-bg text-ink font-sans">
         <FloatingNav />
+        <DemoProgressPanel />
         {children}
         <Footer />
       </div>

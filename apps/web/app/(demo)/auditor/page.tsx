@@ -18,6 +18,7 @@ import { KeygenCard } from '@/components/auditor/KeygenCard'
 import { BatchGroupHeader } from '@/components/auditor/BatchGroupHeader'
 import { SealedState } from '@/components/auditor/SealedState'
 import { readDeployments, readPoolUsdcBalance } from '@/lib/rpc'
+import { markStep } from '@/lib/progressStore'
 
 // The on-chain total T is the REAL USDC balance of the pool (independent source),
 // not a demo constant. The reconciliation footer asserts that the sum of the
@@ -163,6 +164,7 @@ export default function AuditorPage() {
       }
       setSummary(result)
       setState('done')
+      markStep('audit')
     } catch {
       setSummary(null)
       setState('error')

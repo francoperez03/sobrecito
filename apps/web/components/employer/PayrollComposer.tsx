@@ -17,6 +17,7 @@ import { motion, AnimatePresence } from 'motion/react'
 import { ShieldCheck, Check } from '@phosphor-icons/react'
 import { keyFromBase64 } from 'viewkey'
 import { Reveal } from '@/components/motion/Reveal'
+import { markStep } from '@/lib/progressStore'
 import { ConnectFreighter } from './ConnectFreighter'
 import { PayrollEditableTable, type EditableRow } from './PayrollEditableTable'
 import { NoteBudgetMeter } from './NoteBudgetMeter'
@@ -517,6 +518,7 @@ export function PayrollComposer() {
       setTxHash(result.hash)
       setStepState({ phase: 'done', txHash: result.hash })
       setComposerState('done')
+      markStep('pay')
       isSubmittingRef.current = false
       // Balance dropped by the batch total — refresh so the employer sees it.
       void refreshUsdcBalance(address)

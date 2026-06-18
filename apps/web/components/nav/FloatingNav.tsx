@@ -94,7 +94,10 @@ export function FloatingNav() {
 
   return (
     <>
-      <nav className="flex justify-center pt-6 px-4 sticky top-0 z-50">
+      {/* pointer-events-none: the bar is full-width but only the centered pill is
+          interactive, so its empty strip must not swallow clicks on content
+          beneath it (e.g. the top-left progress launcher). */}
+      <nav className="flex justify-center pt-6 px-4 sticky top-0 z-50 pointer-events-none">
         {/* The pill itself is layout-animated so its total width (and the
             re-centering inside the nav) springs smoothly when the role grows
             in/out, instead of snapping while only the button morphs. */}
@@ -105,7 +108,7 @@ export function FloatingNav() {
             layout: ISLAND_SPRING,
             opacity: { duration: navHidden ? 0.1 : 0.3, ease: EASE_BRAND },
           }}
-          className="flex items-center gap-4 h-12 pl-5 pr-2 bg-surface/80 ring-1 ring-hairline rounded-full backdrop-blur-md"
+          className="flex items-center gap-4 h-12 pl-5 pr-2 bg-surface/80 ring-1 ring-hairline rounded-full backdrop-blur-md pointer-events-auto"
         >
           {/* Wordmark — tapping the root shrinks the island back to its natural state */}
           <Link

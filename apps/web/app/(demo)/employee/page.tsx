@@ -26,6 +26,7 @@ import {
 import { readDeployments } from '@/lib/rpc'
 import { computeNullifier } from '@/lib/zk/proverClient'
 import { claimNote } from '@/lib/employee-claim'
+import { markStep } from '@/lib/progressStore'
 import { scanCommitmentEvents, scanSpentNullifiers, type ScannedEvent } from 'viewkey'
 
 // ---------------------------------------------------------------------------
@@ -247,6 +248,7 @@ export default function EmployeePage() {
             : n,
         ),
       )
+      markStep('claim')
     } catch (err) {
       setClaimStep({
         phase: 'error',
