@@ -534,8 +534,13 @@ function handleVerify(data) {
     return { success: false, error: errorMsg };
   }
 }
-function handleDerivePublicKey(data) {
+async function handleDerivePublicKey(data) {
   try {
+    // The Poseidon2 crypto lives in the prover bridge WASM; ensure it is
+    // instantiated before calling it. The key generator / scan invoke this
+    // before any initProver(), so the bridge may not be loaded yet (otherwise
+    // the WASM exports are undefined and it crashes with __wbindgen_*).
+    await initProverWasm();
     const { privateKey, asHex } = data;
     const skBytes = new Uint8Array(privateKey);
     if (asHex) {
@@ -547,8 +552,10 @@ function handleDerivePublicKey(data) {
     return { success: false, error: error.message };
   }
 }
-function handleComputeCommitment(data) {
+async function handleComputeCommitment(data) {
   try {
+    // Ensure the prover bridge WASM is instantiated (see handleDerivePublicKey).
+    await initProverWasm();
     // Accept field elements as decimal strings (base 10) and convert to LE bytes
     // via hex_to_field_bytes so the WASM receives the correct LE encoding.
     const { amountDec, publicKeyDec, blindingDec } = data;
@@ -564,8 +571,10 @@ function handleComputeCommitment(data) {
     return { success: false, error: error.message };
   }
 }
-function handleComputeNullifier(data) {
+async function handleComputeNullifier(data) {
   try {
+    // Ensure the prover bridge WASM is instantiated (see handleDerivePublicKey).
+    await initProverWasm();
     // Nullifier computation for a dummy input note (inAmount=0):
     //   1. Derive pubkey from privKey  (Poseidon2(privKey, 0, domainSep=3))
     //   2. Compute commitment = Poseidon2(0, pubkey, blinding, domainSep=1)
@@ -699,13 +708,13 @@ self.onmessage = async function(event) {
       break;
     // Crypto utilities
     case "DERIVE_PUBLIC_KEY":
-      result = handleDerivePublicKey(data);
+      result = await handleDerivePublicKey(data);
       break;
     case "COMPUTE_COMMITMENT":
-      result = handleComputeCommitment(data);
+      result = await handleComputeCommitment(data);
       break;
     case "COMPUTE_NULLIFIER":
-      result = handleComputeNullifier(data);
+      result = await handleComputeNullifier(data);
       break;
     case "RECONSTRUCT_MERKLE_PATH":
       result = await handleReconstructMerklePath(data);
