@@ -15,7 +15,7 @@ import { DoubleBezel } from '@/components/ui/DoubleBezel'
 import { EmployeeKeyInput } from '@/components/employee/EmployeeKeyInput'
 import { KeyGenerator } from '@/components/employee/KeyGenerator'
 import { DashboardSummary } from '@/components/employee/DashboardSummary'
-import { NoteCard } from '@/components/employee/NoteCard'
+import { EmployeeNotesTable } from '@/components/employee/EmployeeNotesTable'
 import { ClaimStepper, type ClaimStep } from '@/components/employee/ClaimStepper'
 import { parseEmployeeKey, deriveEmployeeKeys } from '@/lib/zk/keyDerivation'
 import {
@@ -385,18 +385,15 @@ export default function EmployeePage() {
                 </Reveal>
               )}
 
-              {/* Note cards */}
-              {notes.map((note, i) => (
-                <Reveal key={note.index} delay={(i + 1) * 0.06}>
-                  <NoteCard
-                    note={note}
-                    status={note.status}
-                    onClaim={handleClaim}
-                    claiming={claimingIndex === note.index}
-                    receiptTxHash={note.receiptTxHash}
-                  />
-                </Reveal>
-              ))}
+              {/* Compact payments table (auditor-style): one row per payment, per-row
+                  Claim, amount revealed inline once the withdraw confirms. */}
+              <Reveal delay={0.12}>
+                <EmployeeNotesTable
+                  notes={notes}
+                  onClaim={handleClaim}
+                  claimingIndex={claimingIndex}
+                />
+              </Reveal>
             </div>
           )}
         </div>
