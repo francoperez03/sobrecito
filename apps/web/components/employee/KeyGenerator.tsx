@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Copy, Check, Key, Warning } from '@phosphor-icons/react'
+import { Copy, Check, Key, Warning, ArrowUp } from '@phosphor-icons/react'
 import { deriveEmployeeKeys } from '@/lib/zk/keyDerivation'
 
 interface KeyGeneratorProps {
@@ -42,6 +42,9 @@ function bigintToHex(v: bigint): string {
  * sent anywhere and never written to browser storage. Generation is deterministic
  * from the random seed via the same HKDF + Poseidon2 the circuit uses, so the
  * public key shown here is exactly the one the deposit must target.
+ *
+ * Visual language mirrors the auditor KeygenCard: a labelled header, numbered
+ * steps, mono key chips, and copy buttons with copied-state feedback.
  */
 export function KeyGenerator({ onGenerated }: KeyGeneratorProps) {
   const [seedHex, setSeedHex] = useState<string | null>(null)
@@ -83,11 +86,22 @@ export function KeyGenerator({ onGenerated }: KeyGeneratorProps) {
   }
 
   return (
-    <div className="flex flex-col gap-4">
-      <p className="text-sm text-ink-muted leading-relaxed">
-        No key yet? Generate one in your browser. Save the seed and give the public
-        key to your employer so they can deposit your salary against it.
-      </p>
+    <div className="flex flex-col gap-5">
+      {/* Header: identity for the block so the CTA does not read as a stray button. */}
+      <div className="flex items-start gap-3">
+        <span className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent/10 text-accent-soft ring-1 ring-hairline">
+          <Key size={17} weight="fill" aria-hidden />
+        </span>
+        <div className="flex flex-col gap-1">
+          <h3 className="text-sm font-[700] text-ink leading-tight">
+            No key yet? Generate one
+          </h3>
+          <p className="text-xs text-ink-muted leading-relaxed max-w-[46ch]">
+            Created in your browser. Save the seed and give the public key to your
+            employer so they can deposit your salary against it.
+          </p>
+        </div>
+      </div>
 
       <button
         type="button"
@@ -107,16 +121,21 @@ export function KeyGenerator({ onGenerated }: KeyGeneratorProps) {
       </button>
 
       {seedHex && pubHex && (
-        <div className="flex flex-col gap-4 pt-1">
-          {/* Seed: the employee's key. Shown, copyable, and autofilled into the input. */}
-          <div className="flex flex-col gap-2">
-            <span className="text-xs text-ink-muted uppercase tracking-widest">
-              Your key (seed)
-            </span>
+        <div className="flex flex-col gap-3 pt-1">
+          {/* Step 1 — Seed: the employee's key. Sensitive: amber-tinted, autofilled. */}
+          <div className="rounded-2xl bg-accent-warm/[0.06] ring-1 ring-accent-warm/20 p-4 flex flex-col gap-2.5">
+            <div className="flex items-center gap-2">
+              <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-accent-warm/15 text-[10px] font-[900] text-accent-warm">
+                1
+              </span>
+              <span className="text-xs font-[700] uppercase tracking-widest text-accent-warm">
+                Your key (seed)
+              </span>
+            </div>
             <div className="flex items-stretch gap-2">
               <code
                 data-testid="keygen-seed"
-                className="font-mono text-sm text-accent-soft break-all bg-bg rounded-2xl px-4 py-3 ring-1 ring-hairline flex-1"
+                className="font-mono text-xs sm:text-sm text-ink break-all bg-bg/80 rounded-xl px-3.5 py-2.5 ring-1 ring-hairline flex-1 leading-relaxed"
               >
                 {seedHex}
               </code>
@@ -125,31 +144,55 @@ export function KeyGenerator({ onGenerated }: KeyGeneratorProps) {
                 onClick={handleCopySeed}
                 aria-label={seedCopied ? 'Seed copied' : 'Copy seed'}
                 data-testid="keygen-copy-seed"
-                className="shrink-0 inline-flex items-center justify-center w-[46px] rounded-2xl ring-1 ring-hairline text-ink-muted hover:text-ink hover:bg-white/5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                className={[
+                  'shrink-0 inline-flex items-center justify-center gap-1.5 px-3 rounded-xl text-xs font-[700] transition-all',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+                  seedCopied
+                    ? 'bg-accent-warm/15 text-accent-warm ring-1 ring-accent-warm/30'
+                    : 'ring-1 ring-hairline text-ink-muted hover:text-ink hover:bg-white/5',
+                ].join(' ')}
               >
                 {seedCopied ? (
-                  <Check size={16} weight="bold" aria-hidden />
+                  <>
+                    <Check size={15} weight="bold" aria-hidden />
+                    <span className="hidden sm:inline">Copied</span>
+                  </>
                 ) : (
-                  <Copy size={16} aria-hidden />
+                  <>
+                    <Copy size={15} aria-hidden />
+                    <span className="hidden sm:inline">Copy</span>
+                  </>
                 )}
               </button>
             </div>
-            <p className="flex items-start gap-1.5 text-xs text-accent-warm">
-              <Warning size={14} weight="fill" aria-hidden className="mt-0.5 shrink-0" />
-              Save this seed. It is your key to scan and claim. Do not share it; it
-              is never stored on this site.
+            <p className="flex items-start gap-1.5 text-xs text-accent-warm/90">
+              <Warning size={13} weight="fill" aria-hidden className="mt-0.5 shrink-0" />
+              <span>
+                Save this seed. It is your key to scan and claim. Do not share it; it
+                is never stored on this site.
+              </span>
+            </p>
+            <p className="flex items-center gap-1.5 text-[11px] text-ink-muted">
+              <ArrowUp size={12} weight="bold" aria-hidden />
+              Filled into the field above. Click &ldquo;Scan pool&rdquo; when your
+              employer has deposited.
             </p>
           </div>
 
-          {/* BN254 public key: handed to the employer for the deposit. */}
-          <div className="flex flex-col gap-2">
-            <span className="text-xs text-ink-muted uppercase tracking-widest">
-              Public key (give to your employer)
-            </span>
+          {/* Step 2 — Public key: shareable. Neutral surface. */}
+          <div className="rounded-2xl bg-surface/60 ring-1 ring-hairline p-4 flex flex-col gap-2.5">
+            <div className="flex items-center gap-2">
+              <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-accent/10 text-[10px] font-[900] text-accent-soft">
+                2
+              </span>
+              <span className="text-xs font-[700] uppercase tracking-widest text-ink-muted">
+                Public key
+              </span>
+            </div>
             <div className="flex items-stretch gap-2">
               <code
                 data-testid="keygen-pubkey"
-                className="font-mono text-sm text-ink break-all bg-bg rounded-2xl px-4 py-3 ring-1 ring-hairline flex-1"
+                className="font-mono text-xs sm:text-sm text-ink break-all bg-bg/80 rounded-xl px-3.5 py-2.5 ring-1 ring-hairline flex-1 leading-relaxed"
               >
                 {pubHex}
               </code>
@@ -158,18 +201,30 @@ export function KeyGenerator({ onGenerated }: KeyGeneratorProps) {
                 onClick={handleCopyPub}
                 aria-label={pubCopied ? 'Public key copied' : 'Copy public key'}
                 data-testid="keygen-copy-pub"
-                className="shrink-0 inline-flex items-center justify-center w-[46px] rounded-2xl ring-1 ring-hairline text-ink-muted hover:text-ink hover:bg-white/5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                className={[
+                  'shrink-0 inline-flex items-center justify-center gap-1.5 px-3 rounded-xl text-xs font-[700] transition-all',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+                  pubCopied
+                    ? 'bg-accent/15 text-accent-soft ring-1 ring-accent/30'
+                    : 'ring-1 ring-hairline text-ink-muted hover:text-ink hover:bg-white/5',
+                ].join(' ')}
               >
                 {pubCopied ? (
-                  <Check size={16} weight="bold" aria-hidden />
+                  <>
+                    <Check size={15} weight="bold" aria-hidden />
+                    <span className="hidden sm:inline">Copied</span>
+                  </>
                 ) : (
-                  <Copy size={16} aria-hidden />
+                  <>
+                    <Copy size={15} aria-hidden />
+                    <span className="hidden sm:inline">Copy</span>
+                  </>
                 )}
               </button>
             </div>
-            <p className="text-xs text-ink-muted">
-              Pass this public key to your employer (the bn254Pub column of the
-              payroll CSV). They deposit your salary against it.
+            <p className="text-xs text-ink-muted leading-relaxed">
+              Give this to your employer (the bn254Pub column of the payroll CSV).
+              They deposit your salary against it.
             </p>
           </div>
         </div>
