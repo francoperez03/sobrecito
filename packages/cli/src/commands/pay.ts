@@ -83,7 +83,17 @@ export function payCommand(file: string, opts: PayOptions = {}): void {
   const amounts = rows.map((r) => r.amount);
   const employeePubkeys = rows.map((r) => r.publicKey);
   const names = rows.map((r) => r.name);
-  const blindings = rows.map((_, i) => BigInt(3000 + i));
+  // 8 blindings criptograficamente aleatorios mod BN254, generados una sola vez.
+  // El mismo array se pasa a genBatchFromCSV (blob payload) y a proofGen
+  // (commitment on-chain) para que ambos queden ligados al mismo valor
+  // (Pitfall 2: blinding del blob == blinding del commitment).
+  const BN254_MOD = BigInt("21888242871839275222246405745257275088548364400416034343698204186575808495617");
+  const blindings: bigint[] = Array.from({ length: 8 }, () => {
+    const buf = randomBytes(32);
+    let v = BigInt(0);
+    for (const b of buf) v = (v << BigInt(8)) | BigInt(b);
+    return v % BN254_MOD;
+  });
 
   // Auditor pubkey: loaded from deployments.json for the target network.
   // The auditor publishes its pubkey; the CLI encrypts to it and never holds
@@ -110,7 +120,7 @@ export function payCommand(file: string, opts: PayOptions = {}): void {
   // 5. proof-gen (computes ext_data_hash from the frozen blobs first).
   //    Real deposit: ext_amount = sum(amounts), publicAmount matches on-chain.
   console.log(step("proving", rows.length));
-  proofGen(OUT_DIR, network, amounts);
+  proofGen(OUT_DIR, network, amounts, blindings);
 
   // 6. submit one batch via the guarded script.
   console.log(step("submitting"));

@@ -130,7 +130,7 @@ export interface ProofResult {
  * @param outDir  the frozen batch dir (ops/testnet-batch), holding blobs.json
  * @param network stellar network for the live root reads (default "testnet")
  */
-export function proofGen(outDir: string, network = "testnet", amounts: bigint[] = []): ProofResult {
+export function proofGen(outDir: string, network = "testnet", amounts: bigint[] = [], outBlindings: bigint[] = []): ProofResult {
   // 1. frozen blobs (never regenerated here — L3/Pitfall 1).
   const blobHexes = readBlobs(outDir);
 
@@ -177,6 +177,11 @@ export function proofGen(outDir: string, network = "testnet", amounts: bigint[] 
       // real deposit does not revert with AlreadySpentNullifier (pool Error #9).
       "--blinding",
       (Date.now() % 2_000_000_000).toString(),
+      // When outBlindings is provided, forward to Rust so the on-chain commitment
+      // blinding matches the blob payload blinding (Pitfall 2: both must be equal).
+      ...(outBlindings.length === 8
+        ? ["--out-blindings", outBlindings.map((b) => b.toString()).join(",")]
+        : []),
       "--out",
       proofPath,
     ],
