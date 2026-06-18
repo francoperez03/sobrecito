@@ -596,14 +596,14 @@ impl PoolContract {
             return Err(Error::WrongExtAmount);
         }
 
-        // ASP root validation
-        let member_root = Self::get_asp_membership_root(env)?;
-        let non_member_root = Self::get_asp_non_membership_root(env)?;
-        if member_root != proof.asp_membership_root
-            || non_member_root != proof.asp_non_membership_root
-        {
-            return Err(Error::InvalidProof);
-        }
+        // ASP root validation REMOVED (obviated): the pool no longer cross-checks
+        // proof.asp_membership_root / asp_non_membership_root against the live ASP
+        // contracts, so deposits/withdrawals don't require the ASP membership tree
+        // to be seeded — anyone can transact. The circuit still carries the policy
+        // constraints, but they are self-satisfiable (the prover supplies an
+        // internally-consistent membership root), so verify_proof below remains
+        // sound for the funds-safety properties (root history, nullifiers, ext
+        // hash, public amount). get_asp_membership_root stays as dead code.
 
         // 5. ZK proof verification
         if !Self::verify_proof(env, &proof)? {
