@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'motion/react'
 import { CaretDown } from '@phosphor-icons/react'
 import { DenominationChips } from './DenominationChips'
 import { countNotes } from '@/lib/zk/denominationBuilder'
-import { usdcToBaseUnits } from '@/lib/csvParser'
+import { usdcToBaseUnits, USDC_SCALE } from '@/lib/csvParser'
 import { EASE_BRAND } from '@/lib/motion'
 
 /** A single editable row in the payroll table. Amounts are kept as strings for
@@ -86,7 +86,10 @@ export function PayrollEditableTable({ rows, onChange }: PayrollEditableTablePro
       <div className="grid grid-cols-[auto_6fr_1fr_3fr_auto] gap-4 px-2 pb-2 border-b border-white/5">
         <span className="text-xs text-ink-muted uppercase tracking-widest">#</span>
         <span className="text-xs text-ink-muted uppercase tracking-widest">Public key</span>
-        <span className="text-xs text-ink-muted uppercase tracking-widest">Amount</span>
+        <span className="text-xs text-ink-muted uppercase tracking-widest flex flex-col">
+          Amount
+          <span className="normal-case tracking-normal text-[10px] text-ink-muted/60">(min. 1 USDC)</span>
+        </span>
         <span className="text-xs text-ink-muted uppercase tracking-widest" aria-hidden />
         <span className="text-xs text-ink-muted uppercase tracking-widest sr-only">Remove</span>
       </div>
@@ -105,6 +108,12 @@ export function PayrollEditableTable({ rows, onChange }: PayrollEditableTablePro
           }
           const hasAmount = rowAmountUsdc !== null && rowAmountUsdc > BigInt(0)
           const isExpanded = expandedRows.has(i)
+          // Invalid when the amount has text but isn't a whole USDC value of at least 1.
+          const amountInvalid =
+            row.amount.trim() !== '' &&
+            (rowAmountUsdc === null ||
+              rowAmountUsdc < USDC_SCALE ||
+              rowAmountUsdc % USDC_SCALE !== BigInt(0))
 
           return (
             <div key={i} className="flex flex-col border-b border-white/5 last:border-0">
@@ -125,7 +134,12 @@ export function PayrollEditableTable({ rows, onChange }: PayrollEditableTablePro
                   placeholder="e.g. 100"
                   value={row.amount}
                   onChange={(e) => handleCellChange(i, 'amount', e.target.value)}
-                  className="text-sm bg-transparent border-b border-white/10 focus:border-accent outline-none py-1 text-ink w-full min-w-0"
+                  aria-invalid={amountInvalid || undefined}
+                  className={`text-sm bg-transparent border-b outline-none py-1 text-ink w-full min-w-0 ${
+                    amountInvalid
+                      ? 'border-accent-warm/70 focus:border-accent-warm'
+                      : 'border-white/10 focus:border-accent'
+                  }`}
                 />
 
                 {/* Details toggle (was the Name slot): fades in only when there's an amount */}
@@ -155,11 +169,17 @@ export function PayrollEditableTable({ rows, onChange }: PayrollEditableTablePro
                   </AnimatePresence>
                 </div>
 
+                {/* First row keeps a permanent base row — hide its remove control
+                    (kept invisible so the column stays aligned). */}
                 <button
                   type="button"
                   onClick={() => handleRemoveRow(i)}
                   aria-label={`Remove row ${i + 1}`}
-                  className="text-ink-muted/40 hover:text-ink-muted transition-colors text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded"
+                  aria-hidden={i === 0 || undefined}
+                  tabIndex={i === 0 ? -1 : undefined}
+                  className={`text-ink-muted/40 hover:text-ink-muted transition-colors text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded ${
+                    i === 0 ? 'invisible pointer-events-none' : ''
+                  }`}
                 >
                   ✕
                 </button>

@@ -447,11 +447,6 @@ export function PayrollComposer() {
             </p>
           )}
 
-          {belowMin && (
-            <p className="text-xs text-accent-warm">
-              Each payment must be a whole amount of at least 1 USDC.
-            </p>
-          )}
 
           {composerState === 'error' && errorMsg && (
             <p className="text-sm text-ink-muted">{errorMsg}</p>
