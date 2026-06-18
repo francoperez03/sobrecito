@@ -41,6 +41,7 @@ import {
   signTransaction,
 } from '@stellar/freighter-api'
 import { readDeployments } from './rpc'
+import { buildProofScVal } from './zk/proofArg'
 
 const RPC_URL = 'https://soroban-testnet.stellar.org'
 const TESTNET_PASSPHRASE = 'Test SDF Network ; September 2015'
@@ -64,6 +65,30 @@ export interface DepositParams {
   totalBaseUnits: bigint
   /** Employer's Stellar address (G…). If omitted, fetched from Freighter. */
   sender?: string
+  /**
+   * Semantic public-input values the on-chain `Proof` struct carries. The pool's
+   * transact expects a structured Proof (not raw bytes); these are the SAME values
+   * the proof was generated against (must match exactly or verify_proof fails).
+   */
+  publicInputs: ProofPublicInputs
+}
+
+/** Public-input values for the on-chain Proof struct (see proofArg.ts). */
+export interface ProofPublicInputs {
+  /** Pool Merkle root the proof targets (= fetchPoolRoot at proving time). */
+  root: bigint | string
+  /** Net public amount (= totalBaseUnits for a deposit). */
+  publicAmount: bigint | string
+  /** 32-byte keccak ext_data hash (hashExtDataSobre(...).bytes). */
+  extDataHash: Uint8Array
+  /** One nullifier per input (payroll deposit: 1). */
+  inputNullifiers: (bigint | string)[]
+  /** Output commitments (payroll: 8). */
+  outputCommitments: (bigint | string)[]
+  /** Self-consistent ASP membership root (reconstructed, = memberPath.root). */
+  aspMembershipRoot: bigint | string
+  /** ASP non-membership root (empty SMT → 0). */
+  aspNonMembershipRoot: bigint | string
 }
 
 export interface DepositResult {
@@ -150,6 +175,7 @@ export async function submitDeposit(params: DepositParams): Promise<DepositResul
   const tx = buildDepositTransaction({
     source,
     proof: params.proof,
+    publicInputs: params.publicInputs,
     encOutputs: params.encOutputs,
     totalBaseUnits: params.totalBaseUnits,
     sender: address,
@@ -195,6 +221,7 @@ export async function submitDeposit(params: DepositParams): Promise<DepositResul
 function buildDepositTransaction({
   source,
   proof,
+  publicInputs,
   encOutputs,
   totalBaseUnits,
   sender,
@@ -202,6 +229,7 @@ function buildDepositTransaction({
 }: {
   source: Account
   proof: Uint8Array
+  publicInputs: ProofPublicInputs
   encOutputs: Uint8Array[]
   totalBaseUnits: bigint
   sender: string
@@ -210,8 +238,19 @@ function buildDepositTransaction({
   const { poolContractId } = readDeployments()
   const pool = new Contract(poolContractId)
 
-  // Proof argument: the 256-byte Soroban-format Groth16 proof as scvBytes
-  const proofArg: xdr.ScVal = xdr.ScVal.scvBytes(Buffer.from(proof))
+  // Proof argument: the structured `Proof` the pool expects (NOT raw bytes — that
+  // makes the host panic deserializing). The 256-byte proof is split into A/B/C
+  // and combined with the semantic public inputs.
+  const proofArg: xdr.ScVal = buildProofScVal({
+    proof,
+    root: publicInputs.root,
+    publicAmount: publicInputs.publicAmount,
+    extDataHash: publicInputs.extDataHash,
+    inputNullifiers: publicInputs.inputNullifiers,
+    outputCommitments: publicInputs.outputCommitments,
+    aspMembershipRoot: publicInputs.aspMembershipRoot,
+    aspNonMembershipRoot: publicInputs.aspNonMembershipRoot,
+  })
 
   // ext_data argument: serialized as an ScMap with fields in alphabetical order
   // (encrypted_outputs → ext_amount → recipient) matching pool.rs #[contracttype].

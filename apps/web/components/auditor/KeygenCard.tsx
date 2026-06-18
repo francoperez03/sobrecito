@@ -1,8 +1,9 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { generateAuditorKeypair, keyToBase64 } from 'viewkey'
 import { Copy, Check, Key } from '@phosphor-icons/react'
+import { saveAuditorPublicKey, loadAuditorPublicKey } from '@/lib/auditorKeyStore'
 
 /**
  * In-browser X25519 keypair generator for the auditor (AUD-03, AUD-04).
@@ -11,7 +12,9 @@ import { Copy, Check, Key } from '@phosphor-icons/react'
  * it sits secondary to the reconstruct action that owns the surface.
  *
  * Privacy model (T-06.1-01, D-09 / A2):
- * - The PUBLIC key is shown so the auditor can hand it to the employer.
+ * - The PUBLIC key is shown so the auditor can hand it to the employer. It is
+ *   persisted to localStorage (public key only) so the employer screen can
+ *   autofill it without manual copy/paste in the same browser.
  * - The PRIVATE key is held in a ref, NEVER rendered as text, NEVER logged, NEVER
  *   written to browser storage. It is copyable exactly ONCE (API-key pattern): on
  *   copy it goes to the OS clipboard and is wiped from memory, so copying again
@@ -26,10 +29,21 @@ export function KeygenCard() {
   // The private key (base64) lives here, never in rendered state. Wiped on copy.
   const privRef = useRef<string | null>(null)
 
+  // Pre-fill the public key from a previous session (public key only). The
+  // private key is NOT restored — it only ever lives in memory — so privArmed
+  // stays false until the auditor regenerates.
+  useEffect(() => {
+    const stored = loadAuditorPublicKey()
+    if (stored) setPubBase64(stored)
+  }, [])
+
   function handleGenerate() {
     const kp = generateAuditorKeypair()
     privRef.current = keyToBase64(kp.privkey)
-    setPubBase64(keyToBase64(kp.pubkey))
+    const pub = keyToBase64(kp.pubkey)
+    setPubBase64(pub)
+    // Persist ONLY the public key for cross-screen autofill (never the private).
+    saveAuditorPublicKey(pub)
     setPubCopied(false)
     setPrivArmed(true)
     setPrivCopied(false)

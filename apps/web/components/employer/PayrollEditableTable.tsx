@@ -123,7 +123,7 @@ export function PayrollEditableTable({ rows, onChange }: PayrollEditableTablePro
 
                 <input
                   type="text"
-                  placeholder="64-char hex pubkey"
+                  placeholder="employee public key (128-hex)"
                   value={row.publicKey}
                   onChange={(e) => handleCellChange(i, 'publicKey', e.target.value)}
                   className="font-mono text-sm text-ink-muted bg-transparent border-b border-white/10 focus:border-accent outline-none py-1 w-full min-w-0"

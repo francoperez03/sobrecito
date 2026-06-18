@@ -346,14 +346,54 @@ export async function computeCommitment(amountDec, publicKeyDec, blindingDec) {
  * @param {string} pathIndicesDec - Merkle path indices as decimal string (default: '0')
  * @returns {Promise<string>} nullifier as decimal string
  */
-export async function computeNullifier(privateKeyDec, blindingDec, pathIndicesDec) {
+export async function computeNullifier(privateKeyDec, blindingDec, pathIndicesDec, amountDec = '0') {
     const result = await sendMessage('COMPUTE_NULLIFIER', {
         privateKeyDec: String(privateKeyDec),
         blindingDec: String(blindingDec),
         pathIndicesDec: String(pathIndicesDec || '0'),
+        amountDec: String(amountDec || '0'),
     });
 
     return result.nullifierDec;
+}
+
+/**
+ * Reconstruct the Merkle path for a leaf by rebuilding the pool's incremental
+ * tree with the REAL circuit hash (Poseidon2 via the WASM MerkleTree). This is
+ * the A2 fallback used by the employee claim when pool.get_proof is absent.
+ *
+ * @param {string[]} leavesDec - Commitment leaves (decimal strings), insertion order
+ * @param {number}   targetIndex - Leaf index whose path to extract
+ * @param {number}   [depth=10]  - Tree depth (TREE_LEVELS)
+ * @returns {Promise<{ pathElements: string[]; pathIndices: string; root: string }>}
+ */
+export async function reconstructMerklePath(leavesDec, targetIndex, depth = 10) {
+    const result = await sendMessage('RECONSTRUCT_MERKLE_PATH', {
+        leavesDec: leavesDec.map(String),
+        targetIndex,
+        depth,
+    });
+
+    return { pathElements: result.pathElements, pathIndices: result.pathIndices, root: result.root };
+}
+
+/**
+ * Compute the ASP membership leaf = Poseidon2(publicKey, blinding, domainSep=1)
+ * via the WASM bridge. This is the 2-input hash the policy circuit computes at
+ * policyTransaction.circom line 130-134; the JS witness builder must supply a
+ * leaf that matches it, or the membership constraint is unsatisfied.
+ *
+ * @param {string} publicKeyDec - BN254 public key as decimal string
+ * @param {string} blindingDec  - Membership blinding as decimal string (0 on-chain)
+ * @returns {Promise<string>} membership leaf as decimal string
+ */
+export async function computeMembershipLeaf(publicKeyDec, blindingDec) {
+    const result = await sendMessage('COMPUTE_MEMBERSHIP_LEAF', {
+        publicKeyDec: String(publicKeyDec),
+        blindingDec: String(blindingDec),
+    });
+
+    return result.leafDec;
 }
 
 /**

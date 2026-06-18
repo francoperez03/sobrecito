@@ -41,6 +41,30 @@ export function isHex64(s: string): boolean {
   return /^[0-9a-fA-F]{64}$/.test(s)
 }
 
+/**
+ * The employee's shared public key is a COMBINED 128-hex string:
+ *   x25519Pub (64 hex) || bn254Pub (64 hex)
+ *
+ * Two keys are needed because the employee plays two roles (see KeyGenerator):
+ *   - x25519Pub: the ECIES key the salary note is encrypted to (note discovery).
+ *   - bn254Pub:  the BN254 spending pubkey the on-chain commitment uses, so the
+ *                withdraw proof can prove ownership (Poseidon2(bn254Priv, 0)).
+ * Both derive from the same employee seed, so the employee still holds one secret.
+ */
+export function isEmployeePubkey(s: string): boolean {
+  return /^[0-9a-fA-F]{128}$/.test(s.trim().replace(/^0x/, ''))
+}
+
+/** Split a combined employee public key into its X25519 (encryption) and BN254
+ *  (commitment) halves. Returns null when malformed. */
+export function parseEmployeePubkey(
+  s: string,
+): { x25519Hex: string; bn254Pub: bigint } | null {
+  const clean = s.trim().replace(/^0x/, '').toLowerCase()
+  if (!/^[0-9a-f]{128}$/.test(clean)) return null
+  return { x25519Hex: clean.slice(0, 64), bn254Pub: BigInt('0x' + clean.slice(64)) }
+}
+
 /** Decode a 64-char hex string into a 32-byte Uint8Array. */
 function hexToBytes32(hex: string): Uint8Array {
   const out = new Uint8Array(32)

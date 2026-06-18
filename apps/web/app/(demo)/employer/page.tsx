@@ -1,10 +1,10 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import Link from 'next/link'
+import { Fragment, useEffect, useMemo, useState } from 'react'
+import { AnimatePresence, motion } from 'motion/react'
+import { CaretDown, CaretLeft, CaretRight } from '@phosphor-icons/react'
 import { scanCommitmentEvents, type ScannedEvent } from 'viewkey'
 import { Reveal } from '@/components/motion/Reveal'
-import { BatchSummaryCard } from '@/components/dashboard/BatchSummaryCard'
 import {
   PayrollTable,
   type PayrollRow,
@@ -14,9 +14,13 @@ import {
   readPoolUsdcBalance,
   formatUsdc,
   explorerTxUrl,
+  fetchBatchExtAmount,
 } from '@/lib/rpc'
 import { PayrollComposer } from '@/components/employer/PayrollComposer'
 import { DoubleBezel } from '@/components/ui/DoubleBezel'
+
+/** Brand easing curve (matches ProvingStepper / ClaimStepper). */
+const EASE_BRAND = [0.32, 0.72, 0, 1] as const
 
 // The total T shown here is the REAL on-chain USDC balance of the pool (read via
 // a read-only SAC `balance` simulation), not a demo constant. It is the public
@@ -129,13 +133,55 @@ export default function EmployerPage() {
           </div>
         </Reveal>
 
-        {state.phase === 'loading' && <LoadingSkeleton />}
-        {state.phase === 'error' && <ErrorState />}
-        {state.phase === 'empty' && <EmptyState />}
+        {/* Loading exits (fade down) before the loaded block enters (fade up). */}
+        <AnimatePresence mode="wait">
+          {state.phase === 'loading' && (
+            <motion.div
+              key="loading"
+              initial={{ opacity: 0, y: 28 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 28 }}
+              transition={{ duration: 0.5, ease: EASE_BRAND }}
+            >
+              <LoadingBatches />
+            </motion.div>
+          )}
 
-        {state.phase === 'ready' && (
-          <ReadyView events={state.events} totalBase={state.totalBase} />
-        )}
+          {state.phase === 'error' && (
+            <motion.div
+              key="error"
+              initial={{ opacity: 0, y: 28 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 28 }}
+              transition={{ duration: 0.5, ease: EASE_BRAND }}
+            >
+              <ErrorState />
+            </motion.div>
+          )}
+
+          {state.phase === 'empty' && (
+            <motion.div
+              key="empty"
+              initial={{ opacity: 0, y: 28 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 28 }}
+              transition={{ duration: 0.5, ease: EASE_BRAND }}
+            >
+              <EmptyState />
+            </motion.div>
+          )}
+
+          {state.phase === 'ready' && (
+            <motion.div
+              key="ready"
+              initial={{ opacity: 0, y: 28 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, ease: EASE_BRAND }}
+            >
+              <ReadyView events={state.events} totalBase={state.totalBase} />
+            </motion.div>
+          )}
+        </AnimatePresence>
       </section>
     </main>
   )
@@ -145,10 +191,37 @@ export default function EmployerPage() {
 // Ready view — hero total + batch timeline + sealed-notes table + footer
 // ---------------------------------------------------------------------------
 
+const BATCHES_PER_PAGE = 10
+
 function ReadyView({ events, totalBase }: { events: ScannedEvent[]; totalBase: bigint }) {
-  const batches = groupByBatch(events)
-  // Show all notes across all batches in the table, newest-batch-first
-  const allRows = batches.flatMap((batch) => toRows(batch.events))
+  const batches = useMemo(() => groupByBatch(events), [events])
+
+  // Per-batch funded amount: sealed in the commitment events, so read each batch's
+  // deposit ext_amount from its transaction (txHash → base units; null = unknown).
+  const [amounts, setAmounts] = useState<Map<string, bigint | null>>(new Map())
+  const [openTx, setOpenTx] = useState<string | null>(null)
+  const [batchPage, setBatchPage] = useState(0)
+
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      const entries = await Promise.all(
+        batches.map(async (b) => [b.txHash, await fetchBatchExtAmount(b.txHash)] as const),
+      )
+      if (!cancelled) setAmounts(new Map(entries))
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [batches])
+
+  // Clamp batchPage when the batch count changes (e.g. after a new payroll lands).
+  const batchPageCount = Math.max(1, Math.ceil(batches.length / BATCHES_PER_PAGE))
+  const currentBatchPage = Math.min(batchPage, batchPageCount - 1)
+  const visibleBatches = batches.slice(
+    currentBatchPage * BATCHES_PER_PAGE,
+    currentBatchPage * BATCHES_PER_PAGE + BATCHES_PER_PAGE,
+  )
 
   return (
     <>
@@ -161,103 +234,115 @@ function ReadyView({ events, totalBase }: { events: ScannedEvent[]; totalBase: b
                 {formatUsdc(totalBase)} USDC funded · total proven on-chain ✓
               </p>
               <p className="mt-2 text-xs text-ink-muted/60">
-                PoC · testnet. The pool balance is the public predicate; per-note amounts are sealed.
+                The pool balance is the public predicate; per-note amounts are sealed.
               </p>
             </div>
           </DoubleBezel>
         </div>
       </Reveal>
 
-      {/* Batch timeline — newest first */}
+      {/* Batches — one collapsible table; each row expands to its sealed notes */}
       <Reveal delay={0.15}>
-        <div className="mb-8">
-          <h3 className="text-h3 font-[900] tracking-[-0.01em] leading-[1.15] mb-4">
-            Batch timeline
-          </h3>
-          <div className="flex flex-col gap-3">
-            {batches.map((batch, i) => (
-              <BatchSummaryCard
-                key={batch.txHash || i}
-                total={`${formatUsdc(totalBase)} USDC`}
-                txHash={batch.txHash}
-                ledgerSeq={batch.ledger}
-                noteCount={batch.events.length}
-                dateLabel={`ledger ${batch.ledger}`}
-              />
-            ))}
-          </div>
-        </div>
-      </Reveal>
-
-      {/* Sealed-notes table */}
-      <Reveal delay={0.2}>
         <div className="mb-10">
-          <h3 className="text-h3 font-[900] tracking-[-0.01em] leading-[1.15] mb-4">
-            Sealed notes
+          <h3 className="text-h3 font-[600] tracking-[-0.01em] leading-[1.15] mb-4">
+            Batches
           </h3>
           <DoubleBezel radius="2rem" className="overflow-hidden">
-            <div className="py-4">
-              <PayrollTable rows={allRows} />
+            {/* Column header */}
+            <div className="flex items-center gap-4 px-6 py-3 text-xs uppercase tracking-widest text-ink-muted/60 border-b border-white/5">
+              <span className="flex-1">Amount</span>
+              <span className="w-16 text-right">Notes</span>
+              <span className="w-44 text-right">Tx</span>
+              <span className="w-5" aria-hidden />
             </div>
+
+            <div className="divide-y divide-white/5">
+              {visibleBatches.map((batch) => {
+                const amount = amounts.get(batch.txHash)
+                const isOpen = openTx === batch.txHash
+                return (
+                  <Fragment key={batch.txHash || batch.ledger}>
+                    <button
+                      type="button"
+                      onClick={() => setOpenTx(isOpen ? null : batch.txHash)}
+                      aria-expanded={isOpen}
+                      className="w-full flex items-center gap-4 px-6 py-4 text-left hover:bg-surface/40 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset"
+                    >
+                      <span className="flex-1 font-mono text-sm text-accent-soft">
+                        {amount != null ? `${formatUsdc(amount)} USDC` : '—'}
+                      </span>
+                      <span className="w-16 text-right font-mono text-xs text-ink-muted">
+                        {batch.events.length}
+                      </span>
+                      {batch.txHash ? (
+                        <a
+                          href={explorerTxUrl(batch.txHash)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="w-44 text-right font-mono text-xs text-ink-muted hover:text-accent-soft transition-colors"
+                        >
+                          {`${batch.txHash.slice(0, 8)}…${batch.txHash.slice(-6)} ↗`}
+                        </a>
+                      ) : (
+                        <span className="w-44 text-right font-mono text-xs text-ink-muted/40">—</span>
+                      )}
+                      <CaretDown
+                        size={14}
+                        weight="bold"
+                        aria-hidden
+                        className={`w-5 shrink-0 text-ink-muted transition-transform ${isOpen ? 'rotate-180' : ''}`}
+                      />
+                    </button>
+
+                    {isOpen && (
+                      <div className="px-6 pb-5 pt-1 bg-surface/20">
+                        <p className="text-xs text-ink-muted/60 mb-2">
+                          {batch.events.length} sealed notes · amounts sealed · ledger {batch.ledger}
+                        </p>
+                        <PayrollTable rows={toRows(batch.events)} />
+                      </div>
+                    )}
+                  </Fragment>
+                )
+              })}
+            </div>
+
+            {/* Batch pager — shown only when there are more than BATCHES_PER_PAGE batches */}
+            {batchPageCount > 1 && (
+              <div className="flex items-center justify-between gap-4 px-6 py-3 border-t border-white/5">
+                <span className="font-mono text-xs text-ink-muted tabular-nums">
+                  {currentBatchPage * BATCHES_PER_PAGE + 1}–{Math.min((currentBatchPage + 1) * BATCHES_PER_PAGE, batches.length)} of {batches.length}
+                </span>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    aria-label="Previous batch page"
+                    disabled={currentBatchPage === 0}
+                    onClick={() => setBatchPage(currentBatchPage - 1)}
+                    className="inline-flex items-center justify-center size-8 rounded-full text-ink-muted transition-colors hover:text-ink hover:bg-white/5 disabled:opacity-30 disabled:pointer-events-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  >
+                    <CaretLeft size={15} weight="bold" />
+                  </button>
+                  <span className="font-mono text-xs text-ink-muted tabular-nums px-1.5">
+                    {currentBatchPage + 1} / {batchPageCount}
+                  </span>
+                  <button
+                    type="button"
+                    aria-label="Next batch page"
+                    disabled={currentBatchPage >= batchPageCount - 1}
+                    onClick={() => setBatchPage(currentBatchPage + 1)}
+                    className="inline-flex items-center justify-center size-8 rounded-full text-ink-muted transition-colors hover:text-ink hover:bg-white/5 disabled:opacity-30 disabled:pointer-events-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  >
+                    <CaretRight size={15} weight="bold" />
+                  </button>
+                </div>
+              </div>
+            )}
           </DoubleBezel>
         </div>
       </Reveal>
-
-      {/* Three-lens footer */}
-      <Reveal delay={0.25}>
-        <ThreeLensFooter />
-      </Reveal>
     </>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Three-lens footer — who sees what
-// ---------------------------------------------------------------------------
-
-function ThreeLensFooter() {
-  return (
-    <div className="border-t border-white/5 pt-8">
-      <p className="text-xs text-ink-muted/60 uppercase tracking-widest mb-4">Who sees what</p>
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        {/* Public */}
-        <div className="rounded-xl ring-1 ring-white/5 p-4 bg-surface/40">
-          <p className="text-sm font-[600] text-ink mb-1">Public · this view</p>
-          <p className="text-xs text-ink-muted leading-relaxed">
-            Real USDC funded. Total proven on-chain. Notes are sealed and indistinguishable.
-            Who receives what is unreadable.
-          </p>
-        </div>
-
-        {/* Auditor */}
-        <Link
-          href="/auditor"
-          className="rounded-xl ring-1 ring-white/5 p-4 bg-surface/40 hover:ring-accent/30 hover:bg-surface/60 transition-all group"
-        >
-          <p className="text-sm font-[600] text-ink mb-1 group-hover:text-accent-soft transition-colors">
-            Auditor · /auditor ↗
-          </p>
-          <p className="text-xs text-ink-muted leading-relaxed">
-            With the view-key, the auditor reconstructs per-employee detail for the
-            batches they are authorized to review.
-          </p>
-        </Link>
-
-        {/* Employee */}
-        <Link
-          href="/employee"
-          className="rounded-xl ring-1 ring-white/5 p-4 bg-surface/40 hover:ring-accent/30 hover:bg-surface/60 transition-all group"
-        >
-          <p className="text-sm font-[600] text-ink mb-1 group-hover:text-accent-soft transition-colors">
-            Employee · /employee ↗
-          </p>
-          <p className="text-xs text-ink-muted leading-relaxed">
-            Each employee claims their own notes. No one else can see which note
-            belongs to them.
-          </p>
-        </Link>
-      </div>
-    </div>
   )
 }
 
@@ -313,15 +398,20 @@ function toRows(events: ScannedEvent[]): PayrollRow[] {
 // Loading / error / empty states
 // ---------------------------------------------------------------------------
 
-function LoadingSkeleton() {
+function LoadingBatches() {
   return (
-    <div className="flex flex-col gap-3" aria-hidden>
-      {Array.from({ length: 8 }).map((_, i) => (
-        <div
-          key={i}
-          className="bg-surface/50 rounded h-[20px] animate-pulse opacity-60"
-        />
-      ))}
+    <div
+      className="flex items-center justify-center py-28"
+      aria-busy="true"
+      aria-label="Loading batches"
+    >
+      <motion.p
+        className="text-lead font-mono text-ink-muted text-center"
+        animate={{ opacity: [0.5, 1, 0.5] }}
+        transition={{ duration: 1.6, repeat: Infinity, ease: 'easeInOut' }}
+      >
+        Loading batches
+      </motion.p>
     </div>
   )
 }

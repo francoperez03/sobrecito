@@ -189,14 +189,19 @@ function buildUnshieldTransaction({
     ? xdr.ScVal.fromXDR(noteMeta.withdrawExtDataXdr, 'base64')
     : nativeToScVal(
         {
-          recipient: new Address(recipient).toScVal(),
+          // A withdrawal produces no encrypted outputs — an empty Vec<Bytes>.
+          // It MUST be present (and empty) so hash_ext_data on-chain matches the
+          // proof.ext_data_hash computed with encrypted_outputs: [].
+          encrypted_outputs: xdr.ScVal.scvVec([]),
           // Negative ext_amount = withdrawal. The note amount becomes public.
           ext_amount: nativeToScVal(`-${noteMeta.amount}`, { type: 'i256' }),
+          recipient: new Address(recipient).toScVal(),
         },
         {
           type: {
-            recipient: ['symbol', null],
+            encrypted_outputs: ['symbol', null],
             ext_amount: ['symbol', null],
+            recipient: ['symbol', null],
           },
         },
       )

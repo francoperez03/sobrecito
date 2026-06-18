@@ -247,6 +247,75 @@ describe('buildDepositInputs', () => {
       expect(inputs.outPubkey[i]).toBe(notes[i].outPubkey.toString())
     }
   })
+
+  it('precomputedMembership populates valid ASP policy proofs (leaf, path, non-membership key)', async () => {
+    // The policy circuit verifies a membership + non-membership proof for every
+    // input unconditionally (policyTransaction.circom 127-170). The deposit dummy
+    // input therefore needs a VALID membership proof against the on-chain ASP tree
+    // and a non-membership key equal to the real employer pubkey. This guards the
+    // fix for the "Local proof valid: false" R1CS failure: zero placeholders never
+    // satisfied those constraints.
+    const notes = makeRealNotes()
+    const { blobs, blindings } = await buildFrozenBlobs(notes, DUMMY_AUDITOR_PUBKEY_HEX)
+    const dummyBlinding = BigInt(1234)
+
+    const employerPubkey = BigInt('11111111111111111111')
+    const membershipLeaf = BigInt('22222222222222222222')
+    const pathElements = Array.from({ length: 10 }, (_, i) => (i + 100).toString())
+    const pathIndices = '8'
+
+    const inputs = buildDepositInputs({
+      notes,
+      blindings,
+      encOutputs: blobs,
+      extDataHash: BigInt(7),
+      poolRoot: '0',
+      aspMemberRoot: '12345',
+      aspNonMemberRoot: '0',
+      senderAddress: SPIKE_RECIPIENT,
+      dummyBlinding,
+      precomputedMembership: {
+        publicKey: employerPubkey,
+        leaf: membershipLeaf,
+        pathElements,
+        pathIndices,
+      },
+    })
+
+    // Membership proof carries the real leaf + reconstructed path (not zeros).
+    const mp = inputs.membershipProofs[0][0]
+    expect(mp.leaf).toBe(membershipLeaf.toString())
+    expect(mp.blinding).toBe('0')
+    expect(mp.pathElements).toStrictEqual(pathElements)
+    expect(mp.pathIndices).toBe(pathIndices)
+
+    // Non-membership key must equal the real pubkey (circuit line 154), not '0'.
+    const nmp = inputs.nonMembershipProofs[0][0]
+    expect(nmp.key).toBe(employerPubkey.toString())
+    expect(nmp.isOld0).toBe('1')
+    expect(nmp.oldKey).toBe('0')
+    expect(nmp.oldValue).toBe('0')
+  })
+
+  it('without precomputedMembership the policy proofs fall back to zero placeholders (shape only)', async () => {
+    const notes = makeRealNotes()
+    const { blobs, blindings } = await buildFrozenBlobs(notes, DUMMY_AUDITOR_PUBKEY_HEX)
+
+    const inputs = buildDepositInputs({
+      notes,
+      blindings,
+      encOutputs: blobs,
+      extDataHash: BigInt(0),
+      poolRoot: '0',
+      aspMemberRoot: '0',
+      aspNonMemberRoot: '0',
+      senderAddress: SPIKE_RECIPIENT,
+      dummyBlinding: BigInt(5),
+    })
+
+    expect(inputs.membershipProofs[0][0].leaf).toBe('0')
+    expect(inputs.nonMembershipProofs[0][0].key).toBe('0')
+  })
 })
 
 // ------------------------------------------------------------------

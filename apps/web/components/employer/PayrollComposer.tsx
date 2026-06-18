@@ -13,6 +13,9 @@
  */
 
 import { useState, useEffect, useRef } from 'react'
+import { motion, AnimatePresence } from 'motion/react'
+import { ShieldCheck, Check } from '@phosphor-icons/react'
+import { keyFromBase64 } from 'viewkey'
 import { Reveal } from '@/components/motion/Reveal'
 import { ConnectFreighter } from './ConnectFreighter'
 import { PayrollEditableTable, type EditableRow } from './PayrollEditableTable'
@@ -25,7 +28,7 @@ import {
   MAX_NOTES,
   type DenomNote,
 } from '@/lib/zk/denominationBuilder'
-import { usdcToBaseUnits, isHex64, USDC_SCALE } from '@/lib/csvParser'
+import { usdcToBaseUnits, isHex64, USDC_SCALE, parseEmployeePubkey } from '@/lib/csvParser'
 import {
   buildFrozenBlobs,
   buildDepositInputs,
@@ -38,11 +41,15 @@ import {
   prove,
   computeCommitment,
   computeNullifier,
+  computeMembershipLeaf,
+  derivePublicKey,
+  reconstructMerklePath,
 } from '@/lib/zk/proverClient'
 import {
   connectFreighter,
   submitDeposit,
 } from '@/lib/employer-deposit'
+import { loadAuditorPublicKey } from '@/lib/auditorKeyStore'
 import { readDeployments, fetchPoolRoot, fetchASPRoots, fetchUsdcBalance, formatUsdc } from '@/lib/rpc'
 
 // ---------------------------------------------------------------------------
@@ -55,21 +62,31 @@ type ComposerState = 'idle' | 'composing' | 'proving' | 'submitting' | 'done' | 
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Convert editable rows to the shape decompose() expects. Skips invalid rows. */
+/**
+ * Convert editable rows to the shape decompose() expects. Skips invalid rows.
+ *
+ * The row's public key is the COMBINED employee key (x25519Pub || bn254Pub, 128
+ * hex). The x25519 half becomes pubkeyHex (the note is encrypted to it for
+ * discovery); the bn254 half becomes bn254Pub (the commitment / withdraw-ownership
+ * key). See parseEmployeePubkey + the key-model note in csvParser.
+ */
 function toDecomposeInput(
   rows: EditableRow[],
-): { name: string; amountUsdc: bigint; pubkeyHex: string }[] {
-  return rows
-    .filter((r) => r.amount && r.publicKey && isHex64(r.publicKey))
-    .flatMap((r) => {
-      try {
-        const amountUsdc = usdcToBaseUnits(r.amount)
-        if (amountUsdc === BigInt(0)) return []
-        return [{ name: '', amountUsdc, pubkeyHex: r.publicKey }]
-      } catch {
-        return []
-      }
-    })
+): { name: string; amountUsdc: bigint; pubkeyHex: string; bn254Pub: bigint }[] {
+  return rows.flatMap((r) => {
+    if (!r.amount || !r.publicKey) return []
+    const parsed = parseEmployeePubkey(r.publicKey)
+    if (!parsed) return []
+    try {
+      const amountUsdc = usdcToBaseUnits(r.amount)
+      if (amountUsdc === BigInt(0)) return []
+      return [
+        { name: '', amountUsdc, pubkeyHex: parsed.x25519Hex, bn254Pub: parsed.bn254Pub },
+      ]
+    } catch {
+      return []
+    }
+  })
 }
 
 /** Generate a cryptographically random BN254 field element (for dummyBlinding). */
@@ -86,6 +103,26 @@ function generateRandomBlinding(): bigint {
   return v % BN254_MOD
 }
 
+/**
+ * Parse a pasted auditor public key (64-char hex or base64) into a 64-char hex
+ * string, or null when empty / malformed. The auditor publishes its X25519
+ * public key as base64 (KeygenCard) or hex; both are accepted here.
+ */
+function parseAuditorKey(input: string): string | null {
+  const clean = input.trim().replace(/^0x/, '')
+  if (clean.length === 0) return null
+  if (isHex64(clean)) return clean.toLowerCase()
+  try {
+    const bytes = keyFromBase64(input.trim())
+    if (bytes.length !== 32) return null
+    return Array.from(bytes)
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('')
+  } catch {
+    return null
+  }
+}
+
 // ---------------------------------------------------------------------------
 // PayrollComposer
 // ---------------------------------------------------------------------------
@@ -97,12 +134,30 @@ export function PayrollComposer() {
   ])
   const [address, setAddress] = useState<string | null>(null)
   const [usdcBalance, setUsdcBalance] = useState<string | null>(null)
+  // Raw USDC balance in base units (7 decimals) — kept alongside the formatted
+  // string so the batch total can be checked against it before submit.
+  const [usdcBalanceBase, setUsdcBalanceBase] = useState<bigint | null>(null)
   const [connectError, setConnectError] = useState<string | null>(null)
   const [connecting, setConnecting] = useState(false)
   const [txHash, setTxHash] = useState<string | null>(null)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [stepState, setStepState] = useState<StepState>({ phase: 'idle' })
   const [elapsed, setElapsed] = useState(0)
+
+  // Optional auditor (selective disclosure / compliance): when enabled, the
+  // employer pastes the auditor's PUBLIC key and the per-note amounts are
+  // encrypted to it as well, so the auditor can reconstruct the detail. Off by
+  // default; when off, deposits fall back to the deployments.json auditor key.
+  const [auditEnabled, setAuditEnabled] = useState(false)
+  const [auditorKey, setAuditorKey] = useState('')
+
+  // Autofill the auditor public key from a previous auditor session in this
+  // browser (public key only — see auditorKeyStore). The employer can still
+  // overwrite it by hand. Runs once on mount; does not clobber manual edits.
+  useEffect(() => {
+    const stored = loadAuditorPublicKey()
+    if (stored) setAuditorKey(stored)
+  }, [])
 
   // Blobs frozen exactly once — never regenerated on re-render (Pitfall 2)
   const frozenBlobsRef = useRef<{ blobs: Uint8Array[]; blindings: bigint[] } | null>(null)
@@ -178,11 +233,37 @@ export function PayrollComposer() {
     : null
   const groupCount = decomposeInput.length
 
+  // Resolve the pasted auditor key (hex64 or base64) to a 64-char hex string, or
+  // null when it is empty / malformed. Used both to gate Submit and to encrypt.
+  const auditorKeyHex = parseAuditorKey(auditorKey)
+  const auditorKeyValid = auditorKeyHex !== null
+  // The audit option is "ready" unless it is enabled with an invalid key.
+  const auditReady = !auditEnabled || auditorKeyValid
+
+  // Total the employer is trying to fund (base units) — every row with a valid
+  // amount, so the balance check fires as soon as a too-large amount is typed.
+  const totalRequestedBase = rows.reduce((s, r) => {
+    if (!r.amount || !/^\d+(\.\d{1,7})?$/.test(r.amount)) return s
+    try {
+      return s + usdcToBaseUnits(r.amount)
+    } catch {
+      return s
+    }
+  }, BigInt(0))
+  // The deposit transfers real USDC from the employer; block submit when the batch
+  // total exceeds the connected account's USDC balance.
+  const insufficientFunds =
+    usdcBalanceBase !== null &&
+    totalRequestedBase > BigInt(0) &&
+    totalRequestedBase > usdcBalanceBase
+
   const canSubmit =
     notes !== null &&
     !overflow &&
     !belowMin &&
+    !insufficientFunds &&
     address !== null &&
+    auditReady &&
     (composerState === 'idle' || composerState === 'composing')
 
   // ---------------------------------------------------------------------------
@@ -191,11 +272,14 @@ export function PayrollComposer() {
 
   async function refreshUsdcBalance(addr: string) {
     setUsdcBalance(null)
+    setUsdcBalanceBase(null)
     try {
       const base = await fetchUsdcBalance(addr)
       setUsdcBalance(formatUsdc(base))
+      setUsdcBalanceBase(base)
     } catch {
       setUsdcBalance(null)
+      setUsdcBalanceBase(null)
     }
   }
 
@@ -219,6 +303,7 @@ export function PayrollComposer() {
   function handleDisconnect() {
     setAddress(null)
     setUsdcBalance(null)
+    setUsdcBalanceBase(null)
     setConnectError(null)
     setComposerState('idle')
   }
@@ -242,8 +327,12 @@ export function PayrollComposer() {
       // Freeze blobs EXACTLY ONCE — never regenerate on re-render.
       // frozenBlobsRef stores both the blobs AND the blindings from this single call.
       if (frozenBlobsRef.current === null) {
+        // Prefer the pasted auditor key (compliance toggle) over the default
+        // published key from deployments.json.
         const { auditorPubkeyHex } = readDeployments()
-        frozenBlobsRef.current = await buildFrozenBlobs(notes, auditorPubkeyHex)
+        const effectiveAuditorHex =
+          auditEnabled && auditorKeyHex ? auditorKeyHex : auditorPubkeyHex
+        frozenBlobsRef.current = await buildFrozenBlobs(notes, effectiveAuditorHex)
       }
       const { blobs, blindings } = frozenBlobsRef.current
 
@@ -276,7 +365,7 @@ export function PayrollComposer() {
       const totalBaseUnits = notes.reduce((s, n) => s + n.denomination, BigInt(0))
 
       // Hash ext_data (blobs must be frozen before computing this hash)
-      const { bigInt: extDataHash } = hashExtDataSobre({
+      const { bigInt: extDataHash, bytes: extDataHashBytes } = hashExtDataSobre({
         recipient: address,
         ext_amount: totalBaseUnits, // real USDC moved from the employer into the pool (testnet)
         encrypted_outputs: blobs,
@@ -299,9 +388,51 @@ export function PayrollComposer() {
       // The circuit enforces inNullifierHasher.out === inputNullifier[0] unconditionally
       // (policyTransaction.circom line 105). Using the pure-JS placeholder here causes
       // an unsatisfied constraint and proof failure. WASM chain:
-      //   privKey=1, amount=0, pathIndices=0 (deposit path, Merkle check disabled)
-      const DUMMY_PRIVKEY = BigInt(1)
+      //   privKey=424242, amount=0, pathIndices=0 (deposit path, pool Merkle check disabled)
+      // 424242 is the employer key whose pubkey seeds the on-chain ASP membership
+      // leaf at index 8; the ASP policy checks run even for the dummy input, so the
+      // pubkey derived here MUST match that leaf (see buildMembershipProof below).
+      const DUMMY_PRIVKEY = BigInt(424242)
       const precomputedNullifier = await computeNullifier(DUMMY_PRIVKEY, dummyBlinding, BigInt(0))
+
+      // ASP policy proof for the dummy input. The circuit verifies a membership
+      // proof and a non-membership proof for every input unconditionally, so the
+      // deposit needs valid proofs against the live ASP trees:
+      //   1. pubkey = Poseidon2(424242, 0, domain=3) — the circuit's inKeypair.publicKey
+      //   2. leaf   = Poseidon2(pubkey, 0, domain=1)  — the on-chain employer leaf
+      //   3. path for index 8 of the known on-chain ASP membership tree
+      //      (1024 leaves: empty = Poseidon2("XLM") zero leaf, leaves[0..7]=1..8,
+      //      leaf[8]=leaf). reconstructMerklePath rebuilds with the SAME zero leaf
+      //      and insertion order, so leaves go to indices 0..8 as on-chain.
+      const employerPubkey = await derivePublicKey(DUMMY_PRIVKEY)
+      const membershipLeaf = await computeMembershipLeaf(employerPubkey, BigInt(0))
+      const ASP_MEMBERSHIP_LEAVES: bigint[] = [
+        BigInt(1), BigInt(2), BigInt(3), BigInt(4),
+        BigInt(5), BigInt(6), BigInt(7), BigInt(8),
+        membershipLeaf,
+      ]
+      const EMPLOYER_LEAF_INDEX = 8
+      const memberPath = await reconstructMerklePath(
+        ASP_MEMBERSHIP_LEAVES,
+        EMPLOYER_LEAF_INDEX,
+        10,
+      )
+      const precomputedMembership = {
+        publicKey: employerPubkey,
+        leaf: membershipLeaf,
+        pathElements: memberPath.pathElements,
+        pathIndices: memberPath.pathIndices,
+      }
+
+      // The ASP membership root fed to the circuit (and, via the extracted public
+      // inputs, to the pool) MUST be the root of the SAME tree the path was
+      // reconstructed from — otherwise the membership constraint
+      // (policyTransaction.circom:144) can't be satisfied. The pool does NOT
+      // cross-check this against the live asp_membership contract (pool.rs
+      // verify_proof reads proof.asp_membership_root verbatim), so we mirror the
+      // CLI proof-gen (main.rs:257) and use the reconstructed root, NOT the live
+      // on-chain fetch (which is an empty tree the leaf was never inserted into).
+      const aspMemberRoot = memberPath.root
 
       const inputs = buildDepositInputs({
         notes,
@@ -309,12 +440,13 @@ export function PayrollComposer() {
         encOutputs: blobs,
         extDataHash,
         poolRoot,
-        aspMemberRoot: aspRoots.memberRoot,
+        aspMemberRoot,
         aspNonMemberRoot: aspRoots.nonMemberRoot,
         senderAddress: address,
         dummyBlinding,
         precomputedCommitments, // WASM Poseidon2 values — pure-JS stub overridden
         precomputedNullifier,   // WASM Poseidon2 nullifier — pure-JS stub overridden (gap closure)
+        precomputedMembership,  // WASM ASP membership/non-membership policy proof for the dummy input
       })
 
       const { proof } = await prove(inputs)
@@ -336,6 +468,7 @@ export function PayrollComposer() {
         encOutputs: Uint8Array[]
         totalBaseUnits: bigint
         sender: string
+        publicInputs?: unknown
       }) => Promise<{ hash: string; sender: string }>
       const testSubmit: TestSubmitFn | undefined =
         typeof window !== 'undefined'
@@ -347,6 +480,16 @@ export function PayrollComposer() {
         encOutputs: blobs,
         totalBaseUnits, // real USDC moved from employer into the pool
         sender: address,
+        // Semantic public inputs → the on-chain Proof struct (must match the proof).
+        publicInputs: {
+          root: poolRoot,
+          publicAmount: totalBaseUnits,
+          extDataHash: extDataHashBytes,
+          inputNullifiers: [String(precomputedNullifier)],
+          outputCommitments: precomputedCommitments.map((c) => String(c)),
+          aspMembershipRoot: aspMemberRoot,
+          aspNonMembershipRoot: aspRoots.nonMemberRoot,
+        },
       })
 
       setTxHash(result.hash)
@@ -398,13 +541,15 @@ export function PayrollComposer() {
         />
       </Reveal>
 
+      {/* Everything below the Connect button is hidden until the wallet is
+          connected — an unconnected employer sees only the Connect CTA. */}
+      {address && (
+        <>
       {/* Note budget — between Connect and the table, so the 8-note cap is
-          visible as you build the batch (shows as soon as any amount is typed). */}
-      {usedNotes > 0 && (
-        <Reveal delay={0.04}>
-          <NoteBudgetMeter usedNotes={usedNotes} />
-        </Reveal>
-      )}
+          always visible while building the batch, including the empty 0/8 state. */}
+      <Reveal delay={0.04}>
+        <NoteBudgetMeter usedNotes={usedNotes} />
+      </Reveal>
 
       {/* Editable payroll table */}
       <Reveal delay={0.05}>
@@ -428,6 +573,87 @@ export function PayrollComposer() {
         </Reveal>
       )}
 
+      {/* Compliance toggle — opt in to give an auditor selective disclosure.
+          Checking it reveals a field to paste the auditor's public key. */}
+      <Reveal delay={0.18}>
+        <div className="flex flex-col gap-3">
+          <button
+            type="button"
+            role="checkbox"
+            aria-checked={auditEnabled}
+            data-testid="audit-toggle"
+            onClick={() => setAuditEnabled((v) => !v)}
+            className="group flex items-start gap-3 text-left w-fit focus-visible:outline-none"
+          >
+            <span
+              className={[
+                'mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md ring-1 transition-colors',
+                'group-focus-visible:ring-2 group-focus-visible:ring-accent',
+                auditEnabled
+                  ? 'bg-accent-fill ring-accent-fill text-white'
+                  : 'bg-bg ring-hairline text-transparent group-hover:ring-ink-muted',
+              ].join(' ')}
+            >
+              <Check size={13} weight="bold" aria-hidden />
+            </span>
+            <span className="flex flex-col gap-0.5">
+              <span className="flex items-center gap-1.5 text-sm font-[700] text-ink">
+                <ShieldCheck size={15} weight="fill" aria-hidden className="text-ink-muted" />
+                Add an auditor for compliance
+              </span>
+              <span className="text-xs text-ink-muted leading-relaxed max-w-[52ch]">
+                Encrypt each amount to an auditor&apos;s key so they can reconstruct the
+                detail. Everyone else still sees only the proven total.
+              </span>
+            </span>
+          </button>
+
+          <AnimatePresence initial={false}>
+            {auditEnabled && (
+              <motion.div
+                key="auditor-key-field"
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                transition={{ duration: 0.3, ease: [0.32, 0.72, 0, 1] }}
+                className="overflow-hidden"
+              >
+                <div className="flex flex-col gap-2 pt-1 pl-8">
+                  <label
+                    htmlFor="auditor-key"
+                    className="text-xs text-ink-muted uppercase tracking-widest"
+                  >
+                    Auditor public key
+                  </label>
+                  <input
+                    id="auditor-key"
+                    data-testid="auditor-key-input"
+                    value={auditorKey}
+                    onChange={(e) => setAuditorKey(e.target.value)}
+                    placeholder="Paste the auditor's public key (hex or base64)"
+                    spellCheck={false}
+                    autoComplete="off"
+                    autoCapitalize="off"
+                    className={[
+                      'w-full max-w-xl bg-bg text-ink font-mono text-sm rounded-2xl h-[48px] px-4',
+                      'ring-1 focus:outline-none transition-all placeholder:text-ink-muted/70',
+                      auditorKey.length > 0 && !auditorKeyValid
+                        ? 'ring-accent-warm focus:ring-accent-warm'
+                        : 'ring-hairline focus:ring-2 focus:ring-accent',
+                    ].join(' ')}
+                  />
+                  <p className="text-xs text-ink-muted">
+                    {auditorKey.length > 0 && !auditorKeyValid
+                      ? 'That is not a 32-byte key. Paste a 64-character hex string or the base64 key from the auditor.'
+                      : 'The auditor shares this from their console (Generate keypair → public key).'}
+                  </p>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      </Reveal>
+
       {/* Submit button */}
       <Reveal delay={0.2}>
         <div className="flex flex-col gap-3">
@@ -447,6 +673,13 @@ export function PayrollComposer() {
             </p>
           )}
 
+          {insufficientFunds && (
+            <p className="text-xs text-accent-warm" data-testid="insufficient-funds">
+              The batch total ({formatUsdc(totalRequestedBase)} USDC) is more than your wallet balance
+              ({usdcBalance ?? '0'} USDC). Fund this account with USDC or lower the amounts.
+            </p>
+          )}
+
 
           {composerState === 'error' && errorMsg && (
             <p className="text-sm text-ink-muted">{errorMsg}</p>
@@ -459,6 +692,8 @@ export function PayrollComposer() {
         <Reveal delay={0}>
           <ProvingStepper step={stepState} />
         </Reveal>
+      )}
+        </>
       )}
     </div>
   )

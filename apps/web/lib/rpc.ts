@@ -4,6 +4,7 @@ import {
   Contract,
   Networks,
   TransactionBuilder,
+  nativeToScVal,
   scValToNative,
 } from '@stellar/stellar-sdk'
 import { Server } from '@stellar/stellar-sdk/rpc'
@@ -53,6 +54,42 @@ export function formatUsdc(base: bigint): string {
 }
 
 /**
+ * Fetch the funded amount of a batch (USDC base units) from its transact tx.
+ *
+ * Per-note amounts are sealed in the scanned commitment events, so the batch
+ * total can't be derived client-side from the events. It IS the deposit's
+ * `ext_data.ext_amount`, read here from the transaction. Returns the absolute
+ * value (deposits are positive). Returns null on any failure (tx outside RPC
+ * retention, decode error) so callers can fall back gracefully.
+ */
+export async function fetchBatchExtAmount(txHash: string): Promise<bigint | null> {
+  if (!txHash) return null
+  try {
+    const { rpcUrl } = readDeployments()
+    const server = new Server(rpcUrl)
+    const res = await server.getTransaction(txHash)
+    if (res.status !== 'SUCCESS' || !res.envelopeXdr) return null
+    const tx = TransactionBuilder.fromXDR(res.envelopeXdr, Networks.TESTNET) as unknown as {
+      operations?: Array<{ func?: { invokeContract?: () => { args: () => unknown[] } } }>
+    }
+    for (const op of tx.operations ?? []) {
+      const invoke = op.func?.invokeContract?.()
+      if (!invoke) continue
+      const args = invoke.args()
+      // transact(proof, ext_data, sender) → ext_data is arg index 1.
+      if (args.length < 2) continue
+      const extData = scValToNative(args[1] as never) as { ext_amount?: bigint | number }
+      if (extData?.ext_amount == null) continue
+      const amt = BigInt(extData.ext_amount)
+      return amt < BigInt(0) ? -amt : amt
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
+/**
  * Fetch the live Merkle root of the pool contract via a read-only Soroban
  * simulation of `pool.get_root()`. Returns a DECIMAL STRING (the witness builder
  * needs decimal-string field elements). No signing or gas required.
@@ -73,7 +110,8 @@ export async function fetchPoolRoot(): Promise<string> {
   const sim = await server.simulateTransaction(tx)
   if ('error' in sim && sim.error) throw new Error(sim.error)
   const retval = (sim as { result?: { retval?: unknown } }).result?.retval
-  if (!retval) throw new Error('fetchPoolRoot: simulation returned no value')
+  // Use explicit null/undefined check: `!retval` incorrectly rejects BigInt(0n).
+  if (retval == null) throw new Error('fetchPoolRoot: simulation returned no value')
   return BigInt(scValToNative(retval as never) as bigint | number).toString()
 }
 
@@ -104,7 +142,8 @@ export async function fetchASPRoots(): Promise<{
     const sim = await server.simulateTransaction(tx)
     if ('error' in sim && sim.error) throw new Error(sim.error)
     const retval = (sim as { result?: { retval?: unknown } }).result?.retval
-    if (!retval) throw new Error(`fetchASPRoots: simulation returned no value for ${contractId}`)
+    // Use explicit null/undefined check: `!retval` incorrectly rejects BigInt(0n).
+    if (retval == null) throw new Error(`fetchASPRoots: simulation returned no value for ${contractId}`)
     return BigInt(scValToNative(retval as never) as bigint | number).toString()
   }
 
@@ -166,4 +205,99 @@ export async function fetchUsdcBalance(accountAddress: string): Promise<bigint> 
   const retval = (sim as { result?: { retval?: unknown } }).result?.retval
   if (!retval) throw new Error('USDC balance simulation returned no value')
   return BigInt(scValToNative(retval as never) as bigint | number)
+}
+
+// ---------------------------------------------------------------------------
+// fetchNullifierStatus (A1 fallback)
+// ---------------------------------------------------------------------------
+
+/**
+ * Check whether a nullifier has been spent on the pool contract.
+ *
+ * A1 fallback: pool.is_spent is a PRIVATE fn (confirmed in pool.rs, plan 01
+ * Wave 0). NOT callable via simulateTransaction. We still attempt the call; on
+ * ANY error or missing retval we return false (treat as 'pending').
+ * This degrades gracefully: the pool will reject a double-claim on submit
+ * regardless (AlreadySpentNullifier). The status precheck is best-effort.
+ *
+ * Never throws into the UI (T-063-09 mitigation: RPC simulate error stalls scan).
+ */
+export async function fetchNullifierStatus(nullifier: bigint): Promise<boolean> {
+  try {
+    const { rpcUrl, poolContractId, deployer } = readDeployments()
+    const server = new Server(rpcUrl)
+    const pool = new Contract(poolContractId)
+    const source = new Account(deployer, '0')
+    const tx = new TransactionBuilder(source, {
+      fee: '100',
+      networkPassphrase: Networks.TESTNET,
+    })
+      .addOperation(pool.call('is_spent', nativeToScVal(nullifier.toString(), { type: 'u256' })))
+      .setTimeout(30)
+      .build()
+    const sim = await server.simulateTransaction(tx)
+    if ('error' in sim && sim.error) return false
+    const retval = (sim as { result?: { retval?: unknown } }).result?.retval
+    if (!retval) return false
+    return Boolean(scValToNative(retval as never))
+  } catch {
+    return false
+  }
+}
+
+// ---------------------------------------------------------------------------
+// fetchMerkleProof (A2 fallback)
+// ---------------------------------------------------------------------------
+
+/**
+ * Typed error thrown when get_proof is absent so the caller can switch to the
+ * client-side reconstructMerklePathFromEvents fallback.
+ */
+export class MerkleProofUnavailableError extends Error {
+  constructor() {
+    super('pool.get_proof is absent; use reconstructMerklePathFromEvents instead (A2 fallback)')
+    this.name = 'MerkleProofUnavailableError'
+  }
+}
+
+/**
+ * Attempt to fetch the Merkle path for a commitment at `index` from the pool.
+ *
+ * A2 fallback: pool.get_proof is ABSENT from pool.rs (confirmed in plan 01 Wave 0).
+ * The simulate call will fail or return no value, at which point this function
+ * throws MerkleProofUnavailableError. The claim flow in plan 04 catches this
+ * error and delegates to reconstructMerklePathFromEvents (employee-scan.ts).
+ *
+ * This wrapper exists as a mock seam: test suites can intercept simulateTransaction
+ * to inject a fake get_proof response without touching the reconstruction helper.
+ */
+export async function fetchMerkleProof(
+  index: number,
+): Promise<{ pathElements: string[]; pathIndices: string }> {
+  try {
+    const { rpcUrl, poolContractId, deployer } = readDeployments()
+    const server = new Server(rpcUrl)
+    const pool = new Contract(poolContractId)
+    const source = new Account(deployer, '0')
+    const tx = new TransactionBuilder(source, {
+      fee: '100',
+      networkPassphrase: Networks.TESTNET,
+    })
+      .addOperation(pool.call('get_proof', nativeToScVal(index, { type: 'u32' })))
+      .setTimeout(30)
+      .build()
+    const sim = await server.simulateTransaction(tx)
+    if ('error' in sim && sim.error) throw new MerkleProofUnavailableError()
+    const retval = (sim as { result?: { retval?: unknown } }).result?.retval
+    if (retval == null) throw new MerkleProofUnavailableError()
+    const parsed = scValToNative(retval as never) as { pathElements: string[]; pathIndices: string }
+    // Verify the parsed value has the expected shape; if not, the pool doesn't expose get_proof.
+    if (!parsed || typeof parsed !== 'object' || !('pathElements' in parsed)) {
+      throw new MerkleProofUnavailableError()
+    }
+    return parsed
+  } catch (err) {
+    if (err instanceof MerkleProofUnavailableError) throw err
+    throw new MerkleProofUnavailableError()
+  }
 }

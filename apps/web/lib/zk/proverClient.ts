@@ -88,7 +88,12 @@ async function getModule(): Promise<ProverClientModule> {
 export async function configureProver(): Promise<void> {
   if (typeof window === 'undefined') return
   const pc = await getModule()
-  pc.configure(CIRCUIT_CONFIG)
+  // The worker falls back to its DEFAULT_CONFIG (policy_tx_1_8 URLs) when the
+  // bundle does not export a `configure` hook, so a missing function is not a
+  // failure — guard it instead of throwing into the claim/deposit flow.
+  if (typeof pc.configure === 'function') {
+    pc.configure(CIRCUIT_CONFIG)
+  }
 }
 
 /**
@@ -164,6 +169,7 @@ export async function computeNullifier(
   privKey: bigint,
   blinding: bigint,
   pathIndices: bigint = BigInt(0),
+  amount: bigint = BigInt(0),
 ): Promise<bigint> {
   if (typeof window === 'undefined') {
     throw new Error('proverClient.computeNullifier: browser-only')
@@ -173,8 +179,80 @@ export async function computeNullifier(
     privKey.toString(10),
     blinding.toString(10),
     pathIndices.toString(10),
+    amount.toString(10),
   )
   return BigInt(decResult)
+}
+
+/**
+ * Reconstruct the Merkle path for a leaf via the WASM MerkleTree (real Poseidon2
+ * hash, the same one the circuit uses). A2 fallback for the employee claim when
+ * pool.get_proof is absent. The returned pathElements/pathIndices are decimal
+ * strings the withdraw witness builder consumes directly.
+ *
+ * Browser-only: the MerkleTree lives in the prover WASM bridge.
+ */
+export async function reconstructMerklePath(
+  leaves: bigint[],
+  targetIndex: number,
+  depth = 10,
+): Promise<{ pathElements: string[]; pathIndices: string; root: string }> {
+  if (typeof window === 'undefined') {
+    throw new Error('proverClient.reconstructMerklePath: browser-only')
+  }
+  const pc = await getModule()
+  return pc.reconstructMerklePath(
+    leaves.map((l) => l.toString(10)),
+    targetIndex,
+    depth,
+  ) as Promise<{ pathElements: string[]; pathIndices: string; root: string }>
+}
+
+/**
+ * Compute the ASP membership leaf via the WASM bridge:
+ *   leaf = Poseidon2(publicKey, blinding, domainSep=0x01)
+ *
+ * This is the 2-input hash the policy circuit computes at
+ * policyTransaction.circom line 130-134. The deposit witness builder must
+ * supply a membership leaf that matches it (the on-chain employer leaf at
+ * index 8 is Poseidon2(pubkey(DUMMY_PRIVKEY), 0, 1)), or the membership
+ * constraint is unsatisfied and the proof is locally invalid.
+ *
+ * Browser-only: throws during SSR.
+ */
+export async function computeMembershipLeaf(
+  publicKey: bigint,
+  blinding: bigint,
+): Promise<bigint> {
+  if (typeof window === 'undefined') {
+    throw new Error('proverClient.computeMembershipLeaf: browser-only')
+  }
+  const pc = await getModule()
+  const decResult: string = await pc.computeMembershipLeaf(
+    publicKey.toString(10),
+    blinding.toString(10),
+  )
+  return BigInt(decResult)
+}
+
+/**
+ * Derive the BN254 public key from a BN254 private key via the WASM bridge.
+ * Computes Poseidon2(privKey, 0) with domain separation 0x03, exactly as the
+ * circuit's Keypair() template does. This is the source of truth for bn254Pub
+ * throughout the codebase: never derive it client-side without going through here.
+ *
+ * The bridge derivePublicKey(bytes, asHex=false) takes LE field bytes and returns
+ * LE field bytes. We convert bigint to/from LE bytes to match that convention.
+ *
+ * Browser-only: throws during SSR.
+ */
+export async function derivePublicKey(privKey: bigint): Promise<bigint> {
+  if (typeof window === 'undefined') throw new Error('proverClient.derivePublicKey: browser-only')
+  const pc = await getModule()
+  // Convert bigint to 32-byte LE field bytes (the WASM expects LE encoding)
+  const privBytes = bigintToFieldBytesLE(privKey)
+  const pubBytes: Uint8Array = await pc.derivePublicKey(privBytes, false)
+  return fieldBytesLEToBigint(pubBytes)
 }
 
 /**
@@ -206,4 +284,22 @@ function bigintToFieldBytes(v: bigint): Uint8Array {
     out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16)
   }
   return out
+}
+
+/** Encode a bigint as a 32-byte little-endian Uint8Array (WASM LE field convention). */
+function bigintToFieldBytesLE(v: bigint): Uint8Array {
+  const out = new Uint8Array(32)
+  let val = v
+  for (let i = 0; i < 32; i++) {
+    out[i] = Number(val & BigInt(0xff))
+    val >>= BigInt(8)
+  }
+  return out
+}
+
+/** Decode a 32-byte little-endian Uint8Array to a bigint. */
+function fieldBytesLEToBigint(bytes: Uint8Array): bigint {
+  let result = BigInt(0)
+  for (let i = 31; i >= 0; i--) result = (result << BigInt(8)) | BigInt(bytes[i])
+  return result
 }

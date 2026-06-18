@@ -114,6 +114,104 @@ function eventFilter(poolContractId: string) {
 }
 
 /**
+ * Topic symbol the `#[contractevent] NewNullifierEvent` macro emits.
+ *
+ * Mirrors NEW_COMMITMENT_TOPIC: the macro derives the topic from the full struct
+ * name in snake_case, so `NewNullifierEvent` -> `new_nullifier_event`. The
+ * nullifier itself is the second topic segment (it is `#[topic]` in pool.rs);
+ * there is no data value.
+ */
+const NEW_NULLIFIER_TOPIC = "new_nullifier_event";
+
+/** Build the contract event filter for the pool's spent-nullifier topic. */
+function nullifierEventFilter(poolContractId: string) {
+  return {
+    type: "contract" as const,
+    contractIds: [poolContractId],
+    topics: [[scValToSymbolXdr(NEW_NULLIFIER_TOPIC), "*"]],
+  };
+}
+
+/**
+ * Scan the pool's `NewNullifierEvent`s and return the set of spent nullifiers
+ * (decimal strings) over `[fromLedger, toLedger]`.
+ *
+ * The employee dashboard uses this to mark already-claimed notes: `pool.is_spent`
+ * is a PRIVATE contract fn (not invocable via simulate), so the spent set is read
+ * from the event log instead. A nullifier present here was burned by a prior
+ * `transact`, i.e. the note was claimed.
+ */
+export async function scanSpentNullifiers(
+  opts: ScanOptions,
+): Promise<Set<string>> {
+  const server = new Server(opts.rpcUrl, {
+    allowHttp: opts.rpcUrl.startsWith("http://"),
+  });
+
+  const spent = new Set<string>();
+  let cursor: string | undefined;
+
+  for (;;) {
+    const request = cursor
+      ? {
+          filters: [nullifierEventFilter(opts.poolContractId)],
+          cursor,
+          limit: 100,
+        }
+      : {
+          filters: [nullifierEventFilter(opts.poolContractId)],
+          startLedger: opts.fromLedger,
+          ...(opts.toLedger !== undefined ? { endLedger: opts.toLedger } : {}),
+          limit: 100,
+        };
+
+    const page = await server.getEvents(
+      request as Parameters<Server["getEvents"]>[0],
+    );
+
+    for (const event of page.events) {
+      const nullifier = parseNullifierEvent(event);
+      if (nullifier !== null) {
+        spent.add(nullifier.toString());
+      }
+    }
+
+    if (page.events.length === 0 || !page.cursor) {
+      break;
+    }
+    cursor = page.cursor;
+  }
+
+  return spent;
+}
+
+/**
+ * Parse one RPC event into a spent nullifier bigint, or `null` when it is not a
+ * `NewNullifierEvent` (defensive against topic/shape drift).
+ */
+function parseNullifierEvent(event: {
+  topic: xdr.ScVal[];
+  value: xdr.ScVal;
+  ledger: number;
+  txHash: string;
+}): bigint | null {
+  const topics = event.topic;
+  if (topics.length < 2) {
+    return null;
+  }
+
+  const eventName = topics[0]?.switch().name === "scvSymbol"
+    ? topics[0].sym().toString()
+    : null;
+  if (eventName !== NEW_NULLIFIER_TOPIC) {
+    return null;
+  }
+
+  // topic[1] = nullifier U256.
+  return toBigInt(scValToNative(topics[1]));
+}
+
+/**
  * Parse one RPC event into a `ScannedEvent`, or `null` when it is not a
  * `NewCommitmentEvent` (defensive against topic/shape drift).
  */

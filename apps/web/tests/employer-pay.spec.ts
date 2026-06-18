@@ -124,6 +124,21 @@ export async function computeNullifier(_privKey, _blinding, _pathIdx) {
   // Return a fake nullifier as a decimal string.
   return '2';
 }
+
+export async function derivePublicKey(_priv, _asHex) {
+  // Return 32 zero bytes (the deposit flow derives bn254Pub via this bridge).
+  return new Uint8Array(32).fill(0);
+}
+
+export async function computeMembershipLeaf(_pubkey, _blinding) {
+  // Fake ASP membership leaf as a decimal string.
+  return '3';
+}
+
+export async function reconstructMerklePath(_leaves, _targetIndex, depth = 10) {
+  // Fake Merkle path of the requested depth (decimal field elements).
+  return { pathElements: Array(depth).fill('3'), pathIndices: '0' };
+}
 `
     route.fulfill({
       status: 200,
@@ -417,5 +432,28 @@ test.describe('PayrollComposer employer pay flow', () => {
     const explorerLink = page.locator('[data-testid="explorer-link"]')
     await expect(explorerLink).toBeVisible()
     await expect(explorerLink).toHaveText(FAKE_TX_HASH)
+  })
+
+  // 06.3-04: with the auditor public key persisted (from the auditor console in
+  // the same browser), enabling the compliance toggle autofills the field.
+  test('compliance field autofills the persisted auditor public key', async ({ page }) => {
+    await injectMocks(page)
+    // Seed localStorage before any page script runs (simulates a prior auditor
+    // session). Use a valid base64 32-byte key, matching what the auditor stores.
+    const auditorPub = Buffer.alloc(32, 7).toString('base64')
+    await page.addInitScript((pub) => {
+      window.localStorage.setItem('sobre.auditorPublicKey', pub as string)
+    }, auditorPub)
+
+    await page.goto('/employer')
+    await expect(page.locator('[data-testid="payroll-composer"]')).toBeVisible()
+
+    // Enable "Add an auditor for compliance".
+    await page.getByTestId('audit-toggle').click()
+
+    // The field appears already filled with the persisted public key.
+    const field = page.getByTestId('auditor-key-input')
+    await expect(field).toBeVisible()
+    await expect(field).toHaveValue(auditorPub)
   })
 })

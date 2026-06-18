@@ -55,19 +55,14 @@ export interface DenomNote {
   /** Display-only employee name. Never reaches a shell. */
   employeeName: string
   /**
-   * BN254 scalar derived from the employee X25519 public key.
+   * BN254 pubkey used as the circuit output key for this note.
    *
-   * DEMO-GRADE DERIVATION (see RESEARCH Open Question 1 / Pitfall 3):
-   * We interpret the 32 X25519 pubkey bytes as a little-endian scalar and
-   * reduce mod BN254_FIELD_MODULUS. This is sufficient for the commitment
-   * circuit where the circuit only checks that the employee knows a key
-   * consistent with the commitment; it does NOT guarantee X25519 ↔ BN254
-   * algebraic correspondence needed for unshield.
+   * New payroll runs (06.3 onward) use the seed-derived bn254Pub (= Poseidon2(bn254Priv, 0),
+   * domain 0x03), so the withdraw proof of 06.3 can verify against the circuit's Keypair()
+   * template. Pass bn254Pub from deriveEmployeeKeys() via the row's optional bn254Pub field.
    *
-   * Assumption A1 (flagged in SUMMARY): the unshield phase must use the
-   * same derivation to reconstruct the scalar from the employee's X25519 key.
-   * A proper production implementation would use a dedicated key derivation
-   * scheme (e.g. hash_to_field or a deterministic ECDH).
+   * Legacy rows (06.2 and earlier, deposited with pubkeyToBn254) use the fallback path.
+   * Those notes are deposit-only and cannot be withdrawn live (per CONTEXT.md Option B).
    */
   outPubkey: bigint
 }
@@ -98,22 +93,32 @@ export function pubkeyToBn254(hex: string): bigint {
  * When non-null, the returned array always has exactly 8 entries; slots beyond
  * the real notes are zero-amount dummies:
  *   { denomination: 0, recipientPubkeyHex: '00'.repeat(32), employeeName: '', outPubkey: 0 }
+ *
+ * Row shape: name, amountUsdc, pubkeyHex are required.
+ * bn254Pub is optional. When present (seed-derived via deriveEmployeeKeys, = Poseidon2(bn254Priv, 0)),
+ * it is used as the circuit outPubkey so the withdraw proof can verify. When absent,
+ * the legacy pubkeyToBn254 fallback applies (deposit-only, not withdrawable live).
  */
 export function decompose(
-  rows: { name: string; amountUsdc: bigint; pubkeyHex: string }[],
+  rows: { name: string; amountUsdc: bigint; pubkeyHex: string; bn254Pub?: bigint }[],
 ): DenomNote[] | null {
   const notes: DenomNote[] = []
   const outPubkey0 = pubkeyToBn254('00'.repeat(32))
 
   for (const row of rows) {
     let remaining = row.amountUsdc
+    // Prefer the seed-derived bn254Pub (= Poseidon2(bn254Priv, 0)) when the caller
+    // supplies it. This aligns the circuit outPubkey with the Keypair() template so
+    // the withdraw proof can verify. The legacy pubkeyToBn254 fallback is for rows
+    // that pre-date 06.3 and are deposit-only (per CONTEXT.md Option B).
+    const outPubkey = row.bn254Pub !== undefined ? row.bn254Pub : pubkeyToBn254(row.pubkeyHex)
     for (const denomBase of DENOMS) {
       while (remaining >= denomBase) {
         notes.push({
           denomination: denomBase,
           recipientPubkeyHex: row.pubkeyHex,
           employeeName: row.name,
-          outPubkey: pubkeyToBn254(row.pubkeyHex),
+          outPubkey,
         })
         remaining -= denomBase
       }
