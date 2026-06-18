@@ -17,7 +17,7 @@ export {
 } from "./crypto/encoding.js";
 
 // Event scanner: read NewCommitmentEvent from the pool over a ledger range.
-export { scanCommitmentEvents } from "./scanner/eventScanner.js";
+export { scanCommitmentEvents, scanSpentNullifiers } from "./scanner/eventScanner.js";
 export type { ScanOptions, ScannedEvent } from "./scanner/eventScanner.js";
 
 // Auditor-side reconstruction: scan events → decrypt → reconcile against T.

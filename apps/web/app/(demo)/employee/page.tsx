@@ -23,10 +23,10 @@ import {
   reconstructMerklePathFromEvents,
   type EmployeeNote,
 } from '@/lib/employee-scan'
-import { fetchNullifierStatus, readDeployments } from '@/lib/rpc'
+import { readDeployments } from '@/lib/rpc'
 import { computeNullifier } from '@/lib/zk/proverClient'
 import { claimNote } from '@/lib/employee-claim'
-import { scanCommitmentEvents, type ScannedEvent } from 'viewkey'
+import { scanCommitmentEvents, scanSpentNullifiers, type ScannedEvent } from 'viewkey'
 
 // ---------------------------------------------------------------------------
 // Dashboard state machine
@@ -180,18 +180,20 @@ export default function EmployeePage() {
         return
       }
 
-      // Fetch nullifier status in parallel (A1 fallback: defaults 'pending' on error).
+      // Determine claimed status from the pool's spent-nullifier event log.
+      // pool.is_spent is a PRIVATE contract fn (not invocable via simulate), so we
+      // read the set of burned nullifiers from the NewNullifierEvent log instead.
+      const spentNullifiers = await scanSpentNullifiers(source)
+
       const withStatus: EmployeeNoteWithStatus[] = await Promise.all(
         found.map(async (n) => {
           let status: NoteStatus = 'pending'
           try {
             // The spent nullifier is bound to the note's REAL amount and Merkle
             // path index (see claimNote: computeNullifier with path.pathIndices +
-            // note.amount). The status check MUST recompute it the same way, or it
-            // queries a nullifier that was never recorded on-chain and the note
-            // keeps showing "claimable" even after a successful claim. We rebuild
-            // the same path the claim uses (reconstruct from the full event
-            // history) so the index matches exactly.
+            // note.amount). Recompute it the SAME way — rebuilding the same path
+            // the claim uses from the full event history — so the value matches
+            // the nullifier the pool recorded on claim.
             const { pathIndices } = await reconstructMerklePathFromEvents(allEvents, n.index)
             const nullifier = await computeNullifier(
               bn254Priv,
@@ -199,8 +201,7 @@ export default function EmployeePage() {
               BigInt(pathIndices),
               n.amount,
             )
-            const spent = await fetchNullifierStatus(nullifier)
-            status = spent ? 'claimed' : 'pending'
+            status = spentNullifiers.has(nullifier.toString()) ? 'claimed' : 'pending'
           } catch {
             status = 'pending' // A1: degrade gracefully on error
           }
