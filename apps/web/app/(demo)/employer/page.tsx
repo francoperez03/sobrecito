@@ -1,7 +1,7 @@
 'use client'
 
 import { Fragment, useEffect, useMemo, useState } from 'react'
-import { motion } from 'motion/react'
+import { AnimatePresence, motion } from 'motion/react'
 import { CaretDown } from '@phosphor-icons/react'
 import { scanCommitmentEvents, type ScannedEvent } from 'viewkey'
 import { Reveal } from '@/components/motion/Reveal'
@@ -18,6 +18,9 @@ import {
 } from '@/lib/rpc'
 import { PayrollComposer } from '@/components/employer/PayrollComposer'
 import { DoubleBezel } from '@/components/ui/DoubleBezel'
+
+/** Brand easing curve (matches ProvingStepper / ClaimStepper). */
+const EASE_BRAND = [0.32, 0.72, 0, 1] as const
 
 // The total T shown here is the REAL on-chain USDC balance of the pool (read via
 // a read-only SAC `balance` simulation), not a demo constant. It is the public
@@ -130,13 +133,55 @@ export default function EmployerPage() {
           </div>
         </Reveal>
 
-        {state.phase === 'loading' && <LoadingSkeleton />}
-        {state.phase === 'error' && <ErrorState />}
-        {state.phase === 'empty' && <EmptyState />}
+        {/* Loading exits (fade down) before the loaded block enters (fade up). */}
+        <AnimatePresence mode="wait">
+          {state.phase === 'loading' && (
+            <motion.div
+              key="loading"
+              initial={{ opacity: 0, y: 28 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 28 }}
+              transition={{ duration: 0.5, ease: EASE_BRAND }}
+            >
+              <LoadingBatches />
+            </motion.div>
+          )}
 
-        {state.phase === 'ready' && (
-          <ReadyView events={state.events} totalBase={state.totalBase} />
-        )}
+          {state.phase === 'error' && (
+            <motion.div
+              key="error"
+              initial={{ opacity: 0, y: 28 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 28 }}
+              transition={{ duration: 0.5, ease: EASE_BRAND }}
+            >
+              <ErrorState />
+            </motion.div>
+          )}
+
+          {state.phase === 'empty' && (
+            <motion.div
+              key="empty"
+              initial={{ opacity: 0, y: 28 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 28 }}
+              transition={{ duration: 0.5, ease: EASE_BRAND }}
+            >
+              <EmptyState />
+            </motion.div>
+          )}
+
+          {state.phase === 'ready' && (
+            <motion.div
+              key="ready"
+              initial={{ opacity: 0, y: 28 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, ease: EASE_BRAND }}
+            >
+              <ReadyView events={state.events} totalBase={state.totalBase} />
+            </motion.div>
+          )}
+        </AnimatePresence>
       </section>
     </main>
   )
@@ -188,7 +233,7 @@ function ReadyView({ events, totalBase }: { events: ScannedEvent[]; totalBase: b
       {/* Batches — one collapsible table; each row expands to its sealed notes */}
       <Reveal delay={0.15}>
         <div className="mb-10">
-          <h3 className="text-h3 font-[900] tracking-[-0.01em] leading-[1.15] mb-4">
+          <h3 className="text-h3 font-[600] tracking-[-0.01em] leading-[1.15] mb-4">
             Batches
           </h3>
           <DoubleBezel radius="2rem" className="overflow-hidden">
@@ -310,38 +355,20 @@ function toRows(events: ScannedEvent[]): PayrollRow[] {
 // Loading / error / empty states
 // ---------------------------------------------------------------------------
 
-function LoadingSkeleton() {
+function LoadingBatches() {
   return (
-    <div className="flex flex-col gap-6" aria-busy="true" aria-label="Loading payrolls">
-      {/* Animated loader label — "Loading payrolls" + three bouncing dots */}
-      <div className="flex items-center gap-2 text-ink-muted">
-        <span className="font-mono text-sm">Loading payrolls</span>
-        <span className="flex items-center gap-1" aria-hidden>
-          {[0, 1, 2].map((i) => (
-            <motion.span
-              key={i}
-              className="inline-block h-1.5 w-1.5 rounded-full bg-accent-soft"
-              animate={{ opacity: [0.3, 1, 0.3], y: [0, -3, 0] }}
-              transition={{
-                duration: 0.9,
-                repeat: Infinity,
-                ease: 'easeInOut',
-                delay: i * 0.15,
-              }}
-            />
-          ))}
-        </span>
-      </div>
-
-      {/* Skeleton rows */}
-      <div className="flex flex-col gap-3" aria-hidden>
-        {Array.from({ length: 8 }).map((_, i) => (
-          <div
-            key={i}
-            className="bg-surface/50 rounded h-[20px] animate-pulse opacity-60"
-          />
-        ))}
-      </div>
+    <div
+      className="flex items-center justify-center py-28"
+      aria-busy="true"
+      aria-label="Loading batches"
+    >
+      <motion.p
+        className="text-lead font-mono text-ink-muted text-center"
+        animate={{ opacity: [0.5, 1, 0.5] }}
+        transition={{ duration: 1.6, repeat: Infinity, ease: 'easeInOut' }}
+      >
+        Loading batches
+      </motion.p>
     </div>
   )
 }
