@@ -76,7 +76,7 @@ export function ProvingStepper({ step }: ProvingStepperProps) {
               </h3>
             ) : isError ? (
               <h3 className="text-h3 font-[900] tracking-[-0.01em] leading-[1.15] text-accent-warm">
-                Submission failed
+                Something went wrong
               </h3>
             ) : (
               <h3 className="text-h3 font-[900] tracking-[-0.01em] leading-[1.15]">
@@ -218,7 +218,7 @@ export function ProvingStepper({ step }: ProvingStepperProps) {
               {/* Pending→success indicator */}
               <div className="flex items-center gap-2">
                 <div className="w-2 h-2 rounded-full bg-accent-soft" />
-                <span className="text-xs text-accent-soft font-[500]">Confirmado</span>
+                <span className="text-xs text-accent-soft font-[500]">Confirmed</span>
               </div>
             </motion.div>
           )}
