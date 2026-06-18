@@ -6,6 +6,7 @@ import { Seal, Eye, Warning } from '@phosphor-icons/react'
 import { Reveal } from '@/components/motion/Reveal'
 import { DoubleBezel } from '@/components/ui/DoubleBezel'
 import { EmployeeKeyInput } from '@/components/employee/EmployeeKeyInput'
+import { KeyGenerator } from '@/components/employee/KeyGenerator'
 import { DashboardSummary } from '@/components/employee/DashboardSummary'
 import { NoteCard } from '@/components/employee/NoteCard'
 import { ClaimStepper, type ClaimStep } from '@/components/employee/ClaimStepper'
@@ -68,9 +69,10 @@ function StatusChip({ state }: { state: DashboardState }) {
 /**
  * Employee dashboard (/employee, CAP-1/2/3/5/6/7/8).
  *
- * The employee identifies with their stable key (X25519 hex or base64), scans
+ * The employee identifies with their key (32-byte seed, hex or base64), scans
  * the pool, decrypts their notes, views balance summary and per-note status,
- * and claims each note via in-browser ZK proof + Freighter.
+ * and claims each note via in-browser ZK proof + Freighter. The key can be
+ * generated in-browser (KeyGenerator) when the employee does not have one yet.
  *
  * The key NEVER leaves the browser: no server action, no API route, no form.
  * `handleScan` runs entirely client-side. On claim, the amount becomes publicly
@@ -190,6 +192,13 @@ export default function EmployeePage() {
     setClaimStep({ phase: 'idle' })
   }
 
+  function handleKeyGenerated(seedHex: string) {
+    setKey(seedHex)
+    // A freshly generated key is valid by construction; clear any prior error
+    // state so the input is primed for "Scan pool".
+    setState('idle')
+  }
+
   const invalid = state === 'invalid' || state === 'error'
   const processing = state === 'scanning'
 
@@ -205,12 +214,13 @@ export default function EmployeePage() {
               <StatusChip state={state} />
             </div>
             <p className="mt-3 text-lead text-ink-muted max-w-[52ch]">
-              Paste your stable employee key to scan the pool and claim your salary.
+              Paste your employee key to scan the pool and claim your salary. No key
+              yet? Generate one below.
             </p>
           </header>
         </Reveal>
 
-        {/* Primary action: key input + scan CTA */}
+        {/* Primary action: key input + scan CTA, with the in-browser key generator below. */}
         <Reveal delay={0.05}>
           <DoubleBezel radius="2rem" className="p-5 sm:p-6">
             <EmployeeKeyInput
@@ -224,6 +234,9 @@ export default function EmployeePage() {
               processing={processing}
               invalid={invalid}
             />
+            <div className="mt-5 pt-5 border-t border-hairline">
+              <KeyGenerator onGenerated={handleKeyGenerated} />
+            </div>
           </DoubleBezel>
         </Reveal>
 

@@ -386,7 +386,7 @@ test.describe('Employee dashboard', () => {
     await page.goto('/employee')
 
     await page
-      .getByRole('textbox', { name: /stable employee key/i })
+      .getByRole('textbox', { name: /employee key/i })
       .fill(EMPLOYEE_TEST_SEED_HEX)
     await page.getByRole('button', { name: 'Scan pool' }).click()
 
@@ -407,7 +407,7 @@ test.describe('Employee dashboard', () => {
     await page.goto('/employee')
 
     await page
-      .getByRole('textbox', { name: /stable employee key/i })
+      .getByRole('textbox', { name: /employee key/i })
       .fill(EMPLOYEE_TEST_SEED_HEX)
     await page.getByRole('button', { name: 'Scan pool' }).click()
 
@@ -425,7 +425,7 @@ test.describe('Employee dashboard', () => {
     await page.goto('/employee')
 
     await page
-      .getByRole('textbox', { name: /stable employee key/i })
+      .getByRole('textbox', { name: /employee key/i })
       .fill(EMPLOYEE_TEST_SEED_HEX)
     await page.getByRole('button', { name: 'Scan pool' }).click()
 
@@ -459,7 +459,7 @@ test.describe('Employee dashboard', () => {
     await page.goto('/employee')
 
     await page
-      .getByRole('textbox', { name: /stable employee key/i })
+      .getByRole('textbox', { name: /employee key/i })
       .fill(EMPLOYEE_TEST_SEED_HEX)
     await page.getByRole('button', { name: 'Scan pool' }).click()
 
@@ -479,7 +479,7 @@ test.describe('Employee dashboard', () => {
     await page.goto('/employee')
 
     await page
-      .getByRole('textbox', { name: /stable employee key/i })
+      .getByRole('textbox', { name: /employee key/i })
       .fill(EMPLOYEE_TEST_SEED_HEX)
     await page.getByRole('button', { name: 'Scan pool' }).click()
 
@@ -488,11 +488,11 @@ test.describe('Employee dashboard', () => {
     // Sub-test B: invalid key -> amber ring.
     await page.goto('/employee')
     await page
-      .getByRole('textbox', { name: /stable employee key/i })
+      .getByRole('textbox', { name: /employee key/i })
       .fill('not-a-valid-key')
     await page.getByRole('button', { name: 'Scan pool' }).click()
     await expect(
-      page.getByRole('textbox', { name: /stable employee key/i }),
+      page.getByRole('textbox', { name: /employee key/i }),
     ).toHaveClass(/ring-accent-warm/, { timeout: 5000 })
 
     // Sub-test C: already-claimed (isSpent=true) -> Claimed chip, no CTA.
@@ -501,7 +501,7 @@ test.describe('Employee dashboard', () => {
     await injectProverStub(page)
     await page.goto('/employee')
     await page
-      .getByRole('textbox', { name: /stable employee key/i })
+      .getByRole('textbox', { name: /employee key/i })
       .fill(EMPLOYEE_TEST_SEED_HEX)
     await page.getByRole('button', { name: 'Scan pool' }).click()
 
@@ -516,7 +516,7 @@ test.describe('Employee dashboard', () => {
     await page.goto('/employee')
 
     await page
-      .getByRole('textbox', { name: /stable employee key/i })
+      .getByRole('textbox', { name: /employee key/i })
       .fill(EMPLOYEE_TEST_SEED_HEX)
     await page.getByRole('button', { name: 'Scan pool' }).click()
 
@@ -529,5 +529,43 @@ test.describe('Employee dashboard', () => {
     expect(disclosureBox).not.toBeNull()
     expect(ctaBox).not.toBeNull()
     expect(disclosureBox!.y).toBeLessThan(ctaBox!.y)
+  })
+
+  // Key generator (06.3-04 onboarding deviation): clicking "Generate a new key"
+  // mints a fresh seed in-browser, shows the seed + bn254Pub, and autofills the
+  // key input so the employee can scan straight away.
+  test('generates a key', async ({ page }) => {
+    await mockRpcEmployee(page, FIXTURE_EVENTS_EMPLOYEE)
+    // deriveEmployeeKeys derives bn254Pub via the prover WASM, which the stub
+    // resolves (derivePublicKey -> 32 zero bytes), so generation completes offline.
+    await injectProverStub(page)
+    await page.goto('/employee')
+
+    // Before generating, neither value is present.
+    await expect(page.getByTestId('keygen-seed')).toHaveCount(0)
+
+    await page.getByTestId('keygen-generate').click()
+
+    // Seed + public key surface, both 64-char hex.
+    const seedEl = page.getByTestId('keygen-seed')
+    const pubEl = page.getByTestId('keygen-pubkey')
+    await expect(seedEl).toBeVisible({ timeout: 10000 })
+    await expect(pubEl).toBeVisible()
+
+    const seedText = ((await seedEl.textContent()) ?? '').trim()
+    const pubText = ((await pubEl.textContent()) ?? '').trim()
+    expect(seedText).toMatch(/^[0-9a-f]{64}$/)
+    expect(pubText).toMatch(/^[0-9a-f]{64}$/)
+    // A random seed is overwhelmingly not all-zeros.
+    expect(seedText).not.toBe('0'.repeat(64))
+
+    // The key input is autofilled with the generated seed.
+    await expect(page.getByRole('textbox', { name: /employee key/i })).toHaveValue(
+      seedText,
+    )
+
+    // Copy controls are present for both values.
+    await expect(page.getByTestId('keygen-copy-seed')).toBeVisible()
+    await expect(page.getByTestId('keygen-copy-pub')).toBeVisible()
   })
 })

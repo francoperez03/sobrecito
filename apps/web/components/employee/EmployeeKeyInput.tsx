@@ -11,7 +11,7 @@ interface EmployeeKeyInputProps {
 }
 
 /**
- * Primary action: paste the stable employee key and scan the pool (CAP-1, D-09).
+ * Primary action: paste the employee key and scan the pool (CAP-1, D-09).
  *
  * Renders bare (no DoubleBezel of its own) so the page can wrap the whole primary
  * panel in a single bezel. The key NEVER leaves the browser: there is NO <form>,
@@ -31,8 +31,8 @@ export function EmployeeKeyInput({
     <div className="flex flex-col gap-3">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-stretch">
         <input
-          aria-label="Stable employee key (hex or base64)"
-          placeholder="Paste your stable employee key (hex or base64)"
+          aria-label="Employee key (hex or base64)"
+          placeholder="Paste your employee key (hex or base64)"
           value={value}
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={(e) => {
