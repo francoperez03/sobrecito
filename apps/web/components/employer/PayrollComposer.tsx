@@ -124,6 +124,9 @@ export function PayrollComposer() {
   ])
   const [address, setAddress] = useState<string | null>(null)
   const [usdcBalance, setUsdcBalance] = useState<string | null>(null)
+  // Raw USDC balance in base units (7 decimals) — kept alongside the formatted
+  // string so the batch total can be checked against it before submit.
+  const [usdcBalanceBase, setUsdcBalanceBase] = useState<bigint | null>(null)
   const [connectError, setConnectError] = useState<string | null>(null)
   const [connecting, setConnecting] = useState(false)
   const [txHash, setTxHash] = useState<string | null>(null)
@@ -227,10 +230,28 @@ export function PayrollComposer() {
   // The audit option is "ready" unless it is enabled with an invalid key.
   const auditReady = !auditEnabled || auditorKeyValid
 
+  // Total the employer is trying to fund (base units) — every row with a valid
+  // amount, so the balance check fires as soon as a too-large amount is typed.
+  const totalRequestedBase = rows.reduce((s, r) => {
+    if (!r.amount || !/^\d+(\.\d{1,7})?$/.test(r.amount)) return s
+    try {
+      return s + usdcToBaseUnits(r.amount)
+    } catch {
+      return s
+    }
+  }, BigInt(0))
+  // The deposit transfers real USDC from the employer; block submit when the batch
+  // total exceeds the connected account's USDC balance.
+  const insufficientFunds =
+    usdcBalanceBase !== null &&
+    totalRequestedBase > BigInt(0) &&
+    totalRequestedBase > usdcBalanceBase
+
   const canSubmit =
     notes !== null &&
     !overflow &&
     !belowMin &&
+    !insufficientFunds &&
     address !== null &&
     auditReady &&
     (composerState === 'idle' || composerState === 'composing')
@@ -241,11 +262,14 @@ export function PayrollComposer() {
 
   async function refreshUsdcBalance(addr: string) {
     setUsdcBalance(null)
+    setUsdcBalanceBase(null)
     try {
       const base = await fetchUsdcBalance(addr)
       setUsdcBalance(formatUsdc(base))
+      setUsdcBalanceBase(base)
     } catch {
       setUsdcBalance(null)
+      setUsdcBalanceBase(null)
     }
   }
 
@@ -269,6 +293,7 @@ export function PayrollComposer() {
   function handleDisconnect() {
     setAddress(null)
     setUsdcBalance(null)
+    setUsdcBalanceBase(null)
     setConnectError(null)
     setComposerState('idle')
   }
@@ -330,7 +355,7 @@ export function PayrollComposer() {
       const totalBaseUnits = notes.reduce((s, n) => s + n.denomination, BigInt(0))
 
       // Hash ext_data (blobs must be frozen before computing this hash)
-      const { bigInt: extDataHash } = hashExtDataSobre({
+      const { bigInt: extDataHash, bytes: extDataHashBytes } = hashExtDataSobre({
         recipient: address,
         ext_amount: totalBaseUnits, // real USDC moved from the employer into the pool (testnet)
         encrypted_outputs: blobs,
@@ -399,25 +424,6 @@ export function PayrollComposer() {
       // on-chain fetch (which is an empty tree the leaf was never inserted into).
       const aspMemberRoot = memberPath.root
 
-      // --- DIAGNOSTIC LOGS (temporary) ---
-      console.log('[Composer] === DEPOSIT MEMBERSHIP DIAGNOSTICS ===')
-      console.log('[Composer] poolRoot:', poolRoot)
-      console.log('[Composer] aspMemberRoot USED (reconstructed, = circuit input):', aspMemberRoot)
-      console.log('[Composer] aspRoots.memberRoot (on-chain, informational only):', aspRoots.memberRoot)
-      console.log('[Composer] aspRoots.nonMemberRoot (on-chain):', aspRoots.nonMemberRoot)
-      console.log('[Composer] DUMMY_PRIVKEY:', DUMMY_PRIVKEY.toString(10))
-      console.log('[Composer] employerPubkey (Poseidon2(424242,0,3)):', employerPubkey.toString(10))
-      console.log('[Composer] membershipLeaf (Poseidon2(pubkey,0,1)):', membershipLeaf.toString(10))
-      console.log('[Composer] ASP_MEMBERSHIP_LEAVES:', ASP_MEMBERSHIP_LEAVES.map((l) => l.toString(10)))
-      console.log('[Composer] EMPLOYER_LEAF_INDEX:', EMPLOYER_LEAF_INDEX)
-      console.log('[Composer] memberPath.pathIndices:', memberPath.pathIndices)
-      console.log('[Composer] memberPath.pathElements[0..2]:', memberPath.pathElements.slice(0, 3))
-      console.log('[Composer] extDataHash:', extDataHash.toString())
-      console.log('[Composer] totalBaseUnits (= publicAmount / ext_amount):', totalBaseUnits.toString())
-      console.log('[Composer] precomputedNullifier:', String(precomputedNullifier))
-      console.log('[Composer] nonMembershipProofs.key (= employerPubkey):', employerPubkey.toString(10))
-      // --- END DIAGNOSTIC LOGS ---
-
       const inputs = buildDepositInputs({
         notes,
         blindings,
@@ -452,6 +458,7 @@ export function PayrollComposer() {
         encOutputs: Uint8Array[]
         totalBaseUnits: bigint
         sender: string
+        publicInputs?: unknown
       }) => Promise<{ hash: string; sender: string }>
       const testSubmit: TestSubmitFn | undefined =
         typeof window !== 'undefined'
@@ -463,6 +470,16 @@ export function PayrollComposer() {
         encOutputs: blobs,
         totalBaseUnits, // real USDC moved from employer into the pool
         sender: address,
+        // Semantic public inputs → the on-chain Proof struct (must match the proof).
+        publicInputs: {
+          root: poolRoot,
+          publicAmount: totalBaseUnits,
+          extDataHash: extDataHashBytes,
+          inputNullifiers: [String(precomputedNullifier)],
+          outputCommitments: precomputedCommitments.map((c) => String(c)),
+          aspMembershipRoot: aspMemberRoot,
+          aspNonMembershipRoot: aspRoots.nonMemberRoot,
+        },
       })
 
       setTxHash(result.hash)
@@ -514,6 +531,10 @@ export function PayrollComposer() {
         />
       </Reveal>
 
+      {/* Everything below the Connect button is hidden until the wallet is
+          connected — an unconnected employer sees only the Connect CTA. */}
+      {address && (
+        <>
       {/* Note budget — between Connect and the table, so the 8-note cap is
           always visible while building the batch, including the empty 0/8 state. */}
       <Reveal delay={0.04}>
@@ -642,6 +663,13 @@ export function PayrollComposer() {
             </p>
           )}
 
+          {insufficientFunds && (
+            <p className="text-xs text-accent-warm" data-testid="insufficient-funds">
+              The batch total ({formatUsdc(totalRequestedBase)} USDC) is more than your wallet balance
+              ({usdcBalance ?? '0'} USDC). Fund this account with USDC or lower the amounts.
+            </p>
+          )}
+
 
           {composerState === 'error' && errorMsg && (
             <p className="text-sm text-ink-muted">{errorMsg}</p>
@@ -654,6 +682,8 @@ export function PayrollComposer() {
         <Reveal delay={0}>
           <ProvingStepper step={stepState} />
         </Reveal>
+      )}
+        </>
       )}
     </div>
   )

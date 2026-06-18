@@ -54,6 +54,42 @@ export function formatUsdc(base: bigint): string {
 }
 
 /**
+ * Fetch the funded amount of a batch (USDC base units) from its transact tx.
+ *
+ * Per-note amounts are sealed in the scanned commitment events, so the batch
+ * total can't be derived client-side from the events. It IS the deposit's
+ * `ext_data.ext_amount`, read here from the transaction. Returns the absolute
+ * value (deposits are positive). Returns null on any failure (tx outside RPC
+ * retention, decode error) so callers can fall back gracefully.
+ */
+export async function fetchBatchExtAmount(txHash: string): Promise<bigint | null> {
+  if (!txHash) return null
+  try {
+    const { rpcUrl } = readDeployments()
+    const server = new Server(rpcUrl)
+    const res = await server.getTransaction(txHash)
+    if (res.status !== 'SUCCESS' || !res.envelopeXdr) return null
+    const tx = TransactionBuilder.fromXDR(res.envelopeXdr, Networks.TESTNET) as unknown as {
+      operations?: Array<{ func?: { invokeContract?: () => { args: () => unknown[] } } }>
+    }
+    for (const op of tx.operations ?? []) {
+      const invoke = op.func?.invokeContract?.()
+      if (!invoke) continue
+      const args = invoke.args()
+      // transact(proof, ext_data, sender) → ext_data is arg index 1.
+      if (args.length < 2) continue
+      const extData = scValToNative(args[1] as never) as { ext_amount?: bigint | number }
+      if (extData?.ext_amount == null) continue
+      const amt = BigInt(extData.ext_amount)
+      return amt < BigInt(0) ? -amt : amt
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
+/**
  * Fetch the live Merkle root of the pool contract via a read-only Soroban
  * simulation of `pool.get_root()`. Returns a DECIMAL STRING (the witness builder
  * needs decimal-string field elements). No signing or gas required.
