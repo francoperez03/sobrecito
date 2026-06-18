@@ -1,5 +1,6 @@
 'use client'
 
+import { Info } from '@phosphor-icons/react'
 import { DoubleBezel } from '@/components/ui/DoubleBezel'
 
 export interface AnonymityMeterProps {
@@ -14,10 +15,11 @@ export interface AnonymityMeterProps {
  * A1 / D2 withdraw-side caveat.
  *
  * Blue meter: note count + indistinguishable group count.
- * Amber ExposureNote: withdraw-side unlinkability depends on the employee's
- * behavior (fresh address, independent timing). This caveat is REQUIRED by
- * DESIGN.md and the threat model (T-06.2-17 / A1). Amber is RESERVED for
- * exposure/danger signals only.
+ * Caveat: withdraw-side unlinkability depends on the employee's behavior (fresh
+ * address, independent timing). This caveat is REQUIRED by DESIGN.md and the
+ * threat model (T-06.2-17 / A1), but it is informational, not an exposure
+ * signal, so it reads as a neutral note (amber is reserved for the moment a
+ * salary amount actually becomes public on-chain).
  */
 export function AnonymityMeter({ noteCount, groupCount }: AnonymityMeterProps) {
   return (
@@ -28,11 +30,14 @@ export function AnonymityMeter({ noteCount, groupCount }: AnonymityMeterProps) {
           {noteCount} notes · {groupCount} indistinguishable groups
         </p>
 
-        {/* Amber ExposureNote — mandatory A1 / D2 withdraw-side caveat */}
-        <div className="bg-accent-warm/10 text-accent-warm text-xs px-3 py-2 rounded-full self-start">
-          Unlinkability of withdrawal depends on the employee choosing a fresh
-          address and timing their claim independently.
-        </div>
+        {/* Neutral informational caveat (mandatory A1 / D2 withdraw-side note) */}
+        <p className="flex items-start gap-2 text-xs text-ink-muted leading-relaxed">
+          <Info size={14} weight="regular" aria-hidden className="mt-0.5 shrink-0 text-ink-muted/70" />
+          <span>
+            Unlinkability of withdrawal depends on the employee choosing a fresh
+            address and timing their claim independently.
+          </span>
+        </p>
       </div>
     </DoubleBezel>
   )

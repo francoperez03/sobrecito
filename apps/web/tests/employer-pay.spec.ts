@@ -124,6 +124,21 @@ export async function computeNullifier(_privKey, _blinding, _pathIdx) {
   // Return a fake nullifier as a decimal string.
   return '2';
 }
+
+export async function derivePublicKey(_priv, _asHex) {
+  // Return 32 zero bytes (the deposit flow derives bn254Pub via this bridge).
+  return new Uint8Array(32).fill(0);
+}
+
+export async function computeMembershipLeaf(_pubkey, _blinding) {
+  // Fake ASP membership leaf as a decimal string.
+  return '3';
+}
+
+export async function reconstructMerklePath(_leaves, _targetIndex, depth = 10) {
+  // Fake Merkle path of the requested depth (decimal field elements).
+  return { pathElements: Array(depth).fill('3'), pathIndices: '0' };
+}
 `
     route.fulfill({
       status: 200,

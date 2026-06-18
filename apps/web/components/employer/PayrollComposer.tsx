@@ -13,6 +13,9 @@
  */
 
 import { useState, useEffect, useRef } from 'react'
+import { motion, AnimatePresence } from 'motion/react'
+import { ShieldCheck, Check } from '@phosphor-icons/react'
+import { keyFromBase64 } from 'viewkey'
 import { Reveal } from '@/components/motion/Reveal'
 import { ConnectFreighter } from './ConnectFreighter'
 import { PayrollEditableTable, type EditableRow } from './PayrollEditableTable'
@@ -89,6 +92,26 @@ function generateRandomBlinding(): bigint {
   return v % BN254_MOD
 }
 
+/**
+ * Parse a pasted auditor public key (64-char hex or base64) into a 64-char hex
+ * string, or null when empty / malformed. The auditor publishes its X25519
+ * public key as base64 (KeygenCard) or hex; both are accepted here.
+ */
+function parseAuditorKey(input: string): string | null {
+  const clean = input.trim().replace(/^0x/, '')
+  if (clean.length === 0) return null
+  if (isHex64(clean)) return clean.toLowerCase()
+  try {
+    const bytes = keyFromBase64(input.trim())
+    if (bytes.length !== 32) return null
+    return Array.from(bytes)
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('')
+  } catch {
+    return null
+  }
+}
+
 // ---------------------------------------------------------------------------
 // PayrollComposer
 // ---------------------------------------------------------------------------
@@ -106,6 +129,13 @@ export function PayrollComposer() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [stepState, setStepState] = useState<StepState>({ phase: 'idle' })
   const [elapsed, setElapsed] = useState(0)
+
+  // Optional auditor (selective disclosure / compliance): when enabled, the
+  // employer pastes the auditor's PUBLIC key and the per-note amounts are
+  // encrypted to it as well, so the auditor can reconstruct the detail. Off by
+  // default; when off, deposits fall back to the deployments.json auditor key.
+  const [auditEnabled, setAuditEnabled] = useState(false)
+  const [auditorKey, setAuditorKey] = useState('')
 
   // Blobs frozen exactly once — never regenerated on re-render (Pitfall 2)
   const frozenBlobsRef = useRef<{ blobs: Uint8Array[]; blindings: bigint[] } | null>(null)
@@ -181,11 +211,19 @@ export function PayrollComposer() {
     : null
   const groupCount = decomposeInput.length
 
+  // Resolve the pasted auditor key (hex64 or base64) to a 64-char hex string, or
+  // null when it is empty / malformed. Used both to gate Submit and to encrypt.
+  const auditorKeyHex = parseAuditorKey(auditorKey)
+  const auditorKeyValid = auditorKeyHex !== null
+  // The audit option is "ready" unless it is enabled with an invalid key.
+  const auditReady = !auditEnabled || auditorKeyValid
+
   const canSubmit =
     notes !== null &&
     !overflow &&
     !belowMin &&
     address !== null &&
+    auditReady &&
     (composerState === 'idle' || composerState === 'composing')
 
   // ---------------------------------------------------------------------------
@@ -245,8 +283,12 @@ export function PayrollComposer() {
       // Freeze blobs EXACTLY ONCE — never regenerate on re-render.
       // frozenBlobsRef stores both the blobs AND the blindings from this single call.
       if (frozenBlobsRef.current === null) {
+        // Prefer the pasted auditor key (compliance toggle) over the default
+        // published key from deployments.json.
         const { auditorPubkeyHex } = readDeployments()
-        frozenBlobsRef.current = await buildFrozenBlobs(notes, auditorPubkeyHex)
+        const effectiveAuditorHex =
+          auditEnabled && auditorKeyHex ? auditorKeyHex : auditorPubkeyHex
+        frozenBlobsRef.current = await buildFrozenBlobs(notes, effectiveAuditorHex)
       }
       const { blobs, blindings } = frozenBlobsRef.current
 
@@ -461,6 +503,87 @@ export function PayrollComposer() {
           <AnonymityMeter noteCount={usedNotes} groupCount={groupCount} />
         </Reveal>
       )}
+
+      {/* Compliance toggle — opt in to give an auditor selective disclosure.
+          Checking it reveals a field to paste the auditor's public key. */}
+      <Reveal delay={0.18}>
+        <div className="flex flex-col gap-3">
+          <button
+            type="button"
+            role="checkbox"
+            aria-checked={auditEnabled}
+            data-testid="audit-toggle"
+            onClick={() => setAuditEnabled((v) => !v)}
+            className="group flex items-start gap-3 text-left w-fit focus-visible:outline-none"
+          >
+            <span
+              className={[
+                'mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md ring-1 transition-colors',
+                'group-focus-visible:ring-2 group-focus-visible:ring-accent',
+                auditEnabled
+                  ? 'bg-accent-fill ring-accent-fill text-white'
+                  : 'bg-bg ring-hairline text-transparent group-hover:ring-ink-muted',
+              ].join(' ')}
+            >
+              <Check size={13} weight="bold" aria-hidden />
+            </span>
+            <span className="flex flex-col gap-0.5">
+              <span className="flex items-center gap-1.5 text-sm font-[700] text-ink">
+                <ShieldCheck size={15} weight="fill" aria-hidden className="text-ink-muted" />
+                Add an auditor for compliance
+              </span>
+              <span className="text-xs text-ink-muted leading-relaxed max-w-[52ch]">
+                Encrypt each amount to an auditor&apos;s key so they can reconstruct the
+                detail. Everyone else still sees only the proven total.
+              </span>
+            </span>
+          </button>
+
+          <AnimatePresence initial={false}>
+            {auditEnabled && (
+              <motion.div
+                key="auditor-key-field"
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                transition={{ duration: 0.3, ease: [0.32, 0.72, 0, 1] }}
+                className="overflow-hidden"
+              >
+                <div className="flex flex-col gap-2 pt-1 pl-8">
+                  <label
+                    htmlFor="auditor-key"
+                    className="text-xs text-ink-muted uppercase tracking-widest"
+                  >
+                    Auditor public key
+                  </label>
+                  <input
+                    id="auditor-key"
+                    data-testid="auditor-key-input"
+                    value={auditorKey}
+                    onChange={(e) => setAuditorKey(e.target.value)}
+                    placeholder="Paste the auditor's public key (hex or base64)"
+                    spellCheck={false}
+                    autoComplete="off"
+                    autoCapitalize="off"
+                    className={[
+                      'w-full max-w-xl bg-bg text-ink font-mono text-sm rounded-2xl h-[48px] px-4',
+                      'ring-1 focus:outline-none transition-all placeholder:text-ink-muted/70',
+                      auditorKey.length > 0 && !auditorKeyValid
+                        ? 'ring-accent-warm focus:ring-accent-warm'
+                        : 'ring-hairline focus:ring-2 focus:ring-accent',
+                    ].join(' ')}
+                  />
+                  <p className="text-xs text-ink-muted">
+                    {auditorKey.length > 0 && !auditorKeyValid
+                      ? 'That is not a 32-byte key. Paste a 64-character hex string or the base64 key from the auditor.'
+                      : 'The auditor shares this from their console (Generate keypair → public key).'}
+                  </p>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      </Reveal>
 
       {/* Submit button */}
       <Reveal delay={0.2}>

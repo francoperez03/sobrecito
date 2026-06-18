@@ -30,9 +30,10 @@ const EMPLOYEE_DEMO_TOKEN =
   'eyJwb29sQ29udHJhY3RJZCI6IkNESEo2VzVaQ0s3U1RORUQ3QVQ3U0tDVVJRREZWQ0ZKTDZaQkY2WFc3UU1QT0lCS0hBT0xDVkwyIiwiY29tbWl0bWVudEluZGV4IjoyMCwiYW1vdW50IjoiMjUwMDAwMCIsIm5vdGVQcml2a2V5SGV4IjoiMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMCIsImJsaW5kaW5nIjoiMzAwNCJ9'
 
 // The three demo surfaces. "Play as" lets a visitor step into each role.
+// Employee leads (the salary-claim story) before Employer.
 const PLAY_AS = [
-  { label: 'Employer', href: '/employer' },
   { label: 'Employee', href: `/employee/${EMPLOYEE_DEMO_TOKEN}` },
+  { label: 'Employer', href: '/employer' },
   { label: 'Auditor', href: '/auditor' },
 ]
 
