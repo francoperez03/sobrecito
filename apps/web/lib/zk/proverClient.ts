@@ -207,6 +207,33 @@ export async function reconstructMerklePath(
 }
 
 /**
+ * Compute the ASP membership leaf via the WASM bridge:
+ *   leaf = Poseidon2(publicKey, blinding, domainSep=0x01)
+ *
+ * This is the 2-input hash the policy circuit computes at
+ * policyTransaction.circom line 130-134. The deposit witness builder must
+ * supply a membership leaf that matches it (the on-chain employer leaf at
+ * index 8 is Poseidon2(pubkey(DUMMY_PRIVKEY), 0, 1)), or the membership
+ * constraint is unsatisfied and the proof is locally invalid.
+ *
+ * Browser-only: throws during SSR.
+ */
+export async function computeMembershipLeaf(
+  publicKey: bigint,
+  blinding: bigint,
+): Promise<bigint> {
+  if (typeof window === 'undefined') {
+    throw new Error('proverClient.computeMembershipLeaf: browser-only')
+  }
+  const pc = await getModule()
+  const decResult: string = await pc.computeMembershipLeaf(
+    publicKey.toString(10),
+    blinding.toString(10),
+  )
+  return BigInt(decResult)
+}
+
+/**
  * Derive the BN254 public key from a BN254 private key via the WASM bridge.
  * Computes Poseidon2(privKey, 0) with domain separation 0x03, exactly as the
  * circuit's Keypair() template does. This is the source of truth for bn254Pub

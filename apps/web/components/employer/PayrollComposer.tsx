@@ -38,6 +38,9 @@ import {
   prove,
   computeCommitment,
   computeNullifier,
+  computeMembershipLeaf,
+  derivePublicKey,
+  reconstructMerklePath,
 } from '@/lib/zk/proverClient'
 import {
   connectFreighter,
@@ -299,9 +302,41 @@ export function PayrollComposer() {
       // The circuit enforces inNullifierHasher.out === inputNullifier[0] unconditionally
       // (policyTransaction.circom line 105). Using the pure-JS placeholder here causes
       // an unsatisfied constraint and proof failure. WASM chain:
-      //   privKey=1, amount=0, pathIndices=0 (deposit path, Merkle check disabled)
-      const DUMMY_PRIVKEY = BigInt(1)
+      //   privKey=424242, amount=0, pathIndices=0 (deposit path, pool Merkle check disabled)
+      // 424242 is the employer key whose pubkey seeds the on-chain ASP membership
+      // leaf at index 8; the ASP policy checks run even for the dummy input, so the
+      // pubkey derived here MUST match that leaf (see buildMembershipProof below).
+      const DUMMY_PRIVKEY = BigInt(424242)
       const precomputedNullifier = await computeNullifier(DUMMY_PRIVKEY, dummyBlinding, BigInt(0))
+
+      // ASP policy proof for the dummy input. The circuit verifies a membership
+      // proof and a non-membership proof for every input unconditionally, so the
+      // deposit needs valid proofs against the live ASP trees:
+      //   1. pubkey = Poseidon2(424242, 0, domain=3) — the circuit's inKeypair.publicKey
+      //   2. leaf   = Poseidon2(pubkey, 0, domain=1)  — the on-chain employer leaf
+      //   3. path for index 8 of the known on-chain ASP membership tree
+      //      (1024 leaves: empty = Poseidon2("XLM") zero leaf, leaves[0..7]=1..8,
+      //      leaf[8]=leaf). reconstructMerklePath rebuilds with the SAME zero leaf
+      //      and insertion order, so leaves go to indices 0..8 as on-chain.
+      const employerPubkey = await derivePublicKey(DUMMY_PRIVKEY)
+      const membershipLeaf = await computeMembershipLeaf(employerPubkey, BigInt(0))
+      const ASP_MEMBERSHIP_LEAVES: bigint[] = [
+        BigInt(1), BigInt(2), BigInt(3), BigInt(4),
+        BigInt(5), BigInt(6), BigInt(7), BigInt(8),
+        membershipLeaf,
+      ]
+      const EMPLOYER_LEAF_INDEX = 8
+      const memberPath = await reconstructMerklePath(
+        ASP_MEMBERSHIP_LEAVES,
+        EMPLOYER_LEAF_INDEX,
+        10,
+      )
+      const precomputedMembership = {
+        publicKey: employerPubkey,
+        leaf: membershipLeaf,
+        pathElements: memberPath.pathElements,
+        pathIndices: memberPath.pathIndices,
+      }
 
       const inputs = buildDepositInputs({
         notes,
@@ -315,6 +350,7 @@ export function PayrollComposer() {
         dummyBlinding,
         precomputedCommitments, // WASM Poseidon2 values — pure-JS stub overridden
         precomputedNullifier,   // WASM Poseidon2 nullifier — pure-JS stub overridden (gap closure)
+        precomputedMembership,  // WASM ASP membership/non-membership policy proof for the dummy input
       })
 
       const { proof } = await prove(inputs)
@@ -399,12 +435,10 @@ export function PayrollComposer() {
       </Reveal>
 
       {/* Note budget — between Connect and the table, so the 8-note cap is
-          visible as you build the batch (shows as soon as any amount is typed). */}
-      {usedNotes > 0 && (
-        <Reveal delay={0.04}>
-          <NoteBudgetMeter usedNotes={usedNotes} />
-        </Reveal>
-      )}
+          always visible while building the batch, including the empty 0/8 state. */}
+      <Reveal delay={0.04}>
+        <NoteBudgetMeter usedNotes={usedNotes} />
+      </Reveal>
 
       {/* Editable payroll table */}
       <Reveal delay={0.05}>

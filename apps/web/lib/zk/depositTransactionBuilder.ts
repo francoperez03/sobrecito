@@ -30,10 +30,16 @@ import type { DenomNote } from './denominationBuilder'
 // ---------------------------------------------------------------------------
 const BN254_MOD = BigInt('21888242871839275222246405745257275088548364400416034343698204186575808495617')
 
-// A well-known dummy private key safe to use as a circuit placeholder.
-// The circuit treats inAmount=0 as a dummy input; the private key here is
-// never used for actual authentication — it only fills the witness slot.
-const DUMMY_PRIVKEY = BigInt(1)
+// The employer (deposit) private key. The circuit treats inAmount=0 as a dummy
+// input so the Merkle membership check against the pool is disabled, BUT the ASP
+// POLICY checks (membership + non-membership) run unconditionally for every input
+// (policyTransaction.circom lines 127-170). The membership leaf at index 8 of the
+// on-chain ASP membership tree is Poseidon2(pubkey(424242), 0, domainSep=1), so the
+// witness must derive its public key from THIS exact private key or the membership
+// constraint (line 134) and the non-membership key constraint (line 154) fail and
+// the proof is locally invalid. Aligned with the Rust payroll-proof-gen reference
+// (priv_key = Scalar::from(424242u64)) and ops/scripts/measure-verify-cost.sh.
+const DUMMY_PRIVKEY = BigInt(424242)
 
 // ---------------------------------------------------------------------------
 // hashExtDataSobre
@@ -222,6 +228,32 @@ export interface DepositInputsParams {
    * this for actual proof generation.
    */
   precomputedNullifier?: bigint
+  /**
+   * Pre-computed ASP policy-proof data from the WASM bridge for the dummy input.
+   *
+   * The policy circuit verifies a membership proof and a non-membership proof for
+   * EVERY input regardless of inAmount (policyTransaction.circom lines 127-170), so
+   * the deposit's dummy input still needs valid proofs against the live ASP trees:
+   *   - publicKey:   Poseidon2(DUMMY_PRIVKEY, 0, domainSep=3) — the circuit's
+   *                  inKeypair.publicKey. Used as the membership leaf preimage AND
+   *                  as the non-membership key (constraint at line 154).
+   *   - leaf:        Poseidon2(publicKey, 0, domainSep=1) — the on-chain employer
+   *                  leaf at ASP membership index 8 (constraint at line 134).
+   *   - pathElements/pathIndices: Merkle path for index 8, reconstructed from the
+   *                  known on-chain ASP membership tree (1024 leaves, empty = the
+   *                  Poseidon2("XLM") zero leaf, leaves[0..7]=1..8, leaf[8]=leaf).
+   *                  The computed root must equal aspMemberRoot (constraint at 144).
+   *
+   * If omitted (unit-test context), the builder emits zero placeholders that DO
+   * NOT satisfy the policy constraints — only valid for shape checks, never for a
+   * real proof. Wave 3 / PayrollComposer MUST provide this.
+   */
+  precomputedMembership?: {
+    publicKey: bigint
+    leaf: bigint
+    pathElements: string[]
+    pathIndices: string
+  }
 }
 
 /**
@@ -258,7 +290,7 @@ export function buildDepositInputs(params: DepositInputsParams): {
 } {
   const {
     notes, blindings, extDataHash, poolRoot, aspMemberRoot, aspNonMemberRoot,
-    dummyBlinding, precomputedCommitments, precomputedNullifier,
+    dummyBlinding, precomputedCommitments, precomputedNullifier, precomputedMembership,
   } = params
 
   if (notes.length !== 8) {
@@ -301,11 +333,39 @@ export function buildDepositInputs(params: DepositInputsParams): {
     inBlinding: [dummyBlinding.toString()],
     inPathIndices: ['0'],
     inPathElements: [Array(10).fill('0')],
+    // ASP policy proofs for the dummy input. The circuit runs these checks for
+    // every input unconditionally (no inAmount gate), so the deposit's dummy
+    // input needs a VALID membership proof against the on-chain ASP membership
+    // tree and a non-membership proof against the (empty) ASP non-membership SMT.
+    //
+    //   - membership.leaf  = Poseidon2(pubkey, 0, domainSep=1) (the on-chain
+    //     employer leaf at index 8). membership.blinding = 0 (matches the leaf).
+    //   - membership.pathElements/pathIndices: path for index 8 reconstructed from
+    //     the known on-chain tree; its computed root equals aspMemberRoot.
+    //   - non-membership.key = the SAME real pubkey (constraint at circuit line 154).
+    //     The on-chain SMT is empty (root 0), so isOld0=1, oldKey/oldValue=0,
+    //     siblings all 0 — a valid non-inclusion proof for any key.
+    //
+    // Without precomputedMembership (unit tests) we fall back to zero placeholders,
+    // which DO NOT satisfy the constraints — shape checks only, never a real proof.
     membershipProofs: [[
-      { leaf: '0', blinding: '0', pathElements: Array(10).fill('0'), pathIndices: '0' },
+      precomputedMembership
+        ? {
+            leaf: precomputedMembership.leaf.toString(),
+            blinding: '0',
+            pathElements: precomputedMembership.pathElements,
+            pathIndices: precomputedMembership.pathIndices,
+          }
+        : { leaf: '0', blinding: '0', pathElements: Array(10).fill('0'), pathIndices: '0' },
     ]],
     nonMembershipProofs: [[
-      { key: '0', siblings: Array(10).fill('0'), oldKey: '0', oldValue: '0', isOld0: '1' },
+      {
+        key: precomputedMembership ? precomputedMembership.publicKey.toString() : '0',
+        siblings: Array(10).fill('0'),
+        oldKey: '0',
+        oldValue: '0',
+        isOld0: '1',
+      },
     ]],
     outAmount: notes.map(n => n.denomination.toString()),
     outPubkey: notes.map(n => n.outPubkey.toString()),

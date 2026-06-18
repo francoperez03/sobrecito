@@ -377,6 +377,25 @@ export async function reconstructMerklePath(leavesDec, targetIndex, depth = 10) 
 }
 
 /**
+ * Compute the ASP membership leaf = Poseidon2(publicKey, blinding, domainSep=1)
+ * via the WASM bridge. This is the 2-input hash the policy circuit computes at
+ * policyTransaction.circom line 130-134; the JS witness builder must supply a
+ * leaf that matches it, or the membership constraint is unsatisfied.
+ *
+ * @param {string} publicKeyDec - BN254 public key as decimal string
+ * @param {string} blindingDec  - Membership blinding as decimal string (0 on-chain)
+ * @returns {Promise<string>} membership leaf as decimal string
+ */
+export async function computeMembershipLeaf(publicKeyDec, blindingDec) {
+    const result = await sendMessage('COMPUTE_MEMBERSHIP_LEAF', {
+        publicKeyDec: String(publicKeyDec),
+        blindingDec: String(blindingDec),
+    });
+
+    return result.leafDec;
+}
+
+/**
  * Get the verifying key.
  * @param {Object} options
  * @param {boolean} options.sorobanFormat - Return VK in Soroban-compatible format

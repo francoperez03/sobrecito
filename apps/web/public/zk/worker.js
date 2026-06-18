@@ -641,6 +641,24 @@ async function handleReconstructMerklePath(data) {
     return { success: false, error: error.message };
   }
 }
+async function handleComputeMembershipLeaf(data) {
+  try {
+    // Ensure the prover bridge WASM is instantiated (see handleDerivePublicKey).
+    await initProverWasm();
+    // ASP membership leaf = Poseidon2(publicKey, blinding, domainSep=1), the
+    // 2-input hash the circuit computes at policyTransaction.circom line 130-134.
+    // Inputs arrive as decimal strings; convert to LE bytes (WASM LE convention).
+    const { publicKeyDec, blindingDec } = data;
+    const pubkeyBytes = hex_to_field_bytes('0x' + BigInt(publicKeyDec).toString(16).padStart(64, '0'));
+    const blindingBytes = hex_to_field_bytes('0x' + BigInt(blindingDec).toString(16).padStart(64, '0'));
+    // domainSep 0x01 = leaf commitment for membership proof
+    const leaf = poseidon2_hash2(pubkeyBytes, blindingBytes, 1);
+    const decResult = BigInt(field_bytes_to_hex(leaf)).toString(10);
+    return { success: true, leafDec: decResult };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+}
 function handleGetVerifyingKey(data = {}) {
   if (!proverReady) {
     return { success: false, error: "Prover not initialized" };
@@ -718,6 +736,9 @@ self.onmessage = async function(event) {
       break;
     case "RECONSTRUCT_MERKLE_PATH":
       result = await handleReconstructMerklePath(data);
+      break;
+    case "COMPUTE_MEMBERSHIP_LEAF":
+      result = await handleComputeMembershipLeaf(data);
       break;
     // Info
     case "GET_VERIFYING_KEY":
