@@ -1,10 +1,9 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { CaretDown } from '@phosphor-icons/react'
 import { DenominationChips } from './DenominationChips'
-import { parseCsvText } from '@/lib/csvParser'
 import { countNotes } from '@/lib/zk/denominationBuilder'
 import { usdcToBaseUnits } from '@/lib/csvParser'
 import { EASE_BRAND } from '@/lib/motion'
@@ -14,7 +13,7 @@ import { EASE_BRAND } from '@/lib/motion'
  *  Only the public key + amount are collected — the public key is the sole
  *  identity that matters on-chain. */
 export interface EditableRow {
-  /** USDC amount as a human string (e.g. "100", "10.5"). */
+  /** USDC amount as a human string (e.g. "100", "10"). */
   amount: string
   /** Employee X25519 public key as 64 hex chars. */
   publicKey: string
@@ -27,19 +26,15 @@ export interface PayrollEditableTableProps {
 
 /**
  * PayrollEditableTable — editable payroll grid with a collapsible per-row
- * denomination breakdown and CSV import (D4: single surface, CSV fills the table).
+ * denomination breakdown. Manual entry only.
  *
  * Columns: # | Public key (60%) | Amount (10%) | Details toggle (30%) | Remove
  *
  * The denomination chips are collapsed by default. When a row has an amount, a
  * "View details" toggle fades in; clicking it expands the chips downward (the
- * input row stays put). CSV import reads the file via FileReader.readAsText,
- * calls parseCsvText, maps PayrollRow[] → EditableRow[] (name ignored), and
- * calls onChange. Parse errors render inline in amber.
+ * input row stays put).
  */
 export function PayrollEditableTable({ rows, onChange }: PayrollEditableTableProps) {
-  const fileInputRef = useRef<HTMLInputElement>(null)
-  const [csvError, setCsvError] = useState<string | null>(null)
   // Indices of rows whose denomination breakdown is expanded.
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set())
 
@@ -83,40 +78,6 @@ export function PayrollEditableTable({ rows, onChange }: PayrollEditableTablePro
   function handleRemoveRow(idx: number) {
     setExpandedRows(new Set())
     onChange(rows.filter((_, i) => i !== idx))
-  }
-
-  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
-    setCsvError(null)
-
-    const reader = new FileReader()
-    reader.onload = (ev) => {
-      const text = ev.target?.result
-      if (typeof text !== 'string') {
-        setCsvError('Could not read file.')
-        return
-      }
-      try {
-        const parsed = parseCsvText(text)
-        const editableRows: EditableRow[] = parsed.map((r) => ({
-          // Convert base units back to a human USDC string (name is ignored)
-          amount: formatBaseUnitsToDisplay(r.amount),
-          // Convert Uint8Array back to 64-char hex
-          publicKey: Array.from(r.publicKey)
-            .map((b) => b.toString(16).padStart(2, '0'))
-            .join(''),
-        }))
-        setExpandedRows(new Set())
-        onChange(editableRows)
-      } catch (err) {
-        setCsvError(err instanceof Error ? err.message : 'CSV parse error.')
-      }
-    }
-    reader.readAsText(file)
-
-    // Reset input so the same file can be re-imported
-    e.target.value = ''
   }
 
   return (
@@ -238,45 +199,6 @@ export function PayrollEditableTable({ rows, onChange }: PayrollEditableTablePro
       >
         + Add row
       </button>
-
-      {/* CSV import — below the table, for bulk fill (manual entry is the default above) */}
-      <div className="flex items-center gap-3 pt-2 border-t border-white/5">
-        <button
-          type="button"
-          onClick={() => fileInputRef.current?.click()}
-          className="text-sm text-accent-soft border border-accent/30 px-4 py-1.5 rounded-full hover:bg-accent/10 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-        >
-          Import CSV
-        </button>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".csv,text/csv"
-          className="hidden"
-          onChange={handleFileChange}
-        />
-        <span className="text-xs text-ink-muted">columns: name (optional), amount, public_key</span>
-      </div>
-
-      {/* Inline CSV parse error */}
-      {csvError && (
-        <div className="bg-accent-warm/10 text-accent-warm text-xs px-3 py-2 rounded-full self-start">
-          {csvError}
-        </div>
-      )}
     </div>
   )
-}
-
-/**
- * Convert USDC base units back to a human display string (e.g. 10_000_000 → "1").
- * Trims trailing decimal zeros.
- */
-function formatBaseUnitsToDisplay(base: bigint): string {
-  const SCALE = BigInt(10_000_000)
-  const ZERO = BigInt(0)
-  const int = base / SCALE
-  const frac = base % SCALE
-  if (frac === ZERO) return int.toString()
-  return int.toString() + '.' + frac.toString().padStart(7, '0').replace(/0+$/, '')
 }

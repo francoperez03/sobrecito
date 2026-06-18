@@ -25,7 +25,7 @@ import {
   MAX_NOTES,
   type DenomNote,
 } from '@/lib/zk/denominationBuilder'
-import { usdcToBaseUnits, isHex64 } from '@/lib/csvParser'
+import { usdcToBaseUnits, isHex64, USDC_SCALE } from '@/lib/csvParser'
 import {
   buildFrozenBlobs,
   buildDepositInputs,
@@ -161,6 +161,16 @@ export function PayrollComposer() {
     }
   }, 0)
   const overflow = usedNotes > MAX_NOTES
+  // Minimum payment is 1 USDC, in whole units (the denominations are 1/10/100).
+  const belowMin = rows.some((r) => {
+    if (!r.amount || !/^\d+(\.\d{1,7})?$/.test(r.amount)) return false
+    try {
+      const base = usdcToBaseUnits(r.amount)
+      return base > BigInt(0) && (base < USDC_SCALE || base % USDC_SCALE !== BigInt(0))
+    } catch {
+      return false
+    }
+  })
   // The committable batch: needs valid public keys (decomposeInput) and is null
   // when over budget or any amount is non-decomposable.
   const notes: DenomNote[] | null = decomposeInput.length > 0
@@ -171,6 +181,7 @@ export function PayrollComposer() {
   const canSubmit =
     notes !== null &&
     !overflow &&
+    !belowMin &&
     address !== null &&
     (composerState === 'idle' || composerState === 'composing')
 
@@ -387,6 +398,14 @@ export function PayrollComposer() {
         />
       </Reveal>
 
+      {/* Note budget — between Connect and the table, so the 8-note cap is
+          visible as you build the batch (shows as soon as any amount is typed). */}
+      {usedNotes > 0 && (
+        <Reveal delay={0.04}>
+          <NoteBudgetMeter usedNotes={usedNotes} />
+        </Reveal>
+      )}
+
       {/* Editable payroll table */}
       <Reveal delay={0.05}>
         <PayrollEditableTable rows={rows} onChange={setRows} />
@@ -401,14 +420,6 @@ export function PayrollComposer() {
           below tracks it). Your team claims all their notes in one step, so the split costs them nothing.
         </p>
       </Reveal>
-
-      {/* Note budget — appears as soon as any amount is entered, so the 8-note
-          cap is enforced/visible even before a public key is filled in. */}
-      {usedNotes > 0 && (
-        <Reveal delay={0.1}>
-          <NoteBudgetMeter usedNotes={usedNotes} />
-        </Reveal>
-      )}
 
       {/* Anonymity — needs real recipients (valid public keys). */}
       {decomposeInput.length > 0 && (
@@ -432,7 +443,13 @@ export function PayrollComposer() {
 
           {overflow && (
             <p className="text-xs text-accent-warm">
-              Amounts exceed 8 notes. Adjust the salaries so they fit in one batch.
+              These amounts are too large for a single private batch. Reconfigure them to fit one batch.
+            </p>
+          )}
+
+          {belowMin && (
+            <p className="text-xs text-accent-warm">
+              Each payment must be a whole amount of at least 1 USDC.
             </p>
           )}
 

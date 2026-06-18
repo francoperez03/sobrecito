@@ -302,13 +302,22 @@ export async function computeNullifier(_privKey, _blinding, _pathIdx) {
 // Helper: upload a CSV file via page.setInputFiles
 // ---------------------------------------------------------------------------
 
+// CSV import was removed from the UI — fill the table by typing each row
+// (parse the legacy CSV fixtures into amount + public key and enter them).
 async function importCsv(page: Page, csvContent: string) {
-  const blob = Buffer.from(csvContent, 'utf8')
-  await page.locator('input[type="file"]').setInputFiles({
-    name: 'payroll.csv',
-    mimeType: 'text/csv',
-    buffer: blob,
-  })
+  const rows = csvContent
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .filter((l) => !/^name\s*,\s*amount\s*,\s*public_key$/i.test(l))
+    .map((l) => l.split(','))
+    .map((fields) => ({ amount: fields[1].trim(), publicKey: fields[2].trim() }))
+
+  for (let i = 0; i < rows.length; i++) {
+    if (i > 0) await page.getByRole('button', { name: '+ Add row' }).click()
+    await page.getByPlaceholder('64-char hex pubkey').nth(i).fill(rows[i].publicKey)
+    await page.getByPlaceholder('e.g. 100').nth(i).fill(rows[i].amount)
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -336,7 +345,6 @@ test.describe('PayrollComposer employer pay flow', () => {
     ).not.toHaveText('Connect Freighter', { timeout: 5000 })
 
     // Import the demo CSV
-    await page.getByRole('button', { name: 'Import CSV' }).click()
     await importCsv(page, DEMO_CSV)
 
     // The breakdown is collapsed by default — open the first row's "View details"
@@ -365,7 +373,6 @@ test.describe('PayrollComposer employer pay flow', () => {
     await page.waitForTimeout(300)
 
     // Import the large CSV (9 notes → overflow)
-    await page.getByRole('button', { name: 'Import CSV' }).click()
     await importCsv(page, makeLargeCSV())
     await page.waitForTimeout(300)
 
@@ -388,7 +395,6 @@ test.describe('PayrollComposer employer pay flow', () => {
     await page.waitForTimeout(500)
 
     // Import CSV
-    await page.getByRole('button', { name: 'Import CSV' }).click()
     await importCsv(page, DEMO_CSV)
     await page.waitForTimeout(500)
 
