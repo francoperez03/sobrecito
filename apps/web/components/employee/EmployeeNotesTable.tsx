@@ -56,12 +56,9 @@ export function EmployeeNotesTable({
         )}
 
         <div className="w-full">
-          {/* Header */}
-          <div className="grid grid-cols-[1fr_auto] sm:grid-cols-[minmax(7rem,1fr)_auto_auto] gap-4 px-1 pb-2 border-b border-white/5">
+          {/* Header — two columns: amount and a single action/status cell. */}
+          <div className="grid grid-cols-[1fr_auto] gap-4 px-1 pb-2 border-b border-white/5">
             <span className="text-xs text-ink-muted uppercase tracking-widest">Amount</span>
-            <span className="hidden sm:block text-xs text-ink-muted uppercase tracking-widest">
-              Status
-            </span>
             <span className="text-xs text-ink-muted uppercase tracking-widest text-right">
               Claim
             </span>
@@ -79,22 +76,6 @@ export function EmployeeNotesTable({
         </div>
       </div>
     </DoubleBezel>
-  )
-}
-
-function StatusChip({ status }: { status: NoteStatus }) {
-  const map: Record<NoteStatus, { label: string; toneClass: string }> = {
-    pending: { label: 'Pending', toneClass: 'text-ink-muted' },
-    claimed: { label: 'Claimed', toneClass: 'text-accent-soft' },
-    unknown: { label: 'Unknown', toneClass: 'text-accent-warm' },
-  }
-  const { label, toneClass } = map[status]
-  return (
-    <span
-      className={`inline-flex items-center rounded-full bg-surface px-3 h-6 ring-1 ring-hairline text-xs ${toneClass}`}
-    >
-      {label}
-    </span>
   )
 }
 
@@ -117,7 +98,7 @@ function EmployeeRow({
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3, ease: EASE_BRAND, delay: i * 0.05 }}
-      className="grid grid-cols-[1fr_auto] sm:grid-cols-[minmax(7rem,1fr)_auto_auto] gap-4 items-center px-1 py-3 border-b border-white/5 last:border-0"
+      className="grid grid-cols-[1fr_auto] gap-4 items-center px-1 py-3 border-b border-white/5 last:border-0"
     >
       <div className="flex flex-col gap-0.5 min-w-0">
         {/* Amount: hidden dotted placeholder while pending → revealed inline on claim. */}
@@ -141,12 +122,7 @@ function EmployeeRow({
         </span>
       </div>
 
-      {/* Status chip (hidden on the narrowest layout to keep the row tight). */}
-      <div className="hidden sm:flex justify-start">
-        <StatusChip status={note.status} />
-      </div>
-
-      {/* Action: Claim button (pending) / receipt link (claimed). */}
+      {/* Single action/status cell: Claim button (pending) → Claimed + receipt (claimed). */}
       <div className="flex justify-end">
         {isPending && (
           <button
@@ -167,13 +143,17 @@ function EmployeeRow({
             rel="noopener noreferrer"
             data-testid="receipt-link"
             title={note.receiptTxHash}
-            className="font-mono text-xs text-accent-soft hover:text-accent transition-colors whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded"
+            className="inline-flex items-center gap-1.5 text-xs text-accent-soft hover:text-accent transition-colors whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded"
           >
-            {note.receiptTxHash.slice(0, 10)}…{note.receiptTxHash.slice(-4)} ↗
+            <span aria-hidden>✓</span>
+            <span>Claimed</span>
+            <span className="font-mono text-ink-muted/60">
+              {note.receiptTxHash.slice(0, 10)}…
+            </span>
           </a>
         )}
         {note.status === 'unknown' && (
-          <span className="text-xs text-ink-muted">—</span>
+          <span className="text-xs text-ink-muted">Unknown</span>
         )}
       </div>
     </motion.div>

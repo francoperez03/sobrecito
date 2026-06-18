@@ -399,9 +399,8 @@ test.describe('Employee dashboard', () => {
     await expect(page.getByText(/Ledger 3110501/)).toBeVisible()
     await expect(page.getByText(/Ledger 3110502/)).toBeVisible()
 
-    // Each note is pending (isSpent=false default).
-    const pendingChips = page.getByText('Pending')
-    await expect(pendingChips).toHaveCount(3)
+    // Each note is pending (isSpent=false default): one Claim button per row.
+    await expect(page.getByTestId('claim-cta')).toHaveCount(3)
   })
 
   // CAP-3: DashboardSummary renders claimable amount and X/N counter.
