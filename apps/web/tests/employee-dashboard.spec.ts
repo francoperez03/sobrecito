@@ -536,8 +536,9 @@ test.describe('Employee dashboard', () => {
   })
 
   // Key generator (06.3-04 onboarding deviation): clicking "Generate a new key"
-  // mints a fresh seed in-browser, shows the seed + bn254Pub, and autofills the
-  // key input so the employee can scan straight away.
+  // mints a fresh seed in-browser, reveals the bn254Pub, autofills the key input
+  // with the seed, and exposes a "Copy private key" button (auditor-card layout:
+  // the seed is not shown as text, only carried in the input + sr-only node).
   test('generates a key', async ({ page }) => {
     await mockRpcEmployee(page, FIXTURE_EVENTS_EMPLOYEE)
     // deriveEmployeeKeys derives bn254Pub via the prover WASM, which the stub
@@ -550,11 +551,11 @@ test.describe('Employee dashboard', () => {
 
     await page.getByTestId('keygen-generate').click()
 
-    // Seed + public key surface, both 64-char hex.
+    // Public key surfaces visibly; the seed is present (sr-only) but not shown.
     const seedEl = page.getByTestId('keygen-seed')
     const pubEl = page.getByTestId('keygen-pubkey')
-    await expect(seedEl).toBeVisible({ timeout: 10000 })
-    await expect(pubEl).toBeVisible()
+    await expect(pubEl).toBeVisible({ timeout: 10000 })
+    await expect(seedEl).toBeAttached()
 
     const seedText = ((await seedEl.textContent()) ?? '').trim()
     const pubText = ((await pubEl.textContent()) ?? '').trim()
@@ -568,7 +569,7 @@ test.describe('Employee dashboard', () => {
       seedText,
     )
 
-    // Copy controls are present for both values.
+    // Copy controls are present: public key chip button + prominent private button.
     await expect(page.getByTestId('keygen-copy-seed')).toBeVisible()
     await expect(page.getByTestId('keygen-copy-pub')).toBeVisible()
   })

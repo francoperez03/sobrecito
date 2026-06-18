@@ -263,7 +263,8 @@ export default function EmployeePage() {
 
   return (
     <main className="min-h-dvh">
-      <section className="py-24 px-4 max-w-3xl mx-auto">
+      {/* max-w-4xl (vs the auditor's 3xl) so a 64-char hex key fits one mono line. */}
+      <section className="py-24 px-4 max-w-4xl mx-auto">
         <Reveal delay={0}>
           <header className="mb-8">
             <div className="flex items-center justify-between gap-4">

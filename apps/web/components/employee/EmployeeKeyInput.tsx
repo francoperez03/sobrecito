@@ -29,6 +29,9 @@ export function EmployeeKeyInput({
 }: EmployeeKeyInputProps) {
   return (
     <div className="flex flex-col gap-3">
+      <span className="text-xs text-ink-muted uppercase tracking-widest">
+        Employee key
+      </span>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-stretch">
         <input
           aria-label="Employee key (hex or base64)"
