@@ -93,10 +93,9 @@ export function EmployeeKeyInput({
         </button>
       </div>
 
-      <p className="flex items-center gap-1.5 text-xs text-ink-muted">
-        <LockKey size={14} weight="fill" aria-hidden className="text-ink-muted/80" />
-        Used in this browser only. Decryption runs client-side; the key is never
-        sent.
+      <p className="flex items-center gap-1.5 text-[11px] text-ink-muted">
+        <LockKey size={13} weight="fill" aria-hidden className="text-ink-muted/80" />
+        Stays in this browser — never sent.
       </p>
     </div>
   )
