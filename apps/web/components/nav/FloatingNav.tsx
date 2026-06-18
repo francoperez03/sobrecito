@@ -63,19 +63,19 @@ export function FloatingNav() {
 
   return (
     <>
-      <nav className="flex justify-center pt-6 px-4 relative z-50">
+      <nav className="flex justify-center pt-6 px-4 sticky top-0 z-50">
         {/* The pill itself is layout-animated so its total width (and the
             re-centering inside the nav) springs smoothly when the role grows
             in/out, instead of snapping while only the button morphs. */}
         <motion.div
           layout
           transition={ISLAND_SPRING}
-          className="flex items-center gap-5 h-16 pl-7 pr-3 bg-surface/80 ring-1 ring-hairline rounded-full backdrop-blur-md"
+          className="flex items-center gap-4 h-12 pl-5 pr-2 bg-surface/80 ring-1 ring-hairline rounded-full backdrop-blur-md"
         >
           {/* Wordmark — tapping the root shrinks the island back to its natural state */}
           <Link
             href="/"
-            className="font-display font-light text-ink tracking-[-0.02em] text-2xl rounded transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+            className="font-display font-light text-ink tracking-[-0.02em] text-lg rounded transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
           >
             sobrecito
           </Link>
@@ -92,7 +92,7 @@ export function FloatingNav() {
               aria-expanded={playOpen}
               aria-label={activeRole ? `Playing as ${activeRole}` : 'Play as'}
               onClick={() => setPlayOpen((prev) => !prev)}
-              className="flex items-center gap-2 pl-6 pr-5 h-12 bg-accent-fill text-white font-sans font-[900] text-base rounded-full hover:opacity-90 active:scale-[0.98]"
+              className="flex items-center gap-1.5 pl-4 pr-3 h-[44px] bg-accent-fill text-white font-sans font-[900] text-sm rounded-full hover:opacity-90 active:scale-[0.98]"
             >
               <motion.span layout="position" className="whitespace-nowrap">
                 Play as
@@ -122,7 +122,7 @@ export function FloatingNav() {
                 transition={{ duration: 0.3, ease: EASE_BRAND }}
                 className="flex"
               >
-                <CaretDown size={18} weight="bold" />
+                <CaretDown size={16} weight="bold" />
               </motion.span>
             </motion.button>
 
@@ -172,9 +172,9 @@ export function FloatingNav() {
             href={GITHUB_REPO_URL}
             target="_blank"
             rel="noopener noreferrer"
-            className="hidden md:flex items-center gap-1.5 px-4 h-11 text-ink-muted font-sans text-base rounded-full transition-colors duration-200 hover:text-ink focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface focus-visible:outline-none"
+            className="hidden md:flex items-center gap-1.5 px-3 h-9 text-ink-muted font-sans text-sm rounded-full transition-colors duration-200 hover:text-ink focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface focus-visible:outline-none"
           >
-            <GithubLogo size={18} weight="light" />
+            <GithubLogo size={16} weight="light" />
             View on GitHub
           </a>
 
