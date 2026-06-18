@@ -68,6 +68,20 @@ export interface BuildWithdrawArgs {
    * and pass its .toString() here.
    */
   extDataHash: string
+  /**
+   * Self-consistent ASP membership proof for the EMPLOYEE's spending key, mirroring
+   * the deposit's dummy-input proof. The circuit verifies membership unconditionally
+   * for every input (policyTransaction.circom:127-170), so the withdraw needs a real
+   * proof: leaf = Poseidon2(derivePublicKey(bn254Priv), 0, 1), reconstructed against a
+   * tree that contains it. The pool no longer cross-checks the root on-chain (ASP
+   * obviated), so any internally-consistent root is accepted.
+   */
+  precomputedMembership?: {
+    publicKey: bigint
+    leaf: bigint
+    pathElements: string[]
+    pathIndices: string
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -96,6 +110,7 @@ export function buildWithdrawInputs(args: BuildWithdrawArgs): Record<string, unk
     aspMemberRoot,
     aspNonMemberRoot,
     extDataHash,
+    precomputedMembership,
   } = args
 
   const zero8 = Array(8).fill('0')
@@ -121,12 +136,29 @@ export function buildWithdrawInputs(args: BuildWithdrawArgs): Record<string, unk
     inPathIndices: [pathIndices],
     inPathElements: [pathElements],
 
-    // Membership / non-membership proof placeholders (plan 04 wires real proofs).
+    // Self-consistent ASP membership proof for the employee's spending key. The
+    // circuit verifies membership for every input unconditionally; an all-zero
+    // placeholder makes the proof locally invalid. When precomputedMembership is
+    // supplied (claimNote computes it via the WASM bridge), use it; otherwise fall
+    // back to zeros (kept only so callers mid-migration still type-check).
     membershipProofs: [[
-      { leaf: '0', blinding: '0', pathElements: Array(10).fill('0'), pathIndices: '0' },
+      precomputedMembership
+        ? {
+            leaf: precomputedMembership.leaf.toString(),
+            blinding: '0',
+            pathElements: precomputedMembership.pathElements,
+            pathIndices: precomputedMembership.pathIndices,
+          }
+        : { leaf: '0', blinding: '0', pathElements: Array(10).fill('0'), pathIndices: '0' },
     ]],
     nonMembershipProofs: [[
-      { key: '0', siblings: Array(10).fill('0'), oldKey: '0', oldValue: '0', isOld0: '1' },
+      {
+        key: precomputedMembership ? precomputedMembership.publicKey.toString() : '0',
+        siblings: Array(10).fill('0'),
+        oldKey: '0',
+        oldValue: '0',
+        isOld0: '1',
+      },
     ]],
 
     // 8 dummy zero outputs (no change; employee receives the full note amount via ext_amount)

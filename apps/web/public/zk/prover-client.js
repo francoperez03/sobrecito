@@ -364,7 +364,7 @@ export async function computeNullifier(privateKeyDec, blindingDec, pathIndicesDe
  * @param {string[]} leavesDec - Commitment leaves (decimal strings), insertion order
  * @param {number}   targetIndex - Leaf index whose path to extract
  * @param {number}   [depth=10]  - Tree depth (TREE_LEVELS)
- * @returns {Promise<{ pathElements: string[]; pathIndices: string }>}
+ * @returns {Promise<{ pathElements: string[]; pathIndices: string; root: string }>}
  */
 export async function reconstructMerklePath(leavesDec, targetIndex, depth = 10) {
     const result = await sendMessage('RECONSTRUCT_MERKLE_PATH', {
@@ -373,7 +373,7 @@ export async function reconstructMerklePath(leavesDec, targetIndex, depth = 10) 
         depth,
     });
 
-    return { pathElements: result.pathElements, pathIndices: result.pathIndices };
+    return { pathElements: result.pathElements, pathIndices: result.pathIndices, root: result.root };
 }
 
 /**

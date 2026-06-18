@@ -194,7 +194,7 @@ export async function reconstructMerklePath(
   leaves: bigint[],
   targetIndex: number,
   depth = 10,
-): Promise<{ pathElements: string[]; pathIndices: string }> {
+): Promise<{ pathElements: string[]; pathIndices: string; root: string }> {
   if (typeof window === 'undefined') {
     throw new Error('proverClient.reconstructMerklePath: browser-only')
   }
@@ -203,7 +203,7 @@ export async function reconstructMerklePath(
     leaves.map((l) => l.toString(10)),
     targetIndex,
     depth,
-  ) as Promise<{ pathElements: string[]; pathIndices: string }>
+  ) as Promise<{ pathElements: string[]; pathIndices: string; root: string }>
 }
 
 /**

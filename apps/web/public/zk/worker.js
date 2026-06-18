@@ -636,7 +636,11 @@ async function handleReconstructMerklePath(data) {
       pathElements.push(BigInt(field_bytes_to_hex(slice)).toString(10));
     }
     const pathIndicesDec = BigInt(field_bytes_to_hex(proof.path_indices)).toString(10);
-    return { success: true, pathElements, pathIndices: pathIndicesDec };
+    // Expose the reconstructed tree root so the caller can compare it against the
+    // live on-chain ASP root (the circuit's membershipRoots public input). If they
+    // diverge, the membership constraint is doomed before proving.
+    const rootDec = BigInt(field_bytes_to_hex(proof.root)).toString(10);
+    return { success: true, pathElements, pathIndices: pathIndicesDec, root: rootDec };
   } catch (error) {
     return { success: false, error: error.message };
   }
