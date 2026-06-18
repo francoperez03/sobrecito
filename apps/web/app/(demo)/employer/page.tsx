@@ -2,7 +2,7 @@
 
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
-import { CaretDown } from '@phosphor-icons/react'
+import { CaretDown, CaretLeft, CaretRight } from '@phosphor-icons/react'
 import { scanCommitmentEvents, type ScannedEvent } from 'viewkey'
 import { Reveal } from '@/components/motion/Reveal'
 import {
@@ -191,6 +191,8 @@ export default function EmployerPage() {
 // Ready view — hero total + batch timeline + sealed-notes table + footer
 // ---------------------------------------------------------------------------
 
+const BATCHES_PER_PAGE = 10
+
 function ReadyView({ events, totalBase }: { events: ScannedEvent[]; totalBase: bigint }) {
   const batches = useMemo(() => groupByBatch(events), [events])
 
@@ -198,6 +200,7 @@ function ReadyView({ events, totalBase }: { events: ScannedEvent[]; totalBase: b
   // deposit ext_amount from its transaction (txHash → base units; null = unknown).
   const [amounts, setAmounts] = useState<Map<string, bigint | null>>(new Map())
   const [openTx, setOpenTx] = useState<string | null>(null)
+  const [batchPage, setBatchPage] = useState(0)
 
   useEffect(() => {
     let cancelled = false
@@ -211,6 +214,14 @@ function ReadyView({ events, totalBase }: { events: ScannedEvent[]; totalBase: b
       cancelled = true
     }
   }, [batches])
+
+  // Clamp batchPage when the batch count changes (e.g. after a new payroll lands).
+  const batchPageCount = Math.max(1, Math.ceil(batches.length / BATCHES_PER_PAGE))
+  const currentBatchPage = Math.min(batchPage, batchPageCount - 1)
+  const visibleBatches = batches.slice(
+    currentBatchPage * BATCHES_PER_PAGE,
+    currentBatchPage * BATCHES_PER_PAGE + BATCHES_PER_PAGE,
+  )
 
   return (
     <>
@@ -246,7 +257,7 @@ function ReadyView({ events, totalBase }: { events: ScannedEvent[]; totalBase: b
             </div>
 
             <div className="divide-y divide-white/5">
-              {batches.map((batch) => {
+              {visibleBatches.map((batch) => {
                 const amount = amounts.get(batch.txHash)
                 const isOpen = openTx === batch.txHash
                 return (
@@ -296,6 +307,38 @@ function ReadyView({ events, totalBase }: { events: ScannedEvent[]; totalBase: b
                 )
               })}
             </div>
+
+            {/* Batch pager — shown only when there are more than BATCHES_PER_PAGE batches */}
+            {batchPageCount > 1 && (
+              <div className="flex items-center justify-between gap-4 px-6 py-3 border-t border-white/5">
+                <span className="font-mono text-xs text-ink-muted tabular-nums">
+                  {currentBatchPage * BATCHES_PER_PAGE + 1}–{Math.min((currentBatchPage + 1) * BATCHES_PER_PAGE, batches.length)} of {batches.length}
+                </span>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    aria-label="Previous batch page"
+                    disabled={currentBatchPage === 0}
+                    onClick={() => setBatchPage(currentBatchPage - 1)}
+                    className="inline-flex items-center justify-center size-8 rounded-full text-ink-muted transition-colors hover:text-ink hover:bg-white/5 disabled:opacity-30 disabled:pointer-events-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  >
+                    <CaretLeft size={15} weight="bold" />
+                  </button>
+                  <span className="font-mono text-xs text-ink-muted tabular-nums px-1.5">
+                    {currentBatchPage + 1} / {batchPageCount}
+                  </span>
+                  <button
+                    type="button"
+                    aria-label="Next batch page"
+                    disabled={currentBatchPage >= batchPageCount - 1}
+                    onClick={() => setBatchPage(currentBatchPage + 1)}
+                    className="inline-flex items-center justify-center size-8 rounded-full text-ink-muted transition-colors hover:text-ink hover:bg-white/5 disabled:opacity-30 disabled:pointer-events-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  >
+                    <CaretRight size={15} weight="bold" />
+                  </button>
+                </div>
+              </div>
+            )}
           </DoubleBezel>
         </div>
       </Reveal>
