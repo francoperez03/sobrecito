@@ -146,6 +146,31 @@ export async function readPoolUsdcBalance(): Promise<bigint> {
   return BigInt(scValToNative(retval as never) as bigint | number)
 }
 
+/**
+ * Read the on-chain USDC balance of an arbitrary account (e.g. the connected
+ * employer wallet) via a read-only SAC `balance(address)` simulation. Returns
+ * the balance in USDC base units (7 decimals).
+ */
+export async function fetchUsdcBalance(accountAddress: string): Promise<bigint> {
+  const { rpcUrl, usdcContractId, deployer } = readDeployments()
+  const server = new Server(rpcUrl)
+  const usdc = new Contract(usdcContractId)
+  const source = new Account(deployer, '0')
+  const tx = new TransactionBuilder(source, {
+    fee: '100',
+    networkPassphrase: Networks.TESTNET,
+  })
+    .addOperation(usdc.call('balance', Address.fromString(accountAddress).toScVal()))
+    .setTimeout(30)
+    .build()
+
+  const sim = await server.simulateTransaction(tx)
+  if ('error' in sim && sim.error) throw new Error(sim.error)
+  const retval = (sim as { result?: { retval?: unknown } }).result?.retval
+  if (!retval) throw new Error('USDC balance simulation returned no value')
+  return BigInt(scValToNative(retval as never) as bigint | number)
+}
+
 // ---------------------------------------------------------------------------
 // fetchNullifierStatus (A1 fallback)
 // ---------------------------------------------------------------------------

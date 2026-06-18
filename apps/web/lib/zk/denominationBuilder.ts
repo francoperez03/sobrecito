@@ -28,6 +28,24 @@ export const DENOMS: readonly bigint[] = [
   BigInt(1) * USDC_SCALE,
 ]
 
+/**
+ * Count how many {100,10,1} USDC notes an amount decomposes into, UNCAPPED.
+ * Used to surface the true batch size for the 8-note budget from the amount
+ * alone (no pubkey needed), even when the amount already exceeds the budget
+ * (decompose() returns null in that case and would otherwise hide the count).
+ */
+export function countNotes(amountUsdc: bigint): number {
+  let remaining = amountUsdc
+  let count = 0
+  for (const denomBase of DENOMS) {
+    while (remaining >= denomBase) {
+      count += 1
+      remaining -= denomBase
+    }
+  }
+  return count
+}
+
 /** One denomination note ready to be committed on-chain. */
 export interface DenomNote {
   /** Note value in USDC base units (7 decimals). 0 for zero-amount padding dummies. */

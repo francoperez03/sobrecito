@@ -1,16 +1,19 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useState } from 'react'
+import { motion, AnimatePresence } from 'motion/react'
+import { CaretDown } from '@phosphor-icons/react'
 import { DenominationChips } from './DenominationChips'
-import { parseCsvText } from '@/lib/csvParser'
-import { decompose } from '@/lib/zk/denominationBuilder'
-import { usdcToBaseUnits, isHex64 } from '@/lib/csvParser'
+import { countNotes } from '@/lib/zk/denominationBuilder'
+import { usdcToBaseUnits, USDC_SCALE } from '@/lib/csvParser'
+import { EASE_BRAND } from '@/lib/motion'
 
 /** A single editable row in the payroll table. Amounts are kept as strings for
- *  live input editing; conversion to bigint happens at submit time. */
+ *  live input editing; conversion to bigint happens at submit time.
+ *  Only the public key + amount are collected — the public key is the sole
+ *  identity that matters on-chain. */
 export interface EditableRow {
-  name: string
-  /** USDC amount as a human string (e.g. "100", "10.5"). */
+  /** USDC amount as a human string (e.g. "100", "10"). */
   amount: string
   /** Employee X25519 public key as 64 hex chars. */
   publicKey: string
@@ -22,40 +25,43 @@ export interface PayrollEditableTableProps {
 }
 
 /**
- * PayrollEditableTable — editable payroll grid with live denomination chips
- * and CSV import (D4: single surface, CSV fills the table).
+ * PayrollEditableTable — editable payroll grid with a collapsible per-row
+ * denomination breakdown. Manual entry only.
  *
- * Columns: # | Name | Amount (+ DenomChips live) | Public key | Remove
+ * Columns: # | Public key (60%) | Amount (10%) | Details toggle (30%) | Remove
  *
- * CSV import reads the file via FileReader.readAsText, calls parseCsvText,
- * maps PayrollRow[] → EditableRow[], and calls onChange to fill the table.
- * Parse errors render inline in amber.
+ * The denomination chips are collapsed by default. When a row has an amount, a
+ * "View details" toggle fades in; clicking it expands the chips downward (the
+ * input row stays put).
  */
 export function PayrollEditableTable({ rows, onChange }: PayrollEditableTableProps) {
-  const fileInputRef = useRef<HTMLInputElement>(null)
-  const [csvError, setCsvError] = useState<string | null>(null)
+  // Indices of rows whose denomination breakdown is expanded.
+  const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set())
 
-  // Compute total notes across all rows to detect overflow
+  // Total notes across all rows — counted from the AMOUNTS alone (no public key
+  // required) so the 8-note overflow shows the moment a too-large amount is typed.
   function computeTotalNotes(): number {
-    const validRows = rows
-      .filter((r) => r.amount && r.publicKey && isHex64(r.publicKey))
-      .map((r) => {
-        try {
-          return { name: r.name, amountUsdc: usdcToBaseUnits(r.amount), pubkeyHex: r.publicKey }
-        } catch {
-          return null
-        }
-      })
-      .filter(Boolean) as { name: string; amountUsdc: bigint; pubkeyHex: string }[]
-
-    if (validRows.length === 0) return 0
-    const notes = decompose(validRows)
-    if (!notes) return 999 // overflow indicator
-    return notes.filter((n) => n.denomination > BigInt(0)).length
+    return rows.reduce((sum, r) => {
+      if (!r.amount || !/^\d+(\.\d{1,7})?$/.test(r.amount)) return sum
+      try {
+        return sum + countNotes(usdcToBaseUnits(r.amount))
+      } catch {
+        return sum
+      }
+    }, 0)
   }
 
   const totalNotes = computeTotalNotes()
   const isOverflow = totalNotes > 8
+
+  function toggleRow(idx: number) {
+    setExpandedRows((prev) => {
+      const next = new Set(prev)
+      if (next.has(idx)) next.delete(idx)
+      else next.add(idx)
+      return next
+    })
+  }
 
   function handleCellChange(idx: number, field: keyof EditableRow, value: string) {
     const next = rows.map((row, i) =>
@@ -65,145 +71,141 @@ export function PayrollEditableTable({ rows, onChange }: PayrollEditableTablePro
   }
 
   function handleAddRow() {
-    onChange([...rows, { name: '', amount: '', publicKey: '' }])
+    setExpandedRows(new Set())
+    onChange([...rows, { amount: '', publicKey: '' }])
   }
 
   function handleRemoveRow(idx: number) {
+    setExpandedRows(new Set())
     onChange(rows.filter((_, i) => i !== idx))
-  }
-
-  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
-    setCsvError(null)
-
-    const reader = new FileReader()
-    reader.onload = (ev) => {
-      const text = ev.target?.result
-      if (typeof text !== 'string') {
-        setCsvError('Could not read file.')
-        return
-      }
-      try {
-        const parsed = parseCsvText(text)
-        const editableRows: EditableRow[] = parsed.map((r) => ({
-          name: r.name,
-          // Convert base units back to a human USDC string
-          amount: formatBaseUnitsToDisplay(r.amount),
-          // Convert Uint8Array back to 64-char hex
-          publicKey: Array.from(r.publicKey)
-            .map((b) => b.toString(16).padStart(2, '0'))
-            .join(''),
-        }))
-        onChange(editableRows)
-      } catch (err) {
-        setCsvError(err instanceof Error ? err.message : 'CSV parse error.')
-      }
-    }
-    reader.readAsText(file)
-
-    // Reset input so the same file can be re-imported
-    e.target.value = ''
   }
 
   return (
     <div className="w-full flex flex-col gap-4">
-      {/* CSV import controls */}
-      <div className="flex items-center gap-3">
-        <button
-          type="button"
-          onClick={() => fileInputRef.current?.click()}
-          className="text-sm text-accent-soft border border-accent/30 px-4 py-1.5 rounded-full hover:bg-accent/10 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-        >
-          Import CSV
-        </button>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".csv,text/csv"
-          className="hidden"
-          onChange={handleFileChange}
-        />
-        <span className="text-xs text-ink-muted">columns: name, amount, public_key</span>
-      </div>
-
-      {/* Inline CSV parse error */}
-      {csvError && (
-        <div className="bg-accent-warm/10 text-accent-warm text-xs px-3 py-2 rounded-full self-start">
-          {csvError}
-        </div>
-      )}
-
       {/* Table header */}
-      <div className="grid grid-cols-[auto_1fr_auto_auto_auto] gap-4 px-2 pb-2 border-b border-white/5">
+      <div className="grid grid-cols-[auto_6fr_1fr_3fr_auto] gap-4 px-2 pb-2 border-b border-white/5">
         <span className="text-xs text-ink-muted uppercase tracking-widest">#</span>
-        <span className="text-xs text-ink-muted uppercase tracking-widest">Name</span>
-        <span className="text-xs text-ink-muted uppercase tracking-widest">Amount</span>
         <span className="text-xs text-ink-muted uppercase tracking-widest">Public key</span>
+        <span className="text-xs text-ink-muted uppercase tracking-widest flex flex-col">
+          Amount
+          <span className="normal-case tracking-normal text-[10px] text-ink-muted/60">(min. 1 USDC)</span>
+        </span>
+        <span className="text-xs text-ink-muted uppercase tracking-widest" aria-hidden />
         <span className="text-xs text-ink-muted uppercase tracking-widest sr-only">Remove</span>
       </div>
 
       {/* Table rows */}
       <div className="flex flex-col">
         {rows.map((row, i) => {
-          // Per-row denomination chips
+          // Per-row amount → denomination breakdown
           let rowAmountUsdc: bigint | null = null
           try {
             if (row.amount && /^\d+(\.\d{1,7})?$/.test(row.amount)) {
               rowAmountUsdc = usdcToBaseUnits(row.amount)
             }
           } catch {
-            // invalid amount — no chips rendered
+            // invalid amount — no toggle rendered
           }
+          const hasAmount = rowAmountUsdc !== null && rowAmountUsdc > BigInt(0)
+          const isExpanded = expandedRows.has(i)
+          // Invalid when the amount has text but isn't a whole USDC value of at least 1.
+          const amountInvalid =
+            row.amount.trim() !== '' &&
+            (rowAmountUsdc === null ||
+              rowAmountUsdc < USDC_SCALE ||
+              rowAmountUsdc % USDC_SCALE !== BigInt(0))
 
           return (
-            <div
-              key={i}
-              className="grid grid-cols-[auto_1fr_auto_auto_auto] gap-4 py-3 border-b border-white/5 last:border-0 items-center"
-            >
-              <span className="text-sm text-ink-muted tabular-nums">{i + 1}</span>
+            <div key={i} className="flex flex-col border-b border-white/5 last:border-0">
+              {/* Fixed input row — textboxes never move */}
+              <div className="grid grid-cols-[auto_6fr_1fr_3fr_auto] gap-4 py-3 items-center">
+                <span className="text-sm text-ink-muted tabular-nums">{i + 1}</span>
 
-              <input
-                type="text"
-                placeholder="Employee name"
-                value={row.name}
-                onChange={(e) => handleCellChange(i, 'name', e.target.value)}
-                className="text-sm bg-transparent border-b border-white/10 focus:border-accent outline-none py-1 text-ink"
-              />
+                <input
+                  type="text"
+                  placeholder="64-char hex pubkey"
+                  value={row.publicKey}
+                  onChange={(e) => handleCellChange(i, 'publicKey', e.target.value)}
+                  className="font-mono text-sm text-ink-muted bg-transparent border-b border-white/10 focus:border-accent outline-none py-1 w-full min-w-0"
+                />
 
-              {/* Amount column: input + live denomination chips */}
-              <div className="flex flex-col gap-1">
                 <input
                   type="text"
                   placeholder="e.g. 100"
                   value={row.amount}
                   onChange={(e) => handleCellChange(i, 'amount', e.target.value)}
-                  className="text-sm bg-transparent border-b border-white/10 focus:border-accent outline-none py-1 text-ink w-24"
+                  aria-invalid={amountInvalid || undefined}
+                  className={`text-sm bg-transparent border-b outline-none py-1 text-ink w-full min-w-0 ${
+                    amountInvalid
+                      ? 'border-accent-warm/70 focus:border-accent-warm'
+                      : 'border-white/10 focus:border-accent'
+                  }`}
                 />
-                {rowAmountUsdc !== null && rowAmountUsdc > BigInt(0) && (
-                  <DenominationChips
-                    amountUsdc={rowAmountUsdc}
-                    isOverflow={isOverflow}
-                  />
-                )}
+
+                {/* Details toggle (was the Name slot): fades in only when there's an amount */}
+                <div className="min-w-0">
+                  <AnimatePresence>
+                    {hasAmount && (
+                      <motion.button
+                        type="button"
+                        onClick={() => toggleRow(i)}
+                        aria-expanded={isExpanded}
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ duration: 0.2, ease: EASE_BRAND }}
+                        className="flex items-center gap-1.5 text-sm text-accent-soft hover:text-ink transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded"
+                      >
+                        View details
+                        <motion.span
+                          animate={{ rotate: isExpanded ? 180 : 0 }}
+                          transition={{ duration: 0.3, ease: EASE_BRAND }}
+                          className="flex"
+                        >
+                          <CaretDown size={14} weight="bold" />
+                        </motion.span>
+                      </motion.button>
+                    )}
+                  </AnimatePresence>
+                </div>
+
+                {/* First row keeps a permanent base row — hide its remove control
+                    (kept invisible so the column stays aligned). */}
+                <button
+                  type="button"
+                  onClick={() => handleRemoveRow(i)}
+                  aria-label={`Remove row ${i + 1}`}
+                  aria-hidden={i === 0 || undefined}
+                  tabIndex={i === 0 ? -1 : undefined}
+                  className={`text-ink-muted/40 hover:text-ink-muted transition-colors text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded ${
+                    i === 0 ? 'invisible pointer-events-none' : ''
+                  }`}
+                >
+                  ✕
+                </button>
               </div>
 
-              <input
-                type="text"
-                placeholder="64-char hex pubkey"
-                value={row.publicKey}
-                onChange={(e) => handleCellChange(i, 'publicKey', e.target.value)}
-                className="font-mono text-sm text-ink-muted bg-transparent border-b border-white/10 focus:border-accent outline-none py-1 w-32"
-              />
-
-              <button
-                type="button"
-                onClick={() => handleRemoveRow(i)}
-                aria-label={`Remove row ${i + 1}`}
-                className="text-ink-muted/40 hover:text-ink-muted transition-colors text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded"
-              >
-                ✕
-              </button>
+              {/* Collapsible denomination breakdown — expands downward, row above stays put */}
+              <AnimatePresence initial={false}>
+                {isExpanded && hasAmount && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.25, ease: EASE_BRAND }}
+                    className="overflow-hidden"
+                  >
+                    {/* Grid mirrors the input row so the vertical chips sit directly under "View details" */}
+                    <div className="grid grid-cols-[auto_6fr_1fr_3fr_auto] gap-4 pb-3">
+                      <span aria-hidden />
+                      <span aria-hidden />
+                      <span aria-hidden />
+                      <DenominationChips amountUsdc={rowAmountUsdc as bigint} isOverflow={isOverflow} />
+                      <span aria-hidden />
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
           )
         })}
@@ -219,17 +221,4 @@ export function PayrollEditableTable({ rows, onChange }: PayrollEditableTablePro
       </button>
     </div>
   )
-}
-
-/**
- * Convert USDC base units back to a human display string (e.g. 10_000_000 → "1").
- * Trims trailing decimal zeros.
- */
-function formatBaseUnitsToDisplay(base: bigint): string {
-  const SCALE = BigInt(10_000_000)
-  const ZERO = BigInt(0)
-  const int = base / SCALE
-  const frac = base % SCALE
-  if (frac === ZERO) return int.toString()
-  return int.toString() + '.' + frac.toString().padStart(7, '0').replace(/0+$/, '')
 }

@@ -24,6 +24,7 @@ ark-circom = { workspace = true }
 ark-ff = { workspace = true }
 ark-groth16 = { workspace = true }
 ark-relations = { workspace = true }
+ark-serialize = { workspace = true }
 ark-std = { workspace = true }
 circuit-keys = { workspace = true }
 soroban-sdk = { workspace = true, features = ["testutils"] }
