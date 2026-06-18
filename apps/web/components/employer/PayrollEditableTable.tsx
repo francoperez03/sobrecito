@@ -1,12 +1,13 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { CaretDown } from '@phosphor-icons/react'
 import { DenominationChips } from './DenominationChips'
 import { countNotes } from '@/lib/zk/denominationBuilder'
 import { usdcToBaseUnits, USDC_SCALE } from '@/lib/csvParser'
 import { EASE_BRAND } from '@/lib/motion'
+import { loadRoster, type RosterEntry } from '@/lib/employeeRoster'
 
 /** A single editable row in the payroll table. Amounts are kept as strings for
  *  live input editing; conversion to bigint happens at submit time.
@@ -26,17 +27,27 @@ export interface PayrollEditableTableProps {
 
 /**
  * PayrollEditableTable — editable payroll grid with a collapsible per-row
- * denomination breakdown. Manual entry only.
+ * denomination breakdown and a per-row selector for saved employees.
  *
  * Columns: # | Public key (60%) | Amount (10%) | Details toggle (30%) | Remove
  *
  * The denomination chips are collapsed by default. When a row has an amount, a
  * "View details" toggle fades in; clicking it expands the chips downward (the
  * input row stays put).
+ *
+ * The roster selector (above the public-key input) lets the employer pick a saved
+ * employee alias to autofill the public key column. Hidden when the roster is empty
+ * to avoid visual noise.
  */
 export function PayrollEditableTable({ rows, onChange }: PayrollEditableTableProps) {
   // Indices of rows whose denomination breakdown is expanded.
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set())
+
+  // Employee roster — loaded client-side only (SSR returns []).
+  const [roster, setRoster] = useState<RosterEntry[]>([])
+  useEffect(() => {
+    setRoster(loadRoster())
+  }, [])
 
   // Total notes across all rows — counted from the AMOUNTS alone (no public key
   // required) so the 8-note overflow shows the moment a too-large amount is typed.
@@ -121,13 +132,39 @@ export function PayrollEditableTable({ rows, onChange }: PayrollEditableTablePro
               <div className="grid grid-cols-[auto_6fr_1fr_3fr_auto] gap-4 py-3 items-center">
                 <span className="text-sm text-ink-muted tabular-nums">{i + 1}</span>
 
-                <input
-                  type="text"
-                  placeholder="employee public key (128-hex)"
-                  value={row.publicKey}
-                  onChange={(e) => handleCellChange(i, 'publicKey', e.target.value)}
-                  className="font-mono text-sm text-ink-muted bg-transparent border-b border-white/10 focus:border-accent outline-none py-1 w-full min-w-0"
-                />
+                {/* Public key column: roster selector (when available) + text input */}
+                <div className="flex flex-col gap-1 min-w-0">
+                  {roster.length > 0 && (
+                    <select
+                      data-testid={`roster-select-${i}`}
+                      defaultValue=""
+                      onChange={(e) => {
+                        const entry = roster.find((r) => r.alias === e.target.value)
+                        if (entry) handleCellChange(i, 'publicKey', entry.publicKey)
+                        // Reset to placeholder after autocomplete so the select
+                        // doesn't show a stale alias when the user edits the input.
+                        e.target.value = ''
+                      }}
+                      className="text-xs bg-bg text-ink-muted border border-white/10 rounded py-0.5 px-1.5 focus:border-accent outline-none w-full"
+                    >
+                      <option value="" disabled>
+                        Select saved employee
+                      </option>
+                      {roster.map((entry) => (
+                        <option key={entry.alias} value={entry.alias}>
+                          {entry.alias}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  <input
+                    type="text"
+                    placeholder="employee public key (128-hex)"
+                    value={row.publicKey}
+                    onChange={(e) => handleCellChange(i, 'publicKey', e.target.value)}
+                    className="font-mono text-sm text-ink-muted bg-transparent border-b border-white/10 focus:border-accent outline-none py-1 w-full min-w-0"
+                  />
+                </div>
 
                 <input
                   type="text"

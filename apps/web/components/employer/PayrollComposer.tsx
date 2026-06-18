@@ -17,6 +17,7 @@ import { motion, AnimatePresence } from 'motion/react'
 import { ShieldCheck, Check } from '@phosphor-icons/react'
 import { keyFromBase64 } from 'viewkey'
 import { Reveal } from '@/components/motion/Reveal'
+import { markStep } from '@/lib/progressStore'
 import { ConnectFreighter } from './ConnectFreighter'
 import { PayrollEditableTable, type EditableRow } from './PayrollEditableTable'
 import { NoteBudgetMeter } from './NoteBudgetMeter'
@@ -61,6 +62,23 @@ type ComposerState = 'idle' | 'composing' | 'proving' | 'submitting' | 'done' | 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Translate raw fetch/network errors into human-readable messages.
+ * "Failed to fetch" is a browser-level CORS or network error — the user
+ * doesn't need to know about CORS headers; they need to know the endpoint
+ * was unreachable and that retrying usually fixes it.
+ */
+function formatErrorMessage(raw: string): string {
+  if (
+    raw === 'Failed to fetch' ||
+    raw.toLowerCase().includes('networkerror') ||
+    raw.toLowerCase().includes('cors')
+  ) {
+    return 'Could not reach the Stellar testnet — the RPC endpoint was unreachable. Check your connection and try again.'
+  }
+  return raw
+}
 
 /**
  * Convert editable rows to the shape decompose() expects. Skips invalid rows.
@@ -264,7 +282,7 @@ export function PayrollComposer() {
     !insufficientFunds &&
     address !== null &&
     auditReady &&
-    (composerState === 'idle' || composerState === 'composing')
+    (composerState === 'idle' || composerState === 'composing' || composerState === 'error')
 
   // ---------------------------------------------------------------------------
   // handleConnect
@@ -314,6 +332,11 @@ export function PayrollComposer() {
 
   async function handleSubmit() {
     if (!notes || !address) return
+
+    // On retry: clear frozen blobs so a fresh encryption is generated
+    if (composerState === 'error') {
+      frozenBlobsRef.current = null
+    }
 
     setErrorMsg(null)
     setElapsed(0)
@@ -495,6 +518,7 @@ export function PayrollComposer() {
       setTxHash(result.hash)
       setStepState({ phase: 'done', txHash: result.hash })
       setComposerState('done')
+      markStep('pay')
       isSubmittingRef.current = false
       // Balance dropped by the batch total — refresh so the employer sees it.
       void refreshUsdcBalance(address)
@@ -504,7 +528,8 @@ export function PayrollComposer() {
         elapsedTimerRef.current = null
       }
       isSubmittingRef.current = false
-      const msg = err instanceof Error ? err.message : 'Error desconocido.'
+      const raw = err instanceof Error ? err.message : 'Unknown error.'
+      const msg = formatErrorMessage(raw)
       setErrorMsg(msg)
       setStepState({ phase: 'error', message: msg })
       setComposerState('error')
@@ -664,7 +689,7 @@ export function PayrollComposer() {
             disabled={!canSubmit || isWorking || isDone}
             className="bg-accent-fill text-white font-[900] text-base px-8 h-[52px] rounded-full hover:opacity-90 active:scale-[0.98] transition-all self-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg disabled:opacity-40"
           >
-            {isWorking ? 'Processing…' : isDone ? 'Payroll sent' : 'Send payroll'}
+            {isWorking ? 'Processing…' : isDone ? 'Payroll sent' : composerState === 'error' ? 'Try again' : 'Send payroll'}
           </button>
 
           {overflow && (
@@ -682,7 +707,9 @@ export function PayrollComposer() {
 
 
           {composerState === 'error' && errorMsg && (
-            <p className="text-sm text-ink-muted">{errorMsg}</p>
+            <p className="text-sm text-ink-muted">
+              {formatErrorMessage(errorMsg)}
+            </p>
           )}
         </div>
       </Reveal>

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { generateAuditorKeypair, keyToBase64 } from 'viewkey'
 import { Copy, Check, Key } from '@phosphor-icons/react'
 import { saveAuditorPublicKey, loadAuditorPublicKey } from '@/lib/auditorKeyStore'
+import { markStep } from '@/lib/progressStore'
 
 /**
  * In-browser X25519 keypair generator for the auditor (AUD-03, AUD-04).
@@ -47,6 +48,7 @@ export function KeygenCard() {
     setPubCopied(false)
     setPrivArmed(true)
     setPrivCopied(false)
+    markStep('viewkey')
   }
 
   async function handleCopyPub() {

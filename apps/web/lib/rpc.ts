@@ -34,9 +34,9 @@ export function readDeployments() {
   }
 }
 
-/** Block-explorer (stellar.expert, testnet) transaction URL for a tx hash. */
+/** Block-explorer (stellarchain.io, testnet) transaction URL for a tx hash. */
 export function explorerTxUrl(txHash: string): string {
-  return `https://stellar.expert/explorer/testnet/tx/${txHash}`
+  return `https://testnet.stellarchain.io/transactions/${txHash}`
 }
 
 /** Format USDC base units (7 decimals) as a human string, trimming trailing zeros.
