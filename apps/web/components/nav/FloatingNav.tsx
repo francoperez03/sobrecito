@@ -10,6 +10,17 @@ const GITHUB_REPO_URL = 'https://github.com/francoperez03/sobrecito'
 const EASE_BRAND = [0.32, 0.72, 0, 1] as const
 // Dynamic-Island spring for the role-pill morph.
 const ISLAND_SPRING = { type: 'spring', stiffness: 440, damping: 32, mass: 0.7 } as const
+// "Near the top" is intentionally insensitive: it spans the whole hero. Within
+// that range a role switch keeps the island morph. Only once the reader is past
+// the hero does navigating client-side reset the scroll far enough that the
+// `layout` spring measures a phantom delta ("wait, then snap"); past that point
+// we mask the span with a quick fade out/in. Falls back to a viewport height
+// when there is no hero (e.g. the role tabs).
+function nearTopThreshold(): number {
+  if (typeof window === 'undefined') return Number.POSITIVE_INFINITY
+  const hero = document.querySelector('main section')
+  return hero instanceof HTMLElement ? hero.offsetHeight : window.innerHeight
+}
 
 // Animated Next.js Link: role switches navigate client-side (no full reload),
 // so the persistent navbar stays mounted and its island spring morphs across
@@ -38,8 +49,29 @@ const PLAY_AS = [
 export function FloatingNav() {
   const [menuOpen, setMenuOpen] = useState(false)
   const [playOpen, setPlayOpen] = useState(false)
+  const [navHidden, setNavHidden] = useState(false)
   const playRef = useRef<HTMLDivElement>(null)
-  const activeRole = roleFromPath(usePathname() ?? '/')
+  const pathname = usePathname() ?? '/'
+  const activeRole = roleFromPath(pathname)
+
+  // Role switch from a scrolled position: fade the pill out before the route
+  // commits so the scroll-reset + layout-spring jump happens while it is hidden,
+  // then fade back in once the new route has settled. Near the top there is no
+  // jump, so we leave the morph untouched.
+  function handleRoleNav() {
+    setPlayOpen(false)
+    setMenuOpen(false)
+    if (typeof window !== 'undefined' && window.scrollY > nearTopThreshold()) {
+      setNavHidden(true)
+    }
+  }
+
+  useEffect(() => {
+    if (!navHidden) return
+    // New route is committed; let the layout spring settle, then reveal.
+    const t = setTimeout(() => setNavHidden(false), 420)
+    return () => clearTimeout(t)
+  }, [pathname, navHidden])
 
   // Close the Play-as dropdown on outside click or Escape.
   useEffect(() => {
@@ -68,7 +100,11 @@ export function FloatingNav() {
             in/out, instead of snapping while only the button morphs. */}
         <motion.div
           layout
-          transition={ISLAND_SPRING}
+          animate={{ opacity: navHidden ? 0 : 1 }}
+          transition={{
+            layout: ISLAND_SPRING,
+            opacity: { duration: navHidden ? 0.1 : 0.3, ease: EASE_BRAND },
+          }}
           className="flex items-center gap-4 h-12 pl-5 pr-2 bg-surface/80 ring-1 ring-hairline rounded-full backdrop-blur-md"
         >
           {/* Wordmark — tapping the root shrinks the island back to its natural state */}
@@ -155,7 +191,7 @@ export function FloatingNav() {
                           ease: EASE_BRAND,
                           delay: 0.03 + i * 0.05,
                         }}
-                        onClick={() => setPlayOpen(false)}
+                        onClick={handleRoleNav}
                       >
                         {label}
                         {isActive && <span className="size-1.5 rounded-full bg-accent-soft" aria-hidden />}
@@ -239,7 +275,7 @@ export function FloatingNav() {
                   ease: EASE_BRAND,
                   delay: 0.1 + i * 0.08,
                 }}
-                onClick={() => setMenuOpen(false)}
+                onClick={handleRoleNav}
               >
                 {label}
               </MotionLink>
