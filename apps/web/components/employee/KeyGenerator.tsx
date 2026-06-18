@@ -4,14 +4,6 @@ import { useState } from 'react'
 import { Copy, Check, Key } from '@phosphor-icons/react'
 import { deriveEmployeeKeys } from '@/lib/zk/keyDerivation'
 
-interface KeyGeneratorProps {
-  /**
-   * Called with the freshly generated seed (64-char hex) so the page can
-   * autofill the key input and let the employee scan immediately.
-   */
-  onGenerated: (seedHex: string) => void
-}
-
 /** 32-byte Uint8Array as a 64-char lowercase hex string. */
 function bytesToHex(bytes: Uint8Array): string {
   return Array.from(bytes)
@@ -31,9 +23,9 @@ function bigintToHex(v: bigint): string {
  * in a mono chip with a copy button, and the PRIVATE key (the seed) handed out
  * via a prominent "Copy private key" button rather than a large text box.
  *
- *   1. The SEED is the private key. It is autofilled into the key input above so
- *      the employee can scan straight away, and is copyable here to save it. It
- *      is never written to browser storage.
+ *   1. The SEED is the private key. Copy it here and paste it deliberately into
+ *      the private-key field above to scan and claim. It is NOT auto-filled (the
+ *      employee copies it on purpose) and is never written to browser storage.
  *   2. The PUBLIC key (bn254Pub) goes to the employer, who deposits the salary
  *      note against it (the bn254Pub column of the payroll CSV).
  *
@@ -41,7 +33,7 @@ function bigintToHex(v: bigint): string {
  * deterministic from the random seed via the same HKDF + Poseidon2 the circuit
  * uses, so the public key shown here is exactly the one the deposit must target.
  */
-export function KeyGenerator({ onGenerated }: KeyGeneratorProps) {
+export function KeyGenerator() {
   const [seedHex, setSeedHex] = useState<string | null>(null)
   const [pubHex, setPubHex] = useState<string | null>(null)
   const [seedCopied, setSeedCopied] = useState(false)
@@ -61,8 +53,6 @@ export function KeyGenerator({ onGenerated }: KeyGeneratorProps) {
       setPubHex(bigintToHex(bn254Pub))
       setSeedCopied(false)
       setPubCopied(false)
-      // Autofill the key input so the employee can scan immediately.
-      onGenerated(hex)
     } finally {
       setBusy(false)
     }
@@ -142,8 +132,8 @@ export function KeyGenerator({ onGenerated }: KeyGeneratorProps) {
             <span className="text-xs text-ink-muted uppercase tracking-widest">
               Private key (seed)
             </span>
-            {/* Value kept out of the visible layout (it is autofilled into the
-                key input above) but present for tests / assistive tooling. */}
+            {/* Value kept out of the visible layout (the employee copies it via
+                the button) but present for tests / assistive tooling. */}
             <span data-testid="keygen-seed" className="sr-only">
               {seedHex}
             </span>
@@ -166,8 +156,8 @@ export function KeyGenerator({ onGenerated }: KeyGeneratorProps) {
               {seedCopied ? 'Private key copied' : 'Copy private key'}
             </button>
             <p className="text-xs text-ink-muted leading-relaxed">
-              Filled into the field above. Save it to scan and claim later. It is
-              your key, never shared and never stored on this site.
+              Copy it and paste it into the private key field above to scan and
+              claim. It is your key, never shared and never stored on this site.
             </p>
           </div>
         </div>

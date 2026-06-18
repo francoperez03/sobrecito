@@ -390,7 +390,7 @@ test.describe('Employee dashboard', () => {
     await page.goto('/employee')
 
     await page
-      .getByRole('textbox', { name: /employee key/i })
+      .getByLabel(/private employee key/i)
       .fill(EMPLOYEE_TEST_SEED_HEX)
     await page.getByRole('button', { name: 'Scan pool' }).click()
 
@@ -411,7 +411,7 @@ test.describe('Employee dashboard', () => {
     await page.goto('/employee')
 
     await page
-      .getByRole('textbox', { name: /employee key/i })
+      .getByLabel(/private employee key/i)
       .fill(EMPLOYEE_TEST_SEED_HEX)
     await page.getByRole('button', { name: 'Scan pool' }).click()
 
@@ -429,7 +429,7 @@ test.describe('Employee dashboard', () => {
     await page.goto('/employee')
 
     await page
-      .getByRole('textbox', { name: /employee key/i })
+      .getByLabel(/private employee key/i)
       .fill(EMPLOYEE_TEST_SEED_HEX)
     await page.getByRole('button', { name: 'Scan pool' }).click()
 
@@ -463,7 +463,7 @@ test.describe('Employee dashboard', () => {
     await page.goto('/employee')
 
     await page
-      .getByRole('textbox', { name: /employee key/i })
+      .getByLabel(/private employee key/i)
       .fill(EMPLOYEE_TEST_SEED_HEX)
     await page.getByRole('button', { name: 'Scan pool' }).click()
 
@@ -483,7 +483,7 @@ test.describe('Employee dashboard', () => {
     await page.goto('/employee')
 
     await page
-      .getByRole('textbox', { name: /employee key/i })
+      .getByLabel(/private employee key/i)
       .fill(EMPLOYEE_TEST_SEED_HEX)
     await page.getByRole('button', { name: 'Scan pool' }).click()
 
@@ -492,11 +492,11 @@ test.describe('Employee dashboard', () => {
     // Sub-test B: invalid key -> amber ring.
     await page.goto('/employee')
     await page
-      .getByRole('textbox', { name: /employee key/i })
+      .getByLabel(/private employee key/i)
       .fill('not-a-valid-key')
     await page.getByRole('button', { name: 'Scan pool' }).click()
     await expect(
-      page.getByRole('textbox', { name: /employee key/i }),
+      page.getByLabel(/private employee key/i),
     ).toHaveClass(/ring-accent-warm/, { timeout: 5000 })
 
     // Sub-test C: already-claimed (isSpent=true) -> Claimed chip, no CTA.
@@ -505,7 +505,7 @@ test.describe('Employee dashboard', () => {
     await injectProverStub(page)
     await page.goto('/employee')
     await page
-      .getByRole('textbox', { name: /employee key/i })
+      .getByLabel(/private employee key/i)
       .fill(EMPLOYEE_TEST_SEED_HEX)
     await page.getByRole('button', { name: 'Scan pool' }).click()
 
@@ -520,7 +520,7 @@ test.describe('Employee dashboard', () => {
     await page.goto('/employee')
 
     await page
-      .getByRole('textbox', { name: /employee key/i })
+      .getByLabel(/private employee key/i)
       .fill(EMPLOYEE_TEST_SEED_HEX)
     await page.getByRole('button', { name: 'Scan pool' }).click()
 
@@ -536,10 +536,10 @@ test.describe('Employee dashboard', () => {
   })
 
   // Key generator (06.3-04 onboarding deviation): clicking "Generate a new key"
-  // mints a fresh seed in-browser, reveals the bn254Pub, autofills the key input
-  // with the seed, and exposes a "Copy private key" button (auditor-card layout:
-  // the seed is not shown as text, only carried in the input + sr-only node).
-  test('generates a key', async ({ page }) => {
+  // mints a fresh seed in-browser, reveals the bn254Pub, and exposes a "Copy
+  // private key" button. The seed is NOT auto-filled into the key input — the
+  // employee copies it and pastes it deliberately.
+  test('generates a key without autofilling the input', async ({ page }) => {
     await mockRpcEmployee(page, FIXTURE_EVENTS_EMPLOYEE)
     // deriveEmployeeKeys derives bn254Pub via the prover WASM, which the stub
     // resolves (derivePublicKey -> 32 zero bytes), so generation completes offline.
@@ -564,13 +564,39 @@ test.describe('Employee dashboard', () => {
     // A random seed is overwhelmingly not all-zeros.
     expect(seedText).not.toBe('0'.repeat(64))
 
-    // The key input is autofilled with the generated seed.
-    await expect(page.getByRole('textbox', { name: /employee key/i })).toHaveValue(
-      seedText,
-    )
+    // The key input is NOT auto-filled — it stays empty after generating.
+    await expect(page.getByLabel(/private employee key/i)).toHaveValue('')
 
     // Copy controls are present: public key chip button + prominent private button.
     await expect(page.getByTestId('keygen-copy-seed')).toBeVisible()
     await expect(page.getByTestId('keygen-copy-pub')).toBeVisible()
+  })
+
+  // Private key input: masked by default, with an eye toggle to reveal/hide.
+  test('masks the private key with a reveal toggle', async ({ page }) => {
+    await mockRpcEmployee(page, FIXTURE_EVENTS_EMPLOYEE)
+    await injectProverStub(page)
+    await page.goto('/employee')
+
+    const field = page.getByLabel(/private employee key/i)
+    await field.fill(EMPLOYEE_TEST_SEED_HEX)
+
+    // Masked by default (type=password) and the value is still set under the mask.
+    await expect(field).toHaveAttribute('type', 'password')
+    await expect(field).toHaveValue(EMPLOYEE_TEST_SEED_HEX)
+
+    const toggle = page.getByTestId('employee-key-reveal')
+    await expect(toggle).toHaveAttribute('aria-label', 'Show key')
+
+    // Reveal -> type switches to text, label flips to Hide key.
+    await toggle.click()
+    await expect(field).toHaveAttribute('type', 'text')
+    await expect(toggle).toHaveAttribute('aria-label', 'Hide key')
+    await expect(field).toHaveValue(EMPLOYEE_TEST_SEED_HEX)
+
+    // Hide again -> back to password.
+    await toggle.click()
+    await expect(field).toHaveAttribute('type', 'password')
+    await expect(toggle).toHaveAttribute('aria-label', 'Show key')
   })
 })

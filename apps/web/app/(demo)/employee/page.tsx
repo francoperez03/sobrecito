@@ -251,13 +251,6 @@ export default function EmployeePage() {
     setClaimStep({ phase: 'idle' })
   }
 
-  function handleKeyGenerated(seedHex: string) {
-    setKey(seedHex)
-    // A freshly generated key is valid by construction; clear any prior error
-    // state so the input is primed for "Scan pool".
-    setState('idle')
-  }
-
   const invalid = state === 'invalid' || state === 'error'
   const processing = state === 'scanning'
 
@@ -295,7 +288,7 @@ export default function EmployeePage() {
               invalid={invalid}
             />
             <div className="mt-5 pt-5 border-t border-hairline">
-              <KeyGenerator onGenerated={handleKeyGenerated} />
+              <KeyGenerator />
             </div>
           </DoubleBezel>
         </Reveal>
