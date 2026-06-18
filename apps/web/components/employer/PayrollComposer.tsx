@@ -21,9 +21,11 @@ import { AnonymityMeter } from './AnonymityMeter'
 import { ProvingStepper, type StepState } from './ProvingStepper'
 import {
   decompose,
+  countNotes,
+  MAX_NOTES,
   type DenomNote,
 } from '@/lib/zk/denominationBuilder'
-import { usdcToBaseUnits, isHex64 } from '@/lib/csvParser'
+import { usdcToBaseUnits, isHex64, USDC_SCALE } from '@/lib/csvParser'
 import {
   buildFrozenBlobs,
   buildDepositInputs,
@@ -41,7 +43,7 @@ import {
   connectFreighter,
   submitDeposit,
 } from '@/lib/employer-deposit'
-import { readDeployments, fetchPoolRoot, fetchASPRoots } from '@/lib/rpc'
+import { readDeployments, fetchPoolRoot, fetchASPRoots, fetchUsdcBalance, formatUsdc } from '@/lib/rpc'
 
 // ---------------------------------------------------------------------------
 // State machine type
@@ -63,7 +65,7 @@ function toDecomposeInput(
       try {
         const amountUsdc = usdcToBaseUnits(r.amount)
         if (amountUsdc === BigInt(0)) return []
-        return [{ name: r.name, amountUsdc, pubkeyHex: r.publicKey }]
+        return [{ name: '', amountUsdc, pubkeyHex: r.publicKey }]
       } catch {
         return []
       }
@@ -91,9 +93,10 @@ function generateRandomBlinding(): bigint {
 export function PayrollComposer() {
   const [composerState, setComposerState] = useState<ComposerState>('idle')
   const [rows, setRows] = useState<EditableRow[]>([
-    { name: '', amount: '', publicKey: '' },
+    { amount: '', publicKey: '' },
   ])
   const [address, setAddress] = useState<string | null>(null)
+  const [usdcBalance, setUsdcBalance] = useState<string | null>(null)
   const [connectError, setConnectError] = useState<string | null>(null)
   const [connecting, setConnecting] = useState(false)
   const [txHash, setTxHash] = useState<string | null>(null)
@@ -145,22 +148,56 @@ export function PayrollComposer() {
   // ---------------------------------------------------------------------------
 
   const decomposeInput = toDecomposeInput(rows)
+  // Note budget is a property of the AMOUNTS alone — count every row with a
+  // valid amount, even before its public key is filled in, so the 8-note limit
+  // is enforced/shown the moment a too-large amount is typed (UNCAPPED so an
+  // over-budget batch shows e.g. "22/8" instead of collapsing to 0).
+  const usedNotes = rows.reduce((s, r) => {
+    if (!r.amount || !/^\d+(\.\d{1,7})?$/.test(r.amount)) return s
+    try {
+      return s + countNotes(usdcToBaseUnits(r.amount))
+    } catch {
+      return s
+    }
+  }, 0)
+  const overflow = usedNotes > MAX_NOTES
+  // Minimum payment is 1 USDC, in whole units (the denominations are 1/10/100).
+  const belowMin = rows.some((r) => {
+    if (!r.amount || !/^\d+(\.\d{1,7})?$/.test(r.amount)) return false
+    try {
+      const base = usdcToBaseUnits(r.amount)
+      return base > BigInt(0) && (base < USDC_SCALE || base % USDC_SCALE !== BigInt(0))
+    } catch {
+      return false
+    }
+  })
+  // The committable batch: needs valid public keys (decomposeInput) and is null
+  // when over budget or any amount is non-decomposable.
   const notes: DenomNote[] | null = decomposeInput.length > 0
     ? decompose(decomposeInput)
     : null
-  const usedNotes = notes ? notes.filter((n) => n.denomination > BigInt(0)).length : 0
   const groupCount = decomposeInput.length
-  const overflow = notes === null && decomposeInput.length > 0
 
   const canSubmit =
     notes !== null &&
     !overflow &&
+    !belowMin &&
     address !== null &&
     (composerState === 'idle' || composerState === 'composing')
 
   // ---------------------------------------------------------------------------
   // handleConnect
   // ---------------------------------------------------------------------------
+
+  async function refreshUsdcBalance(addr: string) {
+    setUsdcBalance(null)
+    try {
+      const base = await fetchUsdcBalance(addr)
+      setUsdcBalance(formatUsdc(base))
+    } catch {
+      setUsdcBalance(null)
+    }
+  }
 
   async function handleConnect() {
     setConnecting(true)
@@ -169,11 +206,21 @@ export function PayrollComposer() {
       const addr = await connectFreighter()
       setAddress(addr)
       setComposerState('composing')
+      void refreshUsdcBalance(addr)
     } catch (err) {
-      setConnectError(err instanceof Error ? err.message : 'No se pudo conectar.')
+      setConnectError(err instanceof Error ? err.message : 'Could not connect.')
     } finally {
       setConnecting(false)
     }
+  }
+
+  // Disconnect clears the dapp's local connection state (Freighter has no
+  // programmatic revoke). Resets the wallet + balance and returns to idle.
+  function handleDisconnect() {
+    setAddress(null)
+    setUsdcBalance(null)
+    setConnectError(null)
+    setComposerState('idle')
   }
 
   // ---------------------------------------------------------------------------
@@ -203,7 +250,7 @@ export function PayrollComposer() {
       // Step 2: Download engine (progress updates come via onProgress subscription)
       // The initProver() warm-up already started downloading; if it cached,
       // this phase is instant. The onProgress subscription updates stepState.
-      setStepState({ phase: 'downloading', loaded: 0, total: 0, message: 'Verificando caché…' })
+      setStepState({ phase: 'downloading', loaded: 0, total: 0, message: 'Checking cache…' })
 
       // Fetch roots from chain
       const [poolRoot, aspRoots] = await Promise.all([
@@ -222,10 +269,16 @@ export function PayrollComposer() {
         setStepState({ phase: 'proving', elapsed: secs })
       }, 1000)
 
+      // Real deposit: the employer funds the pool with the batch total in USDC.
+      // ext_amount MUST equal the proof's publicAmount (= sum of note denominations).
+      // The pool enforces proof.public_amount == calculate_public_amount(ext_amount)
+      // (pool.rs) and transfers this many USDC base units from the sender into the pool.
+      const totalBaseUnits = notes.reduce((s, n) => s + n.denomination, BigInt(0))
+
       // Hash ext_data (blobs must be frozen before computing this hash)
       const { bigInt: extDataHash } = hashExtDataSobre({
         recipient: address,
-        ext_amount: BigInt(0), // demo: no real USDC transferred (testnet cap = 1 USDC)
+        ext_amount: totalBaseUnits, // real USDC moved from the employer into the pool (testnet)
         encrypted_outputs: blobs,
       })
 
@@ -292,7 +345,7 @@ export function PayrollComposer() {
       const result = await (testSubmit ?? submitDeposit)({
         proof,
         encOutputs: blobs,
-        totalBaseUnits: BigInt(0), // demo: ext_amount = 0 (no real USDC transfer)
+        totalBaseUnits, // real USDC moved from employer into the pool
         sender: address,
       })
 
@@ -300,6 +353,8 @@ export function PayrollComposer() {
       setStepState({ phase: 'done', txHash: result.hash })
       setComposerState('done')
       isSubmittingRef.current = false
+      // Balance dropped by the batch total — refresh so the employer sees it.
+      void refreshUsdcBalance(address)
     } catch (err) {
       if (elapsedTimerRef.current) {
         clearInterval(elapsedTimerRef.current)
@@ -338,25 +393,39 @@ export function PayrollComposer() {
           connecting={connecting}
           error={connectError}
           onConnect={handleConnect}
+          onDisconnect={handleDisconnect}
+          usdcBalance={usdcBalance}
         />
       </Reveal>
+
+      {/* Note budget — between Connect and the table, so the 8-note cap is
+          visible as you build the batch (shows as soon as any amount is typed). */}
+      {usedNotes > 0 && (
+        <Reveal delay={0.04}>
+          <NoteBudgetMeter usedNotes={usedNotes} />
+        </Reveal>
+      )}
 
       {/* Editable payroll table */}
       <Reveal delay={0.05}>
         <PayrollEditableTable rows={rows} onChange={setRows} />
       </Reveal>
 
-      {/* Meters */}
-      {decomposeInput.length > 0 && (
-        <>
-          <Reveal delay={0.1}>
-            <NoteBudgetMeter usedNotes={usedNotes} />
-          </Reveal>
+      {/* How it works — what the notes are, the budget, and the reassurance */}
+      <Reveal delay={0.08}>
+        <p className="text-sm text-ink-muted leading-relaxed max-w-2xl">
+          Each salary is split into standard <span className="text-ink">1, 10 and 100 USDC</span> notes,
+          so equal amounts look identical on-chain and no one can tell who earns what. A batch holds up to{' '}
+          <span className="text-ink">8 notes</span>, so keep the breakdown within that budget (the meter
+          below tracks it). Your team claims all their notes in one step, so the split costs them nothing.
+        </p>
+      </Reveal>
 
-          <Reveal delay={0.15}>
-            <AnonymityMeter noteCount={usedNotes} groupCount={groupCount} />
-          </Reveal>
-        </>
+      {/* Anonymity — needs real recipients (valid public keys). */}
+      {decomposeInput.length > 0 && (
+        <Reveal delay={0.15}>
+          <AnonymityMeter noteCount={usedNotes} groupCount={groupCount} />
+        </Reveal>
       )}
 
       {/* Submit button */}
@@ -369,23 +438,19 @@ export function PayrollComposer() {
             disabled={!canSubmit || isWorking || isDone}
             className="bg-accent-fill text-white font-[900] text-base px-8 h-[52px] rounded-full hover:opacity-90 active:scale-[0.98] transition-all self-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg disabled:opacity-40"
           >
-            {isWorking ? 'Procesando…' : isDone ? 'Nómina enviada' : 'Enviar nómina'}
+            {isWorking ? 'Processing…' : isDone ? 'Payroll sent' : 'Send payroll'}
           </button>
 
           {overflow && (
             <p className="text-xs text-accent-warm">
-              Los montos superan 8 notas. Ajustá los salarios para que entren en un batch.
+              These amounts are too large for a single private batch. Reconfigure them to fit one batch.
             </p>
           )}
+
 
           {composerState === 'error' && errorMsg && (
             <p className="text-sm text-ink-muted">{errorMsg}</p>
           )}
-
-          {/* Demo disclosure */}
-          <div className="bg-accent-warm/10 text-accent-warm text-xs px-3 py-2 rounded-full self-start">
-            Demo PoC · testnet · los montos son valores de campo BN254, no USDC real.
-          </div>
         </div>
       </Reveal>
 

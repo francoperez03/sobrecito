@@ -47,7 +47,7 @@ export function NoteBudgetMeter({ usedNotes }: NoteBudgetMeterProps) {
           }`}
         >
           {usedNotes}/8 notes
-          {isOverflow && ' — reduce salaries to fit in one batch'}
+          {isOverflow && ' — reconfigure the amounts to fit one batch'}
         </p>
       </div>
     </DoubleBezel>

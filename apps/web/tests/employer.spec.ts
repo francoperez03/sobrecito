@@ -56,16 +56,16 @@ test.describe('Employer dashboard', () => {
     await expect(page.getByText('No batch on-chain yet.')).toBeVisible()
   })
 
-  // 6-EMP-render: the heading + table render. The Status column header is
-  // present (the dashboard renders payroll status).
-  test('renders the payroll heading and Status column', async ({ page }) => {
+  // 6-EMP-render: the heading + table render. The subhead carries the
+  // public-lens framing (real USDC, sealed split).
+  test('renders the payroll heading and public-lens subhead', async ({ page }) => {
     await mockRpc(page, [])
     await page.goto('/employer')
     await expect(
       page.getByRole('heading', { name: 'Payroll status' }),
     ).toBeVisible()
-    // Heading subhead carries the exact UI-SPEC contract string.
-    await expect(page.getByText('amounts sealed, total proven.')).toBeVisible()
+    // Heading subhead carries the public-lens framing.
+    await expect(page.getByText('who receives what stays sealed')).toBeVisible()
   })
 
   // UX-02 A1 (T-06-09): no individual amount node anywhere on /employer, even
@@ -102,9 +102,11 @@ test.describe('Employer dashboard', () => {
     await mockRpc(page, events)
     await page.goto('/employer')
 
-    // The populated batch renders the table (proves we are exercising the data
-    // path, not silently falling back to the empty/error state).
-    await expect(page.getByText('Employee #1')).toBeVisible()
+    // The populated batch renders the sealed-notes table (proves we are
+    // exercising the data path, not silently falling back to empty/error state).
+    // Notes render as sealed — no "Employee #N" label (dropped: A1, per-note
+    // identity must not be implied). The "Sealed note" column header is present.
+    await expect(page.getByText('Sealed note')).toBeVisible()
 
     // No amount-bar reveal elements (that pattern lives only in the auditor
     // table). The employer dashboard has zero.

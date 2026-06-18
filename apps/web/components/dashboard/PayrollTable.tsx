@@ -4,16 +4,21 @@ import { useState } from 'react'
 import { CaretLeft, CaretRight } from '@phosphor-icons/react'
 
 /**
- * PayrollTable — read-only employer view of a committed batch.
+ * PayrollTable — sealed-note view of a committed batch (public lens, A1).
  *
- * A1 (sealed-for-the-public) by construction: there is NO Amount column. The
- * employer dashboard deliberately matches what the public sees — status +
- * commitment — without ever exposing an individual amount. The grid is
- * grid-cols-[auto_1fr_auto_auto_auto]: #, Employee, Status, Date, Tx (a link to
- * the commitment's transaction on the block explorer).
+ * Rows are NOTES, not employees. Each commitment is a sealed note with an
+ * indistinguishable denomination — showing "Employee #N" would imply identity
+ * and leak a per-employee count the protocol deliberately hides (D2).
  *
- * Long batches paginate at PAGE_SIZE rows per page so the dashboard never dumps
- * the whole ledger at once.
+ * Columns: #, Sealed note (truncated commitment hash), Status, Ledger, Tx.
+ * No Amount column — amounts live only in encrypted_output (A1, T-06-09).
+ *
+ * Claim status: the nullifier scanner is owned by phase 06.3 (plans 02–04).
+ * Until `NullifierSpentEvent` scanning lands, claim status renders as "—".
+ * TODO(06.3): wire aggregate claim status from NullifierSpentEvent scanner
+ * once it is available. See 06.3-PLAN-02/03 for the scanner spec.
+ *
+ * Long batches paginate at PAGE_SIZE rows per page.
  */
 
 const PAGE_SIZE = 10
@@ -23,16 +28,29 @@ export type PayrollStatus = 'committed' | 'proven' | 'pending'
 export interface PayrollRow {
   /** 1-based position in the batch. */
   index: number
-  /** Human label or placeholder — never a wallet address, never an amount. */
-  employeeLabel: string
+  /** Full commitment hash as a decimal string (from ScannedEvent.commitment). */
+  commitmentHex: string
   status: PayrollStatus
-  /** Commitment date/time label. */
+  /** Ledger label, e.g. "ledger 3107053". */
   date: string
-  /** Block-explorer URL for the commitment's transaction (optional). */
+  /** Block-explorer URL for the note's transaction (optional). */
   explorerUrl?: string
+  /**
+   * Claim status for this note.
+   * "—" = scanner not yet available (phase 06.3 dependency).
+   * "claimed" = nullifier spent (post-06.3).
+   * "unclaimed" = nullifier not yet spent (post-06.3).
+   */
+  claimStatus?: '—' | 'claimed' | 'unclaimed'
 }
 
-/** Status cell — color + symbol, no destructive palette (UI-SPEC Surface 2). */
+/** Truncate a long commitment string for display (first 6 + … + last 4 chars). */
+function truncateCommitment(s: string): string {
+  if (s.length <= 14) return s
+  return `${s.slice(0, 6)}…${s.slice(-4)}`
+}
+
+/** Status cell — color + symbol. */
 function StatusCell({ status }: { status: PayrollStatus }) {
   if (status === 'proven') {
     return <span className="text-sm text-accent-soft self-center">✓ proven</span>
@@ -41,6 +59,18 @@ function StatusCell({ status }: { status: PayrollStatus }) {
     return <span className="text-sm text-ink-muted italic self-center">pending</span>
   }
   return <span className="text-sm text-ink-muted self-center">committed</span>
+}
+
+/** Claim status cell — gracefully degrades to "—" until 06.3 scanner lands. */
+function ClaimCell({ claimStatus }: { claimStatus?: PayrollRow['claimStatus'] }) {
+  if (claimStatus === 'claimed') {
+    return <span className="text-sm text-accent-soft self-center">claimed</span>
+  }
+  if (claimStatus === 'unclaimed') {
+    return <span className="text-sm text-ink-muted self-center">unclaimed</span>
+  }
+  // Default: scanner not yet available (06.3 dependency)
+  return <span className="text-sm text-ink-muted/40 self-center" title="Claim scanner coming in phase 06.3">—</span>
 }
 
 export function PayrollTable({ rows }: { rows: PayrollRow[] }) {
@@ -53,13 +83,18 @@ export function PayrollTable({ rows }: { rows: PayrollRow[] }) {
 
   return (
     <div className="w-full">
-      {/* Table header — one span per column, weight 400 (Centerpiece pattern).
-          Columns: #, Employee, Status, Date. Amount is ABSENT by design (A1). */}
-      <div className="grid grid-cols-[auto_1fr_auto_auto_auto] gap-4 px-6 pb-2 border-b border-white/5">
+      {/* Privacy note — equal-value notes are indistinguishable on-chain. */}
+      <p className="px-6 pb-4 text-xs text-ink-muted/60 italic">
+        Equal-value notes look identical on-chain, so the split is unreadable from here.
+      </p>
+
+      {/* Table header */}
+      <div className="grid grid-cols-[auto_1fr_auto_auto_auto_auto] gap-4 px-6 pb-2 border-b border-white/5">
         <span className="text-xs text-ink-muted uppercase tracking-widest">#</span>
-        <span className="text-xs text-ink-muted uppercase tracking-widest">Employee</span>
+        <span className="text-xs text-ink-muted uppercase tracking-widest">Sealed note</span>
         <span className="text-xs text-ink-muted uppercase tracking-widest">Status</span>
-        <span className="text-xs text-ink-muted uppercase tracking-widest">Date</span>
+        <span className="text-xs text-ink-muted uppercase tracking-widest">Ledger</span>
+        <span className="text-xs text-ink-muted uppercase tracking-widest">Claimed</span>
         <span className="text-xs text-ink-muted uppercase tracking-widest">Tx</span>
       </div>
 
@@ -68,14 +103,20 @@ export function PayrollTable({ rows }: { rows: PayrollRow[] }) {
         {visible.map((row) => (
           <div
             key={row.index}
-            className="grid grid-cols-[auto_1fr_auto_auto_auto] gap-4 py-3 border-b border-white/5 last:border-0"
+            className="grid grid-cols-[auto_1fr_auto_auto_auto_auto] gap-4 py-3 border-b border-white/5 last:border-0"
           >
             <span className="text-sm text-ink-muted self-center tabular-nums">{row.index}</span>
-            <span className="text-sm text-ink-muted self-center">{row.employeeLabel}</span>
+            <span
+              className="text-sm text-ink-muted self-center font-mono truncate"
+              title={row.commitmentHex}
+            >
+              {truncateCommitment(row.commitmentHex)}
+            </span>
             <StatusCell status={row.status} />
             <span className="text-sm text-ink-muted self-center font-mono tabular-nums">
               {row.date}
             </span>
+            <ClaimCell claimStatus={row.claimStatus} />
             {row.explorerUrl ? (
               <a
                 href={row.explorerUrl}

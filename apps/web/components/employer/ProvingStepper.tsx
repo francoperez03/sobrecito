@@ -29,10 +29,10 @@ export interface ProvingStepperProps {
 // ---------------------------------------------------------------------------
 
 const STEPS = [
-  { key: 'preparing', label: '1. Preparando billetes' },
-  { key: 'downloading', label: '2. Descargando motor de pruebas' },
-  { key: 'proving', label: '3. Generando prueba ZK' },
-  { key: 'signing', label: '4. Firma en Freighter' },
+  { key: 'preparing', label: '1. Preparing bills' },
+  { key: 'downloading', label: '2. Downloading proving engine' },
+  { key: 'proving', label: '3. Generating ZK proof' },
+  { key: 'signing', label: '4. Sign in Freighter' },
 ] as const
 
 function stepIndex(phase: string): number {
@@ -72,15 +72,15 @@ export function ProvingStepper({ step }: ProvingStepperProps) {
           <div>
             {isDone ? (
               <h3 className="text-h3 font-[900] tracking-[-0.01em] leading-[1.15] text-accent-soft">
-                Nómina enviada.
+                Payroll sent.
               </h3>
             ) : isError ? (
               <h3 className="text-h3 font-[900] tracking-[-0.01em] leading-[1.15] text-accent-warm">
-                Error al enviar
+                Submission failed
               </h3>
             ) : (
               <h3 className="text-h3 font-[900] tracking-[-0.01em] leading-[1.15]">
-                Enviando nómina
+                Sending payroll
               </h3>
             )}
           </div>
@@ -160,10 +160,10 @@ export function ProvingStepper({ step }: ProvingStepperProps) {
                           className="flex flex-col gap-1.5"
                         >
                           <span className="font-mono text-xs text-accent-soft">
-                            {step.elapsed}s transcurridos (~20-40s en total)
+                            {step.elapsed}s elapsed (~20-40s total)
                           </span>
                           <div className="bg-accent/10 text-accent-soft text-xs px-3 py-1.5 rounded-full self-start">
-                            Corre local, no se sube nada.
+                            Runs locally, nothing is uploaded.
                           </div>
                         </motion.div>
                       )}
@@ -177,8 +177,8 @@ export function ProvingStepper({ step }: ProvingStepperProps) {
                         >
                           <span className="text-xs text-ink-muted">
                             {step.phase === 'signing'
-                              ? 'Aceptá la transacción en Freighter…'
-                              : 'Enviando a la red…'}
+                              ? 'Approve the transaction in Freighter…'
+                              : 'Submitting to the network…'}
                           </span>
                         </motion.div>
                       )}
@@ -199,7 +199,7 @@ export function ProvingStepper({ step }: ProvingStepperProps) {
               className="flex flex-col gap-3"
             >
               <p className="text-sm text-ink-muted">
-                Transacción confirmada en testnet.
+                Transaction confirmed on testnet.
               </p>
               <div className="flex flex-col gap-1">
                 <span className="text-xs text-ink-muted uppercase tracking-widest">
@@ -235,13 +235,6 @@ export function ProvingStepper({ step }: ProvingStepperProps) {
                 {step.message}
               </div>
             </motion.div>
-          )}
-
-          {/* Honest PoC disclosure: amber note visible during proving */}
-          {(step.phase === 'proving' || step.phase === 'downloading' || step.phase === 'preparing') && (
-            <div className="bg-accent-warm/10 text-accent-warm text-xs px-3 py-2 rounded-full self-start">
-              Demo PoC · testnet · ext_amount = 0 USDC (sin transferencia real)
-            </div>
           )}
 
         </div>
