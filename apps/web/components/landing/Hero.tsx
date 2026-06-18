@@ -25,16 +25,6 @@ export function Hero() {
       />
 
       <div className="relative max-w-5xl mx-auto px-5 md:px-8 pt-28 pb-24 md:pt-36 md:pb-32">
-        {/* Eyebrow — the single deliberate kicker on the page */}
-        <motion.p
-          className="font-mono text-xs uppercase tracking-[0.22em] text-ink-muted"
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, ease: EASE_OUT }}
-        >
-          On-chain payroll
-        </motion.p>
-
         {/* H1 — Fraunces display, light weight, editorial */}
         <motion.h1
           className="mt-5 font-display font-light text-ink text-display leading-[1.04] tracking-[-0.02em] text-balance max-w-[18ch]"

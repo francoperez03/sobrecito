@@ -86,7 +86,7 @@ export function KeyGenerator() {
         data-testid="keygen-generate"
         className={[
           'inline-flex items-center gap-2 bg-surface text-ink font-[700] text-sm px-5 h-[44px] rounded-full w-fit',
-          'ring-1 ring-hairline hover:bg-white/5 active:scale-[0.98] transition-all',
+          'ring-1 ring-white/30 hover:bg-white/5 hover:ring-white/50 active:scale-[0.98] transition-all',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
           'focus-visible:ring-offset-2 focus-visible:ring-offset-bg',
           busy ? 'opacity-80 animate-pulse cursor-wait' : '',
