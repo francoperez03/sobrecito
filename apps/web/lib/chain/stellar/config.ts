@@ -39,7 +39,7 @@ export function stellarConfig(): ChainConfig {
   return cached
 }
 
-/** Block-explorer (stellarchain.io, testnet) transaction URL. */
+/** Block-explorer (stellar.expert, testnet) transaction URL. */
 export function explorerTxUrl(txHash: string): string {
-  return `https://testnet.stellarchain.io/transactions/${txHash}`
+  return `https://stellar.expert/explorer/testnet/tx/${txHash}`
 }

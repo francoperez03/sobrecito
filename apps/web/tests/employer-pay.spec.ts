@@ -330,7 +330,7 @@ async function importCsv(page: Page, csvContent: string) {
 
   for (let i = 0; i < rows.length; i++) {
     if (i > 0) await page.getByRole('button', { name: '+ Add row' }).click()
-    await page.getByPlaceholder('64-char hex pubkey').nth(i).fill(rows[i].publicKey)
+    await page.getByTestId('employee-key-input').nth(i).fill(rows[i].publicKey)
     await page.getByPlaceholder('e.g. 100').nth(i).fill(rows[i].amount)
   }
 }

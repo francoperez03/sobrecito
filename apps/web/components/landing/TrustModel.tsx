@@ -14,7 +14,7 @@ const POOL_URL = `${GH}/packages/zk/contracts/pool/src/pool.rs`
 const RECONSTRUCTOR_URL = `${GH}/packages/viewkey/src/reconstructor/batchReconstructor.ts`
 // The live deployed verifier on testnet — the running proof, not the source.
 const VERIFIER_ONCHAIN_URL =
-  'https://testnet.stellarchain.io/contracts/CD4KDJTSCD2RMS7JMCY3N7RWLAN2QYO2BYT7DXHFX2GXVBDSBYXQ77PN'
+  'https://stellar.expert/explorer/testnet/contract/CD4KDJTSCD2RMS7JMCY3N7RWLAN2QYO2BYT7DXHFX2GXVBDSBYXQ77PN'
 
 type Kind = 'math' | 'policy'
 

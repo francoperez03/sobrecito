@@ -33,7 +33,7 @@ export function readDeployments() {
   }
 }
 
-/** Block-explorer (stellarchain.io, testnet) transaction URL for a tx hash. */
+/** Block-explorer (stellar.expert, testnet) transaction URL for a tx hash. */
 export function explorerTxUrl(txHash: string): string {
   return getChainAdapter().explorerTxUrl(txHash)
 }
