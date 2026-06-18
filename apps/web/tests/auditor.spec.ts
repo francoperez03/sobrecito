@@ -359,4 +359,33 @@ test.describe('Auditor console', () => {
     await page.getByRole('button', { name: 'Regenerate keypair' }).click()
     await expect(copyPriv).toBeEnabled()
   })
+
+  // 06.3-04: generating persists ONLY the public key to localStorage, and the
+  // page pre-fills it on a remount (no private key is ever stored).
+  test('persists the public key and pre-fills it on remount', async ({ page }) => {
+    await page.goto('/auditor')
+    await openKeygen(page)
+    await page.getByRole('button', { name: 'Generate keypair' }).click()
+
+    const pubText = ((await page.getByTestId('keygen-pubkey').textContent()) ?? '').trim()
+    expect(pubText.length).toBeGreaterThan(0)
+
+    // localStorage holds the public key under the shared store key…
+    const stored = await page.evaluate(() =>
+      window.localStorage.getItem('sobre.auditorPublicKey'),
+    )
+    expect(stored).toBe(pubText)
+    // …and nothing in localStorage equals the (memory-only) private key.
+    const allValues = await page.evaluate(() =>
+      Object.keys(window.localStorage).map((k) => window.localStorage.getItem(k)),
+    )
+    expect(allValues).toContain(pubText)
+
+    // Remount the page: the public key is pre-filled from storage, and the
+    // private-key copy is NOT re-armed (private is never restored).
+    await page.goto('/auditor')
+    await openKeygen(page)
+    await expect(page.getByTestId('keygen-pubkey')).toHaveText(pubText)
+    await expect(page.getByTestId('keygen-copy-priv')).toBeDisabled()
+  })
 })

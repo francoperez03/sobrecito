@@ -433,4 +433,27 @@ test.describe('PayrollComposer employer pay flow', () => {
     await expect(explorerLink).toBeVisible()
     await expect(explorerLink).toHaveText(FAKE_TX_HASH)
   })
+
+  // 06.3-04: with the auditor public key persisted (from the auditor console in
+  // the same browser), enabling the compliance toggle autofills the field.
+  test('compliance field autofills the persisted auditor public key', async ({ page }) => {
+    await injectMocks(page)
+    // Seed localStorage before any page script runs (simulates a prior auditor
+    // session). Use a valid base64 32-byte key, matching what the auditor stores.
+    const auditorPub = Buffer.alloc(32, 7).toString('base64')
+    await page.addInitScript((pub) => {
+      window.localStorage.setItem('sobre.auditorPublicKey', pub as string)
+    }, auditorPub)
+
+    await page.goto('/employer')
+    await expect(page.locator('[data-testid="payroll-composer"]')).toBeVisible()
+
+    // Enable "Add an auditor for compliance".
+    await page.getByTestId('audit-toggle').click()
+
+    // The field appears already filled with the persisted public key.
+    const field = page.getByTestId('auditor-key-input')
+    await expect(field).toBeVisible()
+    await expect(field).toHaveValue(auditorPub)
+  })
 })

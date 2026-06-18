@@ -49,6 +49,7 @@ import {
   connectFreighter,
   submitDeposit,
 } from '@/lib/employer-deposit'
+import { loadAuditorPublicKey } from '@/lib/auditorKeyStore'
 import { readDeployments, fetchPoolRoot, fetchASPRoots, fetchUsdcBalance, formatUsdc } from '@/lib/rpc'
 
 // ---------------------------------------------------------------------------
@@ -136,6 +137,14 @@ export function PayrollComposer() {
   // default; when off, deposits fall back to the deployments.json auditor key.
   const [auditEnabled, setAuditEnabled] = useState(false)
   const [auditorKey, setAuditorKey] = useState('')
+
+  // Autofill the auditor public key from a previous auditor session in this
+  // browser (public key only — see auditorKeyStore). The employer can still
+  // overwrite it by hand. Runs once on mount; does not clobber manual edits.
+  useEffect(() => {
+    const stored = loadAuditorPublicKey()
+    if (stored) setAuditorKey(stored)
+  }, [])
 
   // Blobs frozen exactly once — never regenerated on re-render (Pitfall 2)
   const frozenBlobsRef = useRef<{ blobs: Uint8Array[]; blindings: bigint[] } | null>(null)
@@ -380,13 +389,42 @@ export function PayrollComposer() {
         pathIndices: memberPath.pathIndices,
       }
 
+      // The ASP membership root fed to the circuit (and, via the extracted public
+      // inputs, to the pool) MUST be the root of the SAME tree the path was
+      // reconstructed from — otherwise the membership constraint
+      // (policyTransaction.circom:144) can't be satisfied. The pool does NOT
+      // cross-check this against the live asp_membership contract (pool.rs
+      // verify_proof reads proof.asp_membership_root verbatim), so we mirror the
+      // CLI proof-gen (main.rs:257) and use the reconstructed root, NOT the live
+      // on-chain fetch (which is an empty tree the leaf was never inserted into).
+      const aspMemberRoot = memberPath.root
+
+      // --- DIAGNOSTIC LOGS (temporary) ---
+      console.log('[Composer] === DEPOSIT MEMBERSHIP DIAGNOSTICS ===')
+      console.log('[Composer] poolRoot:', poolRoot)
+      console.log('[Composer] aspMemberRoot USED (reconstructed, = circuit input):', aspMemberRoot)
+      console.log('[Composer] aspRoots.memberRoot (on-chain, informational only):', aspRoots.memberRoot)
+      console.log('[Composer] aspRoots.nonMemberRoot (on-chain):', aspRoots.nonMemberRoot)
+      console.log('[Composer] DUMMY_PRIVKEY:', DUMMY_PRIVKEY.toString(10))
+      console.log('[Composer] employerPubkey (Poseidon2(424242,0,3)):', employerPubkey.toString(10))
+      console.log('[Composer] membershipLeaf (Poseidon2(pubkey,0,1)):', membershipLeaf.toString(10))
+      console.log('[Composer] ASP_MEMBERSHIP_LEAVES:', ASP_MEMBERSHIP_LEAVES.map((l) => l.toString(10)))
+      console.log('[Composer] EMPLOYER_LEAF_INDEX:', EMPLOYER_LEAF_INDEX)
+      console.log('[Composer] memberPath.pathIndices:', memberPath.pathIndices)
+      console.log('[Composer] memberPath.pathElements[0..2]:', memberPath.pathElements.slice(0, 3))
+      console.log('[Composer] extDataHash:', extDataHash.toString())
+      console.log('[Composer] totalBaseUnits (= publicAmount / ext_amount):', totalBaseUnits.toString())
+      console.log('[Composer] precomputedNullifier:', String(precomputedNullifier))
+      console.log('[Composer] nonMembershipProofs.key (= employerPubkey):', employerPubkey.toString(10))
+      // --- END DIAGNOSTIC LOGS ---
+
       const inputs = buildDepositInputs({
         notes,
         blindings,
         encOutputs: blobs,
         extDataHash,
         poolRoot,
-        aspMemberRoot: aspRoots.memberRoot,
+        aspMemberRoot,
         aspNonMemberRoot: aspRoots.nonMemberRoot,
         senderAddress: address,
         dummyBlinding,
