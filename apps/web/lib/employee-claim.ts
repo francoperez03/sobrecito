@@ -27,31 +27,14 @@ import {
   reconstructMerklePath,
 } from '@/lib/zk/proverClient'
 import { buildWithdrawInputs } from '@/lib/zk/withdrawTransactionBuilder'
-import { hashExtDataSobre } from '@/lib/zk/depositTransactionBuilder'
-import { buildProofScVal } from '@/lib/zk/proofArg'
-import {
-  fetchMerkleProof,
-  fetchPoolRoot,
-  readDeployments,
-} from '@/lib/rpc'
+import { fetchMerkleProof, fetchPoolRoot, readDeployments } from '@/lib/rpc'
 import {
   reconstructMerklePathFromEvents,
   type EmployeeNote,
 } from '@/lib/employee-scan'
-import { unshieldNote } from '@/lib/employee-unshield'
-import { requestAccess, getAddress, getNetwork } from '@stellar/freighter-api'
+import { getChainAdapter } from '@/lib/chain'
 import type { ClaimStep } from '@/components/employee/ClaimStepper'
 import type { ScannedEvent } from 'viewkey'
-
-const TESTNET_PASSPHRASE = 'Test SDF Network ; September 2015'
-
-function unwrapFreighter<T extends Record<string, unknown>>(
-  res: T & { error?: unknown },
-  what: string,
-): T {
-  if (res.error) throw new Error(`Freighter ${what} failed: ${String(res.error)}`)
-  return res
-}
 
 /**
  * Claim a single employee note. Orchestrates the full claim path:
@@ -78,19 +61,12 @@ export async function claimNote(
   scannedEvents: ScannedEvent[],
   onStep: (s: ClaimStep) => void,
 ): Promise<{ hash: string }> {
-  // Step 0: resolve recipient from Freighter if not provided. The recipient binds into
-  // the ext_data_hash which the circuit verifies — must be the real address before proving.
-  let recipient = recipientAddress
-  if (!recipient) {
-    await unwrapFreighter(await requestAccess(), 'requestAccess')
-    const { networkPassphrase } = unwrapFreighter(await getNetwork(), 'getNetwork')
-    if (networkPassphrase !== TESTNET_PASSPHRASE) {
-      throw new Error('Switch Freighter to Testnet to claim this note.')
-    }
-    const { address } = unwrapFreighter(await getAddress(), 'getAddress')
-    if (!address) throw new Error('Freighter returned no address. Unlock the wallet and retry.')
-    recipient = address
-  }
+  // Step 0: resolve recipient via the wallet (access + testnet guard). The recipient
+  // binds into the ext_data_hash the circuit verifies — must be the real address
+  // before proving. connect() is idempotent, so an explicit recipientAddress still
+  // grants access for the later signature.
+  const connected = await getChainAdapter().wallet.connect()
+  const recipient = recipientAddress || connected
 
   // Step 1: fetch the Merkle path. pool.get_proof is absent (A2); fall back to
   // client-side reconstruction from the scanned event history on any failure.
@@ -137,7 +113,7 @@ export async function claimNote(
 
   // ext_amount is NEGATIVE for a withdrawal (pool checks sign direction).
   // The withdrawn amount becomes visible on-chain — amber-warned in NoteCard.
-  const extDataHashResult = hashExtDataSobre({
+  const extDataHashResult = getChainAdapter().encoding.hashExtData({
     recipient,
     ext_amount: -note.amount,
     encrypted_outputs: [],
@@ -178,9 +154,9 @@ export async function claimNote(
     clearInterval(timer)
   }
 
-  // Build the structured on-chain Proof (the pool's transact takes a Proof struct,
-  // not raw bytes — see proofArg.ts). The public-input values come from the witness
-  // we just proved against, so they match the proof exactly.
+  // The on-chain Proof struct's public inputs come from the witness we just proved
+  // against, so they match the proof exactly. The adapter's writer encodes them into
+  // the chain-native Proof (the pool's transact takes a struct, not raw bytes).
   const w = witness as {
     root: string
     publicAmount: string
@@ -189,32 +165,26 @@ export async function claimNote(
     membershipRoots: string[][]
     nonMembershipRoots: string[][]
   }
-  const proofScVal = buildProofScVal({
-    proof,
-    root: w.root,
-    publicAmount: w.publicAmount,
-    extDataHash: extDataHashResult.bytes,
-    inputNullifiers: w.inputNullifier,
-    outputCommitments: w.outputCommitment,
-    aspMembershipRoot: w.membershipRoots[0][0],
-    aspNonMembershipRoot: w.nonMembershipRoots[0][0],
-  })
 
-  // Step 4: sign and submit with Freighter (employee pays their own fee).
-  // unshieldNote re-requests access and re-validates network inside, which is idempotent.
+  // Step 4: sign and submit (employee pays their own fee). The recipient bound into
+  // ext_data_hash above is passed through so the writer signs with the same address.
   onStep({ phase: 'signing' })
   const { poolContractId } = readDeployments()
-  const txResult = await unshieldNote({
-    poolContractId,
+  const txResult = await getChainAdapter().writer.withdraw({
+    poolId: poolContractId,
     commitmentIndex: note.index,
     amount: note.amount.toString(),
-    notePrivkeyHex: '',
-    blinding: note.blinding.toString(),
-    // The full structured Proof ScVal as base64 XDR (buildUnshieldTransaction
-    // fromXDR's it back into the Proof the pool's transact expects). The recipient
-    // is resolved inside unshieldNote from the same Freighter wallet, matching the
-    // address bound into ext_data_hash here.
-    withdrawProofXdr: proofScVal.toXDR('base64'),
+    recipient,
+    proof,
+    publicInputs: {
+      root: w.root,
+      publicAmount: w.publicAmount,
+      extDataHash: extDataHashResult.bytes,
+      inputNullifiers: w.inputNullifier,
+      outputCommitments: w.outputCommitment,
+      aspMembershipRoot: w.membershipRoots[0][0],
+      aspNonMembershipRoot: w.nonMembershipRoots[0][0],
+    },
   })
 
   onStep({ phase: 'done', txHash: txResult.hash })

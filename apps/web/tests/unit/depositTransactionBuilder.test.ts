@@ -13,10 +13,11 @@
 
 import { describe, it, expect } from 'vitest'
 import {
-  hashExtDataSobre,
   buildFrozenBlobs,
   buildDepositInputs,
 } from '../../lib/zk/depositTransactionBuilder'
+// hashExtData moved into the Stellar chain adapter's encoding module.
+import { hashExtData as hashExtDataSobre } from '../../lib/chain/stellar/encoding'
 import type { DenomNote } from '../../lib/zk/denominationBuilder'
 import { pubkeyToBn254 } from '../../lib/zk/denominationBuilder'
 import { USDC_SCALE } from '../../lib/csvParser'

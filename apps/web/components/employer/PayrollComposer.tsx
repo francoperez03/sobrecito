@@ -33,8 +33,8 @@ import { usdcToBaseUnits, isHex64, USDC_SCALE, parseEmployeePubkey } from '@/lib
 import {
   buildFrozenBlobs,
   buildDepositInputs,
-  hashExtDataSobre,
 } from '@/lib/zk/depositTransactionBuilder'
+import { getChainAdapter } from '@/lib/chain'
 import {
   configureProver,
   initProver,
@@ -388,7 +388,7 @@ export function PayrollComposer() {
       const totalBaseUnits = notes.reduce((s, n) => s + n.denomination, BigInt(0))
 
       // Hash ext_data (blobs must be frozen before computing this hash)
-      const { bigInt: extDataHash, bytes: extDataHashBytes } = hashExtDataSobre({
+      const { bigInt: extDataHash, bytes: extDataHashBytes } = getChainAdapter().encoding.hashExtData({
         recipient: address,
         ext_amount: totalBaseUnits, // real USDC moved from the employer into the pool (testnet)
         encrypted_outputs: blobs,

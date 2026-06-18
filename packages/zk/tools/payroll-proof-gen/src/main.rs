@@ -11,6 +11,7 @@
 //!     --pool-root <decimal_u256>       (actual on-chain root) \
 //!     [--zero-input]                   (usa inAmount=0; el circuito desactiva merkle-check; root on-chain pasa is_known_root)
 //!     [--blinding <u64>]               (semilla del blinding de la nota de entrada; default: 515151. Variar para generar nullifiers frescos sin cambiar pk_field)
+//!     [--out-blindings <b0,...,b7>]    (8 decimales BN254 separados por coma; anulan el default 2000+i para las notas de salida)
 //!     [--ext-data-hash <hex32>]        (default: hash for ext_amount=0, deployer=mikey) \
 //!     [--out <path/to/output.json>]    (default: stdout)
 
@@ -79,6 +80,24 @@ fn main() -> Result<()> {
         .and_then(|s| s.parse::<u64>().ok())
         .unwrap_or(515151);
 
+    // --out-blindings: blindings de notas de salida provistos por el CLI (aleatorios,
+    // reducidos mod BN254). Cuando no se pasa, se usa el default 2000+i para que el
+    // spike-test (que no pasa la flag) permanezca byte-identico.
+    let out_blindings_provided: Option<[Scalar; 8]> = get_arg(&args, "--out-blindings").ok().map(|s| {
+        let v: Vec<Scalar> = s
+            .split(",")
+            .map(|x| {
+                let big = num_bigint::BigUint::parse_bytes(x.trim().as_bytes(), 10)
+                    .expect("invalid --out-blindings value: expected decimal");
+                Scalar::from_be_bytes_mod_order(&big.to_bytes_be())
+            })
+            .collect();
+        assert_eq!(v.len(), 8, "--out-blindings must carry exactly 8 values");
+        let mut arr = [Scalar::from(0u64); 8];
+        arr.copy_from_slice(&v[..8]);
+        arr
+    });
+
     // Load proving key using circom_tester helper (loads PK + extracts VK + pvk)
     eprintln!("==> Loading proving key from {pk_path}");
     let keys = load_keys(&pk_path).context("Failed to load proving key")?;
@@ -103,7 +122,9 @@ fn main() -> Result<()> {
         .enumerate()
         .map(|(i, &amt)| OutputNote {
             pub_key: Scalar::from(1000u64.saturating_add(i as u64)),
-            blinding: Scalar::from(2000u64.saturating_add(i as u64)),
+            blinding: out_blindings_provided
+                .map(|arr| arr[i])
+                .unwrap_or_else(|| Scalar::from(2000u64.saturating_add(i as u64))),
             amount: Scalar::from(amt),
         })
         .collect();

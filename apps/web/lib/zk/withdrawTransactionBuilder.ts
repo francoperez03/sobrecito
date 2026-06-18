@@ -18,8 +18,8 @@
 import { BN254_FIELD_MODULUS } from 'viewkey'
 import type { EmployeeNote } from '@/lib/employee-scan'
 
-// Re-export for callers that need hashExtDataSobre for the withdraw direction.
-export { hashExtDataSobre } from '@/lib/zk/depositTransactionBuilder'
+// ext_data_hash for the withdraw direction is computed via the chain adapter:
+// getChainAdapter().encoding.hashExtData({ recipient, ext_amount: -amount, encrypted_outputs: [] }).
 
 // ---------------------------------------------------------------------------
 // BN254 field helpers

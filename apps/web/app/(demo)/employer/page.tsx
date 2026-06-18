@@ -3,19 +3,19 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import { CaretDown, CaretLeft, CaretRight } from '@phosphor-icons/react'
-import { scanCommitmentEvents, type ScannedEvent } from 'viewkey'
+import { type ScannedEvent } from 'viewkey'
 import { Reveal } from '@/components/motion/Reveal'
 import {
   PayrollTable,
   type PayrollRow,
 } from '@/components/dashboard/PayrollTable'
 import {
-  readDeployments,
   readPoolUsdcBalance,
   formatUsdc,
   explorerTxUrl,
   fetchBatchExtAmount,
 } from '@/lib/rpc'
+import { getChainAdapter } from '@/lib/chain'
 import { PayrollComposer } from '@/components/employer/PayrollComposer'
 import { DoubleBezel } from '@/components/ui/DoubleBezel'
 
@@ -59,12 +59,7 @@ export default function EmployerPage() {
 
     async function scan() {
       try {
-        const { rpcUrl, poolContractId, deploymentLedger } = readDeployments()
-        const events = await scanCommitmentEvents({
-          rpcUrl,
-          poolContractId,
-          fromLedger: deploymentLedger,
-        })
+        const events = await getChainAdapter().events.scanCommitments()
         if (cancelled) return
         if (events.length === 0) {
           setState({ phase: 'empty' })
@@ -384,13 +379,8 @@ function toRows(events: ScannedEvent[]): PayrollRow[] {
       index: event.index + 1,
       // Display the commitment as a decimal string; truncation handled in PayrollTable.
       commitmentHex: event.commitment.toString(),
-      status: 'proven' as const,
-      date: `ledger ${event.ledger}`,
+      date: String(event.ledger),
       explorerUrl: event.txHash ? explorerTxUrl(event.txHash) : undefined,
-      // TODO(06.3): set claimStatus from NullifierSpentEvent scanner once
-      // phase 06.3 (plans 02–04) delivers the nullifier scanner. Until then,
-      // leave undefined so ClaimCell renders "—" gracefully.
-      claimStatus: undefined,
     }))
 }
 
