@@ -26,8 +26,9 @@ function bigintToHex(v: bigint): string {
  *   1. The SEED is the private key. Copy it here and paste it deliberately into
  *      the private-key field above to scan and claim. It is NOT auto-filled (the
  *      employee copies it on purpose) and is never written to browser storage.
- *   2. The PUBLIC key (bn254Pub) goes to the employer, who deposits the salary
- *      note against it (the bn254Pub column of the payroll CSV).
+ *   2. The PUBLIC key (x25519Pub || bn254Pub, 128 hex) goes to the employer, who
+ *      deposits the salary note against it: the bn254 half keys the commitment,
+ *      the x25519 half is what the note is encrypted to for discovery.
  *
  * Privacy model: pure client-side, generated with the OS CSPRNG. Generation is
  * deterministic from the random seed via the same HKDF + Poseidon2 the circuit
@@ -46,11 +47,12 @@ export function KeyGenerator() {
       const seed = new Uint8Array(32)
       crypto.getRandomValues(seed)
       const hex = bytesToHex(seed)
-      // deriveEmployeeKeys computes bn254Pub via the WASM bridge (Poseidon2),
-      // matching the circuit's Keypair() template. Browser-only.
-      const { bn254Pub } = await deriveEmployeeKeys(seed)
+      // deriveEmployeeKeys computes BOTH public keys from the seed: the X25519 key
+      // the note is encrypted to (discovery) and the bn254Pub the commitment uses
+      // (withdraw ownership). The shared key concatenates them: x25519Pub || bn254Pub.
+      const { bn254Pub, x25519Pub } = await deriveEmployeeKeys(seed)
       setSeedHex(hex)
-      setPubHex(bigintToHex(bn254Pub))
+      setPubHex(bytesToHex(x25519Pub) + bigintToHex(bn254Pub))
       setSeedCopied(false)
       setPubCopied(false)
     } finally {
@@ -123,7 +125,7 @@ export function KeyGenerator() {
               </button>
             </div>
             <p className="text-xs text-ink-muted">
-              Give this to your employer (the bn254Pub column of the payroll CSV).
+              Give this to your employer (the public-key column of the payroll CSV).
             </p>
           </div>
 

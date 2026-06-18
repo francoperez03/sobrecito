@@ -83,8 +83,13 @@ export async function scanEmployeeNotes(
   const notes: EmployeeNote[] = []
 
   for (const event of events) {
+    let blob
     try {
-      const blob = decodeDualBlob(event.encryptedOutput)
+      blob = decodeDualBlob(event.encryptedOutput)
+    } catch {
+      continue
+    }
+    try {
       const payload = decryptNote(employeePrivkey, blob.employeeCiphertext)
       notes.push({
         commitment: event.commitment,
@@ -95,7 +100,7 @@ export async function scanEmployeeNotes(
         txHash: event.txHash,
       })
     } catch {
-      continue // foreign blob: GCM tag mismatch. Skip silently (T-063-06 mitigation).
+      // foreign blob: GCM tag mismatch (expected for other employees' notes)
     }
   }
 

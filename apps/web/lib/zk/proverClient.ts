@@ -169,6 +169,7 @@ export async function computeNullifier(
   privKey: bigint,
   blinding: bigint,
   pathIndices: bigint = BigInt(0),
+  amount: bigint = BigInt(0),
 ): Promise<bigint> {
   if (typeof window === 'undefined') {
     throw new Error('proverClient.computeNullifier: browser-only')
@@ -178,6 +179,7 @@ export async function computeNullifier(
     privKey.toString(10),
     blinding.toString(10),
     pathIndices.toString(10),
+    amount.toString(10),
   )
   return BigInt(decResult)
 }

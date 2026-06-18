@@ -28,7 +28,7 @@ import {
   MAX_NOTES,
   type DenomNote,
 } from '@/lib/zk/denominationBuilder'
-import { usdcToBaseUnits, isHex64, USDC_SCALE } from '@/lib/csvParser'
+import { usdcToBaseUnits, isHex64, USDC_SCALE, parseEmployeePubkey } from '@/lib/csvParser'
 import {
   buildFrozenBlobs,
   buildDepositInputs,
@@ -62,21 +62,31 @@ type ComposerState = 'idle' | 'composing' | 'proving' | 'submitting' | 'done' | 
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Convert editable rows to the shape decompose() expects. Skips invalid rows. */
+/**
+ * Convert editable rows to the shape decompose() expects. Skips invalid rows.
+ *
+ * The row's public key is the COMBINED employee key (x25519Pub || bn254Pub, 128
+ * hex). The x25519 half becomes pubkeyHex (the note is encrypted to it for
+ * discovery); the bn254 half becomes bn254Pub (the commitment / withdraw-ownership
+ * key). See parseEmployeePubkey + the key-model note in csvParser.
+ */
 function toDecomposeInput(
   rows: EditableRow[],
-): { name: string; amountUsdc: bigint; pubkeyHex: string }[] {
-  return rows
-    .filter((r) => r.amount && r.publicKey && isHex64(r.publicKey))
-    .flatMap((r) => {
-      try {
-        const amountUsdc = usdcToBaseUnits(r.amount)
-        if (amountUsdc === BigInt(0)) return []
-        return [{ name: '', amountUsdc, pubkeyHex: r.publicKey }]
-      } catch {
-        return []
-      }
-    })
+): { name: string; amountUsdc: bigint; pubkeyHex: string; bn254Pub: bigint }[] {
+  return rows.flatMap((r) => {
+    if (!r.amount || !r.publicKey) return []
+    const parsed = parseEmployeePubkey(r.publicKey)
+    if (!parsed) return []
+    try {
+      const amountUsdc = usdcToBaseUnits(r.amount)
+      if (amountUsdc === BigInt(0)) return []
+      return [
+        { name: '', amountUsdc, pubkeyHex: parsed.x25519Hex, bn254Pub: parsed.bn254Pub },
+      ]
+    } catch {
+      return []
+    }
+  })
 }
 
 /** Generate a cryptographically random BN254 field element (for dummyBlinding). */

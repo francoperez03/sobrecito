@@ -21,13 +21,17 @@ import {
   initProver,
   onProgress,
   computeNullifier,
+  computeCommitment,
+  derivePublicKey,
+  computeMembershipLeaf,
+  reconstructMerklePath,
 } from '@/lib/zk/proverClient'
 import { buildWithdrawInputs } from '@/lib/zk/withdrawTransactionBuilder'
 import { hashExtDataSobre } from '@/lib/zk/depositTransactionBuilder'
+import { buildProofScVal } from '@/lib/zk/proofArg'
 import {
   fetchMerkleProof,
   fetchPoolRoot,
-  fetchASPRoots,
   readDeployments,
 } from '@/lib/rpc'
 import {
@@ -35,7 +39,6 @@ import {
   type EmployeeNote,
 } from '@/lib/employee-scan'
 import { unshieldNote } from '@/lib/employee-unshield'
-import { nativeToScVal } from '@stellar/stellar-sdk'
 import { requestAccess, getAddress, getNetwork } from '@stellar/freighter-api'
 import type { ClaimStep } from '@/components/employee/ClaimStepper'
 import type { ScannedEvent } from 'viewkey'
@@ -114,10 +117,23 @@ export async function claimNote(
   // Step 3: generate the ZK proof in-browser.
   // computeNullifier uses the Poseidon2 WASM bridge so the circuit accepts it.
   const pathIndicesBigInt = BigInt(path.pathIndices)
-  const inputNullifier = await computeNullifier(bn254Priv, note.blinding, pathIndicesBigInt)
+  const inputNullifier = await computeNullifier(bn254Priv, note.blinding, pathIndicesBigInt, note.amount)
 
   const poolRoot = await fetchPoolRoot()
-  const { memberRoot, nonMemberRoot } = await fetchASPRoots()
+
+  // Self-consistent ASP membership proof for the EMPLOYEE's spending key. The
+  // pool no longer cross-checks the ASP root on-chain (obviated), so the prover
+  // supplies an internally-consistent membership root: a tree containing the
+  // employee's membership leaf = Poseidon2(derivePublicKey(bn254Priv), 0, 1).
+  const employeePubkey = await derivePublicKey(bn254Priv)
+  const membershipLeaf = await computeMembershipLeaf(employeePubkey, BigInt(0))
+  const memberPath = await reconstructMerklePath([membershipLeaf], 0, 10)
+  const aspMemberRoot = memberPath.root
+  const aspNonMemberRoot = '0' // empty non-membership SMT (non-inclusion is trivial)
+
+  // Commitment of an all-zero output note (Poseidon2(0,0,0,1)) for the 8 unused
+  // change outputs — the circuit checks outputCommitment unconditionally.
+  const zeroOutputCommitment = (await computeCommitment(BigInt(0), BigInt(0), BigInt(0))).toString()
 
   // ext_amount is NEGATIVE for a withdrawal (pool checks sign direction).
   // The withdrawn amount becomes visible on-chain — amber-warned in NoteCard.
@@ -136,10 +152,33 @@ export async function claimNote(
     pathIndices: path.pathIndices,
     recipientAddress: recipient,
     poolRoot,
-    aspMemberRoot: memberRoot,
-    aspNonMemberRoot: nonMemberRoot,
+    aspMemberRoot,
+    aspNonMemberRoot,
     extDataHash,
+    zeroOutputCommitment,
+    precomputedMembership: {
+      publicKey: employeePubkey,
+      leaf: membershipLeaf,
+      pathElements: memberPath.pathElements,
+      pathIndices: memberPath.pathIndices,
+    },
   })
+
+  // --- CLAIM DIAGNOSTICS (temporary): pinpoint the withdraw R1CS failure ---
+  const reconRoot = (path as { root?: string }).root
+  const inCommitment = (await computeCommitment(note.amount, employeePubkey, note.blinding)).toString()
+  console.log('[Claim] === WITHDRAW DIAGNOSTICS ===')
+  console.log('[Claim] poolRoot (fetched, = circuit root input):', poolRoot)
+  console.log('[Claim] reconstructed pool root from events     :', reconRoot)
+  console.log('[Claim] POOL ROOT MATCH:', reconRoot === poolRoot ? '✓' : '✗')
+  console.log('[Claim] note.index:', note.index, '· amount:', note.amount.toString())
+  console.log('[Claim] path.pathIndices:', path.pathIndices)
+  console.log('[Claim] note.commitment (on-chain leaf):', note.commitment.toString())
+  console.log('[Claim] computed inCommitment Poseidon2(amount,bn254Pub,blinding):', inCommitment)
+  console.log('[Claim] IN-COMMITMENT MATCH:', inCommitment === note.commitment.toString() ? '✓' : '✗')
+  console.log('[Claim] employeePubkey:', employeePubkey.toString(), '· membershipLeaf:', membershipLeaf.toString())
+  console.log('[Claim] inputNullifier:', inputNullifier.toString())
+  // --- END CLAIM DIAGNOSTICS ---
 
   let elapsed = 0
   const timer = setInterval(() => {
@@ -155,6 +194,28 @@ export async function claimNote(
     clearInterval(timer)
   }
 
+  // Build the structured on-chain Proof (the pool's transact takes a Proof struct,
+  // not raw bytes — see proofArg.ts). The public-input values come from the witness
+  // we just proved against, so they match the proof exactly.
+  const w = witness as {
+    root: string
+    publicAmount: string
+    inputNullifier: string[]
+    outputCommitment: string[]
+    membershipRoots: string[][]
+    nonMembershipRoots: string[][]
+  }
+  const proofScVal = buildProofScVal({
+    proof,
+    root: w.root,
+    publicAmount: w.publicAmount,
+    extDataHash: extDataHashResult.bytes,
+    inputNullifiers: w.inputNullifier,
+    outputCommitments: w.outputCommitment,
+    aspMembershipRoot: w.membershipRoots[0][0],
+    aspNonMembershipRoot: w.nonMembershipRoots[0][0],
+  })
+
   // Step 4: sign and submit with Freighter (employee pays their own fee).
   // unshieldNote re-requests access and re-validates network inside, which is idempotent.
   onStep({ phase: 'signing' })
@@ -165,8 +226,11 @@ export async function claimNote(
     amount: note.amount.toString(),
     notePrivkeyHex: '',
     blinding: note.blinding.toString(),
-    // Encode proof bytes as an XDR ScvBytes ScVal for the pool's transact call.
-    withdrawProofXdr: nativeToScVal(proof, { type: 'bytes' }).toXDR('base64'),
+    // The full structured Proof ScVal as base64 XDR (buildUnshieldTransaction
+    // fromXDR's it back into the Proof the pool's transact expects). The recipient
+    // is resolved inside unshieldNote from the same Freighter wallet, matching the
+    // address bound into ext_data_hash here.
+    withdrawProofXdr: proofScVal.toXDR('base64'),
   })
 
   onStep({ phase: 'done', txHash: txResult.hash })

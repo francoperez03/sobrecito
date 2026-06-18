@@ -69,6 +69,15 @@ export interface BuildWithdrawArgs {
    */
   extDataHash: string
   /**
+   * Commitment of an all-zero output note = Poseidon2(0, 0, 0, domain=1), from the
+   * WASM bridge (computeCommitment(0,0,0)). The circuit verifies
+   * outCommitmentHasher.out === outputCommitment[i] UNCONDITIONALLY
+   * (policyTransaction.circom:187), so the 8 unused change outputs must carry the
+   * real zero-note commitment, NOT a literal 0. Optional only so existing unit
+   * tests still type-check; the live claim (employee-claim.ts) always supplies it.
+   */
+  zeroOutputCommitment?: string
+  /**
    * Self-consistent ASP membership proof for the EMPLOYEE's spending key, mirroring
    * the deposit's dummy-input proof. The circuit verifies membership unconditionally
    * for every input (policyTransaction.circom:127-170), so the withdraw needs a real
@@ -110,6 +119,7 @@ export function buildWithdrawInputs(args: BuildWithdrawArgs): Record<string, unk
     aspMemberRoot,
     aspNonMemberRoot,
     extDataHash,
+    zeroOutputCommitment,
     precomputedMembership,
   } = args
 
@@ -125,7 +135,10 @@ export function buildWithdrawInputs(args: BuildWithdrawArgs): Record<string, unk
     publicAmount,
     extDataHash,
     inputNullifier: [toFieldElement(inputNullifier).toString()],
-    outputCommitment: zero8, // claiming full note: no change outputs
+    // 8 unused change outputs, each the commitment of an all-zero note
+    // (Poseidon2(0,0,0,1)). The circuit checks this hash unconditionally, so a
+    // literal 0 would fail the constraint.
+    outputCommitment: Array(8).fill(zeroOutputCommitment ?? '0'),
     membershipRoots: [[aspMemberRoot]],
     nonMembershipRoots: [[aspNonMemberRoot]],
 

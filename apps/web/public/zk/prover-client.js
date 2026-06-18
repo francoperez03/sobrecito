@@ -346,11 +346,12 @@ export async function computeCommitment(amountDec, publicKeyDec, blindingDec) {
  * @param {string} pathIndicesDec - Merkle path indices as decimal string (default: '0')
  * @returns {Promise<string>} nullifier as decimal string
  */
-export async function computeNullifier(privateKeyDec, blindingDec, pathIndicesDec) {
+export async function computeNullifier(privateKeyDec, blindingDec, pathIndicesDec, amountDec = '0') {
     const result = await sendMessage('COMPUTE_NULLIFIER', {
         privateKeyDec: String(privateKeyDec),
         blindingDec: String(blindingDec),
         pathIndicesDec: String(pathIndicesDec || '0'),
+        amountDec: String(amountDec || '0'),
     });
 
     return result.nullifierDec;

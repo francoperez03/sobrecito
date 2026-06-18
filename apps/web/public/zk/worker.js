@@ -584,16 +584,18 @@ async function handleComputeNullifier(data) {
     //
     // All inputs arrive as decimal strings; convert to LE bytes via hex_to_field_bytes
     // so the WASM receives the correct encoding (WASM uses from_le_bytes_mod_order internally).
-    const { privateKeyDec, blindingDec, pathIndicesDec } = data;
+    const { privateKeyDec, blindingDec, pathIndicesDec, amountDec } = data;
     const privKeyBytes = hex_to_field_bytes('0x' + BigInt(privateKeyDec).toString(16).padStart(64, '0'));
     const blindingBytes = hex_to_field_bytes('0x' + BigInt(blindingDec).toString(16).padStart(64, '0'));
     const pathIdxBytes = hex_to_field_bytes('0x' + BigInt(pathIndicesDec).toString(16).padStart(64, '0'));
-    // amount=0
-    const zeroAmountBytes = hex_to_field_bytes('0x' + '0'.padStart(64, '0'));
+    // Note amount: 0 for the deposit's dummy input, the real note amount for a
+    // withdraw. The circuit hashes the commitment with the REAL amount, so the
+    // nullifier must too (policyTransaction.circom:81-104).
+    const amountBytes = hex_to_field_bytes('0x' + BigInt(amountDec || '0').toString(16).padStart(64, '0'));
     // Step 1: derive public key = Poseidon2(privKey, 0, domainSep=3)
     const pubkeyBytes = derive_public_key(privKeyBytes);
-    // Step 2: commitment = Poseidon2(0, pubkey, blinding, domainSep=1)
-    const commitmentBytes = compute_commitment(zeroAmountBytes, pubkeyBytes, blindingBytes);
+    // Step 2: commitment = Poseidon2(amount, pubkey, blinding, domainSep=1)
+    const commitmentBytes = compute_commitment(amountBytes, pubkeyBytes, blindingBytes);
     // Step 3: signature = Poseidon2(privKey, commitment, pathIndices, domainSep=4)
     const signatureBytes = compute_signature(privKeyBytes, commitmentBytes, pathIdxBytes);
     // Step 4: nullifier = Poseidon2(commitment, pathIndices, signature, domainSep=2)
@@ -618,8 +620,20 @@ async function handleReconstructMerklePath(data) {
     // The bridge WASM (MerkleTree, zero_leaf) must be instantiated first.
     await initProverWasm();
     const treeDepth = typeof depth === "number" ? depth : 10;
-    // The pool uses a non-zero empty leaf: zero_leaf() = Poseidon2("XLM").
-    const tree = MerkleTree.new_with_zero_leaf(treeDepth, zero_leaf());
+    // The pool uses a non-zero empty leaf. CAUTION: the bridge WASM's zero_leaf()
+    // does NOT match the pool's empty leaf (soroban-utils get_zeroes()[0]) even
+    // though both are nominally Poseidon2("XLM") — they compute different values.
+    // Using zero_leaf() here yields a reconstructed root that diverges from the
+    // on-chain get_root(), so the circuit's membership constraint never verifies.
+    // The poseidon2 internal-node compression DOES match, so feeding the pool's
+    // real zero leaf is sufficient to reproduce the on-chain tree exactly
+    // (verified: empty depth-10 root == get_zeroes()[10]).
+    const POOL_ZERO_LEAF_DEC =
+      "16820622405745174042249830601237189755928192602553897283642901160942722677198";
+    const poolZeroLeaf = hex_to_field_bytes(
+      "0x" + BigInt(POOL_ZERO_LEAF_DEC).toString(16).padStart(64, "0")
+    );
+    const tree = MerkleTree.new_with_zero_leaf(treeDepth, poolZeroLeaf);
     for (const leafDec of leavesDec) {
       const leafBytes = hex_to_field_bytes(
         "0x" + BigInt(leafDec).toString(16).padStart(64, "0")

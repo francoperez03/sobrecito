@@ -22,7 +22,7 @@ import { scanEmployeeNotes, type EmployeeNote } from '@/lib/employee-scan'
 import { fetchNullifierStatus, readDeployments } from '@/lib/rpc'
 import { computeNullifier } from '@/lib/zk/proverClient'
 import { claimNote } from '@/lib/employee-claim'
-import type { ScannedEvent } from 'viewkey'
+import { scanCommitmentEvents, type ScannedEvent } from 'viewkey'
 
 // ---------------------------------------------------------------------------
 // Dashboard state machine
@@ -166,7 +166,10 @@ export default function EmployeePage() {
 
       const { rpcUrl, poolContractId, deploymentLedger } = readDeployments()
       const source = { rpcUrl, poolContractId, fromLedger: deploymentLedger }
-      const found = await scanEmployeeNotes(x25519Priv, source)
+      // Scan the pool ONCE; reuse the raw events for both note discovery and the
+      // claim-time Merkle path reconstruction (a single RPC round-trip).
+      const allEvents = await scanCommitmentEvents(source)
+      const found = await scanEmployeeNotes(x25519Priv, { events: allEvents })
 
       if (found.length === 0) {
         setState('empty')
@@ -190,20 +193,10 @@ export default function EmployeePage() {
       )
 
       setNotes(withStatus)
-      // Keep a reference to raw events for the A2 Merkle path fallback on claim.
-      // scanEmployeeNotes returns EmployeeNote[] not ScannedEvent[], so we re-scan
-      // to get the raw events for reconstructMerklePathFromEvents.
-      // Pragmatic approach: build ScannedEvent-shaped objects from the found notes.
-      const rawEvents: ScannedEvent[] = found.map((n) => ({
-        commitment: n.commitment,
-        index: n.index,
-        // encryptedOutput is not available on EmployeeNote; use empty Uint8Array.
-        // reconstructMerklePathFromEvents only reads commitment + index from events.
-        encryptedOutput: new Uint8Array(0),
-        ledger: n.ledger,
-        txHash: n.txHash,
-      }))
-      setScannedEvents(rawEvents)
+      // The claim reconstructs the pool's Merkle path client-side (A2 fallback:
+      // pool.get_proof is absent). It MUST use the FULL pool commitment history so
+      // the rebuilt root matches the on-chain root — not just the employee's notes.
+      setScannedEvents(allEvents)
       setState('done')
     } catch {
       setState('error')
