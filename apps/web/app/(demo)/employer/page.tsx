@@ -1,6 +1,6 @@
 'use client'
 
-import { Fragment, useEffect, useMemo, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import { CaretDown, CaretLeft, CaretRight } from '@phosphor-icons/react'
 import { type ScannedEvent } from 'viewkey'
@@ -53,38 +53,42 @@ interface Batch {
  */
 export default function EmployerPage() {
   const [state, setState] = useState<LoadState>({ phase: 'loading' })
+  const mountedRef = useRef(true)
 
-  useEffect(() => {
-    let cancelled = false
-
-    async function scan() {
-      try {
-        const events = await getChainAdapter().events.scanCommitments()
-        if (cancelled) return
-        if (events.length === 0) {
-          setState({ phase: 'empty' })
-        } else {
-          // Real total = live pool USDC balance. Fall back to 0n if the read
-          // fails so the page still renders the committed batch.
-          let totalBase = BigInt(0)
-          try {
-            totalBase = await readPoolUsdcBalance()
-          } catch {
-            totalBase = BigInt(0)
-          }
-          if (cancelled) return
-          setState({ phase: 'ready', events, totalBase })
-        }
-      } catch {
-        if (!cancelled) setState({ phase: 'error' })
+  // Scan the live pool. `showLoading` flips the page to the loading state on the
+  // initial mount; a post-send refresh (showLoading=false) updates the batches
+  // and pool total in place, with no loading flash.
+  const scan = useCallback(async (showLoading: boolean) => {
+    if (showLoading) setState({ phase: 'loading' })
+    try {
+      const events = await getChainAdapter().events.scanCommitments()
+      if (!mountedRef.current) return
+      if (events.length === 0) {
+        setState({ phase: 'empty' })
+        return
       }
-    }
-
-    scan()
-    return () => {
-      cancelled = true
+      // Real total = live pool USDC balance. Fall back to 0n if the read fails
+      // so the page still renders the committed batch.
+      let totalBase = BigInt(0)
+      try {
+        totalBase = await readPoolUsdcBalance()
+      } catch {
+        totalBase = BigInt(0)
+      }
+      if (!mountedRef.current) return
+      setState({ phase: 'ready', events, totalBase })
+    } catch {
+      if (mountedRef.current) setState({ phase: 'error' })
     }
   }, [])
+
+  useEffect(() => {
+    mountedRef.current = true
+    void scan(true)
+    return () => {
+      mountedRef.current = false
+    }
+  }, [scan])
 
   return (
     <main className="min-h-dvh">
@@ -105,7 +109,7 @@ export default function EmployerPage() {
           </div>
         </Reveal>
         <Reveal delay={0.1}>
-          <PayrollComposer />
+          <PayrollComposer onSent={() => void scan(false)} />
         </Reveal>
       </section>
 

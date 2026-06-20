@@ -145,7 +145,7 @@ function parseAuditorKey(input: string): string | null {
 // PayrollComposer
 // ---------------------------------------------------------------------------
 
-export function PayrollComposer() {
+export function PayrollComposer({ onSent }: { onSent?: () => void }) {
   const [composerState, setComposerState] = useState<ComposerState>('idle')
   const [rows, setRows] = useState<EditableRow[]>([
     { amount: '', publicKey: '' },
@@ -180,6 +180,9 @@ export function PayrollComposer() {
   // Blobs frozen exactly once — never regenerated on re-render (Pitfall 2)
   const frozenBlobsRef = useRef<{ blobs: Uint8Array[]; blindings: bigint[] } | null>(null)
   const elapsedTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  // After a successful send we hold the "Payroll sent" receipt for a beat, then
+  // reset the form to a blank batch. This timer drives that delayed reset.
+  const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // True while the submit flow is running (prevents warm-up progress from
   // overwriting the stepper state set by handleSubmit)
   const isSubmittingRef = useRef(false)
@@ -332,6 +335,12 @@ export function PayrollComposer() {
 
   async function handleSubmit() {
     if (!notes || !address) return
+
+    // A new run cancels any pending post-send reset so it can't wipe this batch.
+    if (resetTimerRef.current) {
+      clearTimeout(resetTimerRef.current)
+      resetTimerRef.current = null
+    }
 
     // On retry: clear frozen blobs so a fresh encryption is generated
     if (composerState === 'error') {
@@ -522,6 +531,19 @@ export function PayrollComposer() {
       isSubmittingRef.current = false
       // Balance dropped by the batch total — refresh so the employer sees it.
       void refreshUsdcBalance(address)
+
+      // Hold the "Payroll sent" receipt for a couple seconds, then return to a
+      // blank batch: clear the address/amount fields and re-arm the composer
+      // (wallet stays connected). The stepper's done receipt is intentionally
+      // left up — it persists until the next submit replaces it. Refresh the
+      // dashboard below (batches + pool total) via onSent.
+      resetTimerRef.current = setTimeout(() => {
+        resetTimerRef.current = null
+        setRows([{ amount: '', publicKey: '' }])
+        frozenBlobsRef.current = null
+        setComposerState('composing')
+        onSent?.()
+      }, 2500)
     } catch (err) {
       if (elapsedTimerRef.current) {
         clearInterval(elapsedTimerRef.current)
@@ -541,6 +563,9 @@ export function PayrollComposer() {
     return () => {
       if (elapsedTimerRef.current) {
         clearInterval(elapsedTimerRef.current)
+      }
+      if (resetTimerRef.current) {
+        clearTimeout(resetTimerRef.current)
       }
     }
   }, [])
