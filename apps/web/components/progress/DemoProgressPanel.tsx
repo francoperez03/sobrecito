@@ -63,6 +63,8 @@ export function DemoProgressPanel() {
   // we then close on mouseleave instead, so the panel always closes itself.
   const pendingClose = useRef(false)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // The panel root — used to detect clicks/taps outside it so we can close.
+  const containerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     setMounted(true)
@@ -106,6 +108,22 @@ export function DemoProgressPanel() {
     if (timer.current) clearTimeout(timer.current)
   }, [])
 
+  // Close on a click/tap anywhere outside the panel while it is open. The
+  // launcher and the expanded list both live inside containerRef, so toggling
+  // or navigating from within never triggers this.
+  useEffect(() => {
+    if (!open) return
+    function handlePointerDown(e: PointerEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        pendingClose.current = false
+        if (timer.current) clearTimeout(timer.current)
+        setOpen(false)
+      }
+    }
+    document.addEventListener('pointerdown', handlePointerDown)
+    return () => document.removeEventListener('pointerdown', handlePointerDown)
+  }, [open])
+
   if (!mounted) return null
 
   const done = completed >= TOTAL_STEPS
@@ -128,6 +146,7 @@ export function DemoProgressPanel() {
 
   return (
     <div
+      ref={containerRef}
       className="fixed left-4 top-6 z-30 w-[min(20rem,calc(100vw-2rem))]"
       onMouseEnter={() => {
         hovering.current = true
