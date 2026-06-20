@@ -68,14 +68,14 @@ export function DemoProgressPanel() {
     setMounted(true)
   }, [])
 
-  // Open on entry. Deferred to the next frame so AnimatePresence renders once
-  // closed and the panel animates in (instead of popping open). The tick-driven
-  // auto-close never fires for this open, so it stays open until the visitor
-  // closes it or navigates away.
+  // Open on entry. Deferred 2 seconds after mount so the panel animates in
+  // (instead of popping open) and gives the visitor a beat to take in the page
+  // before it slides out. The tick-driven auto-close never fires for this open,
+  // so it stays open until the visitor closes it or navigates away.
   useEffect(() => {
     if (!mounted) return
-    const id = requestAnimationFrame(() => setOpen(true))
-    return () => cancelAnimationFrame(id)
+    const id = setTimeout(() => setOpen(true), 2000)
+    return () => clearTimeout(id)
   }, [mounted])
 
   // Open + pulse + schedule auto-close on a genuine step tick (never on the
@@ -173,7 +173,7 @@ export function DemoProgressPanel() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={reduce ? { opacity: 0 } : { opacity: 0, y: -8, scale: 0.98 }}
             transition={{ duration: reduce ? 0 : 0.26, ease: EASE_OUT }}
-            className="mt-2 origin-top-left rounded-2xl bg-surface/95 ring-1 ring-hairline backdrop-blur-md shadow-xl shadow-black/40 overflow-hidden"
+            className="mt-2 origin-top-left rounded-2xl bg-surface/95 ring-1 ring-white/20 backdrop-blur-md shadow-xl shadow-black/40 overflow-hidden"
           >
             <div className="flex items-center justify-between px-4 pt-3.5 pb-2">
               <span className="font-mono text-[0.625rem] uppercase tracking-[0.18em] text-ink-muted">
