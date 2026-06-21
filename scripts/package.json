@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "cross-check": "ts-node --transpile-only cross_check_poseidon.ts",
-    "spike-browser": "ts-node --transpile-only spike_browser_prove.ts"
+    "spike-browser": "ts-node --transpile-only spike_browser_prove.ts",
+    "verify-layout": "ts-node --transpile-only verify_public_inputs_layout.ts"
   },
   "dependencies": {
     "@aztec/bb.js": "0.87.0",
