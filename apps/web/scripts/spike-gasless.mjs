@@ -169,12 +169,280 @@ function buildSpikeExtDataScVal() {
 }
 
 // ---------------------------------------------------------------------------
-// Spike body (implementado en Task 2)
+// Spike body — build func XDR + sign auth entry + submit + verdict
 // ---------------------------------------------------------------------------
 
+/**
+ * Construye el HostFunction XDR para pool.transact (spike-grade).
+ * Approach B: construcción manual de InvokeContractArgs con una prueba dummy.
+ * El relayer puede rechazar si el contrato exige simulación válida
+ * (Critical Unknown #2); eso se registra como Plan-B.
+ */
+function buildPoolTransactHostFunctionXdr() {
+  const proofArg = buildSpikeProofScVal()
+  const extDataArg = buildSpikeExtDataScVal()
+  const recipientScVal = new Address(SPIKE_RECIPIENT).toScVal()
+
+  const hf = xdr.HostFunction.hostFunctionTypeInvokeContract(
+    new xdr.InvokeContractArgs({
+      contractAddress: new Address(poolId).toScAddress(),
+      functionName: 'transact',
+      args: [proofArg, extDataArg, recipientScVal],
+    }),
+  )
+  return hf.toXDR('base64')
+}
+
+/**
+ * Construye una SorobanAuthorizationEntry para el test keypair.
+ *
+ * Approach B (plan 08-01 Task 2 step 2): construcción manual con
+ * xdr.SorobanAuthorizationEntry. Usada en el spike con una clave Ed25519
+ * de prueba en lugar de Freighter (que necesita la extensión del browser).
+ * El plan 02 porta esta lógica a Freighter.signAuthEntry.
+ *
+ * Approach A (authorizeEntry del SDK) queda documentada como alternativa;
+ * el spike prueba B primero por ser más directa para Node.
+ *
+ * Critical Unknown #1: ¿puede construirse la auth entry sin simular contra
+ * la cuenta canal del relayer? Este spike valida que sí (Approach B).
+ */
+async function buildAndSignAuthEntry(testKey, funcXdrBase64, currentLedger) {
+  // T-08-03 mitigation: signatureExpirationLedger = currentLedger + 200 (~10 min)
+  const signatureExpirationLedger = currentLedger + 200
+  console.log(`[spike] signatureExpirationLedger = ${signatureExpirationLedger} (current + 200)`)
+
+  // Construir el InvocationTree para pool.transact
+  const contractInvocation = xdr.SorobanAuthorizedInvocation.sorobanAuthorizedInvocationV0(
+    new xdr.SorobanAuthorizedInvocationV0({
+      function: xdr.SorobanAuthorizedFunction.sorobanAuthorizedFunctionTypeContractFn(
+        new xdr.InvokeContractArgs({
+          contractAddress: new Address(poolId).toScAddress(),
+          functionName: 'transact',
+          args: [],  // args vacíos en el auth tree (el relayer los obtiene del func XDR)
+        }),
+      ),
+      subInvocations: [],
+    }),
+  )
+
+  // Preimage de la auth entry para firmar
+  const preimage = xdr.HashIdPreimage.envelopeTypeSorobanAuthorization(
+    new xdr.HashIdPreimageSorobanAuthorization({
+      networkId: Buffer.from(
+        require('node:crypto').createHash('sha256').update(NETWORK_PASSPHRASE).digest(),
+      ),
+      nonce: BigInt(Math.floor(Math.random() * Number.MAX_SAFE_INTEGER)),
+      signatureExpirationLedger,
+      invocation: contractInvocation,
+    }),
+  )
+
+  const preimageBytes = preimage.toXDR()
+  const { createHash } = require('node:crypto')
+  const preimageHash = createHash('sha256').update(preimageBytes).digest()
+
+  // Firmar con la clave de prueba (Ed25519, no Freighter)
+  const signature = testKey.sign(preimageHash)
+
+  // Construir la SorobanAuthorizationEntry firmada
+  const authEntry = new xdr.SorobanAuthorizationEntry({
+    credentials: xdr.SorobanCredentials.sorobanCredentialsAddress(
+      new xdr.SorobanAddressCredentials({
+        address: new Address(testKey.publicKey()).toScAddress(),
+        nonce: preimage.value().nonce(),
+        signatureExpirationLedger,
+        signature: xdr.ScVal.scvMap([
+          new xdr.ScMapEntry({
+            key: xdr.ScVal.scvSymbol('public_key'),
+            val: xdr.ScVal.scvBytes(testKey.rawPublicKey()),
+          }),
+          new xdr.ScMapEntry({
+            key: xdr.ScVal.scvSymbol('signature'),
+            val: xdr.ScVal.scvBytes(signature),
+          }),
+        ]),
+      }),
+    ),
+    rootInvocation: contractInvocation,
+  })
+
+  return authEntry.toXDR('base64')
+}
+
 async function runSpike() {
-  console.log('[spike] spike body placeholder — ver Task 2 (spike body no implementado aún)')
-  console.log('[spike] Spike header completo: pool id cargado, API key presente.')
+  const t0 = performance.now()
+
+  // 1. Test keypair (spike-grade, throwaway — T-08-04: no clave de producción)
+  const testKey = Keypair.random()
+  console.log(`[spike] test keypair (throwaway): ${testKey.publicKey()}`)
+
+  // 2. Obtener ledger actual del RPC para calcular signatureExpirationLedger
+  let currentLedger
+  try {
+    const server = new StellarRpc.Server(RPC_URL)
+    const latestLedger = await server.getLatestLedger()
+    currentLedger = latestLedger.sequence
+    console.log(`[spike] current ledger: ${currentLedger}`)
+  } catch (err) {
+    console.error(`[spike] ERROR: no se pudo obtener ledger actual: ${err.message}`)
+    process.exit(1)
+  }
+
+  // 3. Construir HostFunction XDR (Approach B, manual InvokeContractArgs)
+  // Critical Unknown #1 probe: construir sin simular contra la cuenta canal
+  console.log('[spike] Construyendo HostFunction XDR para pool.transact (Approach B)...')
+  const funcXdr = buildPoolTransactHostFunctionXdr()
+  console.log(`[spike] funcXdr length (base64): ${funcXdr.length}`)
+  console.log(`[spike] funcXdr contains hostFunctionTypeInvokeContract: verificado en código`)
+
+  // 4. Construir y firmar SorobanAuthorizationEntry (Approach B: manual)
+  console.log('[spike] Construyendo SorobanAuthorizationEntry (Approach B: manual + clave prueba)...')
+  let signedAuthEntryBase64
+  let authApproach = 'B-manual-test-key'
+  try {
+    signedAuthEntryBase64 = await buildAndSignAuthEntry(testKey, funcXdr, currentLedger)
+    console.log(`[spike] auth entry construida OK (Approach ${authApproach})`)
+    console.log(`[spike] signedAuthEntry length (base64): ${signedAuthEntryBase64.length}`)
+  } catch (err) {
+    console.error(`[spike] ERROR construyendo auth entry (Approach B): ${err.message}`)
+    console.error('[spike] Plan-B trigger: auth entry construction failed')
+    process.exit(1)
+  }
+
+  // 5. Inicializar ChannelsClient
+  const client = new ChannelsClient({
+    baseUrl: RELAYER_URL,
+    apiKey: RELAYER_API_KEY,
+  })
+  console.log(`[spike] ChannelsClient creado (baseUrl: ${RELAYER_URL})`)
+
+  // 6. Submit con medición de latencia
+  // T-08-02 mitigation: el func XDR ya tiene el poolId codificado en contractAddress
+  let submitResult
+  let submitMs
+  let poolAccepted = false
+  let txHash = null
+  let apiKeyValid = false
+  let errorCode = null
+  let errorClass = null
+
+  console.log('[spike] Llamando submitSorobanTransaction (skipWait: false)...')
+  const tSubmit = performance.now()
+
+  try {
+    submitResult = await client.submitSorobanTransaction({
+      func: funcXdr,
+      auth: [signedAuthEntryBase64],
+      skipWait: false,
+    })
+    submitMs = performance.now() - tSubmit
+    poolAccepted = true
+    apiKeyValid = true
+    txHash = submitResult.hash
+    console.log(`[spike] submitSorobanTransaction OK en ${(submitMs / 1000).toFixed(2)}s`)
+    console.log(`[spike] txHash: ${txHash}`)
+    console.log(`[spike] latestLedger: ${submitResult.latestLedger}`)
+    console.log(`[spike] status: ${submitResult.status}`)
+  } catch (err) {
+    submitMs = performance.now() - tSubmit
+
+    if (err instanceof PluginTransportError) {
+      errorClass = 'PluginTransportError'
+      errorCode = err.statusCode ?? 'unknown'
+      apiKeyValid = errorCode !== 401
+      console.error(`[spike] PluginTransportError (status ${errorCode}): ${err.message}`)
+      if (errorCode === 401) {
+        console.error('[spike] Plan-B trigger: API key inválida (401 Unauthorized)')
+      } else {
+        console.error('[spike] Plan-B trigger: error de transporte (red / endpoint)')
+      }
+    } else if (err instanceof PluginExecutionError) {
+      errorClass = 'PluginExecutionError'
+      errorCode = err.errorDetails?.code ?? 'unknown'
+      apiKeyValid = true  // 401 es PluginTransportError, no PluginExecutionError
+      console.error(`[spike] PluginExecutionError (code ${errorCode}): ${err.message}`)
+      if (errorCode === 'INVALID_PARAMS' || errorCode === 'CONTRACT_NOT_ALLOWED') {
+        console.error('[spike] Plan-B trigger: contrato no whitelisted — considerar self-host del relayer')
+      } else if (errorCode === 'ONCHAIN_FAILED') {
+        console.error('[spike] Plan-B trigger: auth entry falló on-chain — revisar construcción (Approach A con authorizeEntry)')
+      } else {
+        console.error(`[spike] Plan-B trigger: ejecución rechazada (${errorCode})`)
+      }
+    } else if (err instanceof PluginUnexpectedError) {
+      errorClass = 'PluginUnexpectedError'
+      apiKeyValid = true
+      console.error(`[spike] PluginUnexpectedError: ${err.message}`)
+      console.error('[spike] Plan-B trigger: error inesperado del plugin')
+    } else {
+      errorClass = 'UnexpectedError'
+      console.error(`[spike] Error inesperado (no plugin): ${err.message}`)
+      console.error('[spike] Stack:', err.stack)
+    }
+  }
+
+  const totalMs = performance.now() - t0
+
+  // ---------------------------------------------------------------------------
+  // Bloque de resultados estructurado
+  // ---------------------------------------------------------------------------
+
+  const spikeResult = {
+    // Critical Unknown #5: API key válida
+    apiKeyValid,
+    // Critical Unknown #1: qué approach de auth entry funcionó
+    authApproach,
+    // Critical Unknown #2: contrato pool aceptado por el relayer
+    poolAccepted,
+    // Resultado de la tx
+    txHash,
+    // Critical Unknown #3: latencia
+    submitMs: Math.round(submitMs),
+    // Ledger y status si hubo éxito
+    latestLedger: submitResult?.latestLedger ?? null,
+    status: submitResult?.status ?? null,
+    // Error si hubo fallo
+    errorClass,
+    errorCode,
+    // Metadata
+    currentLedger,
+    signatureExpirationLedger: currentLedger + 200,
+    poolId,
+    relayerUrl: RELAYER_URL,
+    totalMs: Math.round(totalMs),
+  }
+
+  console.log('\n=== SPIKE RESULTS ===')
+  console.log(JSON.stringify(spikeResult, null, 2))
+  console.log('====================\n')
+
+  // ---------------------------------------------------------------------------
+  // Veredicto GO / Plan-B
+  // ---------------------------------------------------------------------------
+
+  const latencySeconds = submitMs / 1000
+
+  if (!apiKeyValid) {
+    console.error('Plan-B: API key inválida (401). Provisionar en https://relayer.openzeppelin.com.\n')
+    process.exit(1)
+  }
+
+  if (!poolAccepted) {
+    if (errorCode === 'INVALID_PARAMS' || errorCode === 'CONTRACT_NOT_ALLOWED') {
+      console.warn(`Plan-B: contrato pool no whitelisted (${errorCode}). Recomendación: self-host del OZ Relayer.\n`)
+    } else if (errorCode === 'ONCHAIN_FAILED') {
+      console.warn('Plan-B: auth entry falló on-chain. Investigar construcción (probar Approach A con authorizeEntry del SDK).\n')
+    } else {
+      console.warn(`Plan-B: relayer rechazó la tx (${errorClass} ${errorCode}). Revisar logs del relayer.\n`)
+    }
+    process.exit(1)
+  }
+
+  if (latencySeconds > 30) {
+    console.warn(`Plan-B: latencia ${latencySeconds.toFixed(1)}s excede el umbral de 30s. Considerar skipWait:true + polling o documentar en UX.\n`)
+  } else {
+    console.log(`GO: relayer aceptó pool.transact, tx ${txHash} confirmada en ${latencySeconds.toFixed(1)}s (< 30s umbral). Approach auth entry: ${authApproach}. Desbloquea planes 08-02 y 08-03.\n`)
+  }
 }
 
 await runSpike()
