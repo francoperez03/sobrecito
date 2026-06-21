@@ -13,6 +13,7 @@
   "dependencies": {
     "@noble/curves": "2.2.0",
     "@noble/hashes": "2.2.0",
+    "@openzeppelin/relayer-plugin-channels": "0.20.0",
     "@phosphor-icons/react": "2.1.10",
     "@stellar/freighter-api": "6.0.1",
     "@stellar/stellar-sdk": "16.0.0",
