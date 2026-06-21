@@ -1,24 +1,28 @@
-use dep::poseidon::poseidon2::Poseidon2;
+mod poseidon2_constants;
+mod poseidon2_pool;
 
-fn hash2(a: Field, b: Field) -> Field {
-    Poseidon2::hash([a, b], 2)
-}
+use poseidon2_pool::{compress, hash2_with_sep, hash3_with_sep};
 
-fn hash3_with_sep(a: Field, b: Field, c: Field, sep: Field) -> Field {
-    Poseidon2::hash([a, b, c, sep], 4)
-}
-
-fn hash1_with_sep(a: Field, sep: Field) -> Field {
-    Poseidon2::hash([a, sep], 2)
-}
-
-// Cross-check harness entrypoint: expone los 3 usos como public outputs.
+// Cross-check harness entrypoint (Task 0): exposes the pool-aligned Poseidon2
+// helpers so cross_check_poseidon.ts can compare them byte-for-byte against the
+// on-chain poseidon2-tester contract.
+//
+//   out[0] = hash2_with_sep(amount, pubkey, sep=0x01)  -> on-chain hash2 (t=3)
+//   out[1] = hash3_with_sep(amount, pubkey, blinding, sep=0x01) -> commitment (t=4)
+//   out[2] = compress(merkle_left, merkle_right)       -> on-chain compress (t=2)
+//
+// The harness checks out[0] == on-chain hash2(100,7,sep=1) and
+// out[2] == on-chain compress(1,2). The t=4 commitment (out[1]) is validated
+// separately against the zkhash reference (see 09-02-SUMMARY.md Task 0).
 pub fn main(
-    amount: Field, pubkey: Field, blinding: Field,
-    merkle_left: Field, merkle_right: Field,
+    amount: Field,
+    pubkey: Field,
+    blinding: Field,
+    merkle_left: Field,
+    merkle_right: Field,
 ) -> pub [Field; 3] {
+    let h2 = hash2_with_sep(amount, pubkey, 0x01);
     let commitment = hash3_with_sep(amount, pubkey, blinding, 0x01);
-    let nullifier  = hash3_with_sep(commitment, 0, 0, 0x02);
-    let compress   = hash2(merkle_left, merkle_right);
-    [commitment, nullifier, compress]
+    let merkle = compress(merkle_left, merkle_right);
+    [h2, commitment, merkle]
 }

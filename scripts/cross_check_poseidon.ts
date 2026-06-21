@@ -113,8 +113,10 @@ async function runNargoExecute(): Promise<NargoOutputs> {
   // Combine stdout + stderr to find output (nargo prints to stderr for warnings,
   // stdout for results — but the exact stream varies by version)
   const combined = result.stdout + result.stderr;
+  // nargo prints field elements in signed form (values > p/2 appear negative),
+  // so accept an optional leading '-' and normalize into [0, p) below.
   const match = combined.match(
-    /Circuit output: Vec\(\[Field\((\d+)\), Field\((\d+)\), Field\((\d+)\)\]\)/
+    /Circuit output: Vec\(\[Field\((-?\d+)\), Field\((-?\d+)\), Field\((-?\d+)\)\]\)/
   );
   if (!match) {
     throw new Error(
@@ -123,10 +125,15 @@ async function runNargoExecute(): Promise<NargoOutputs> {
     );
   }
 
+  // BN254 scalar field modulus — canonicalize signed nargo outputs.
+  const BN254_P =
+    21888242871839275222246405745257275088548364400416034343698204186575808495617n;
+  const canon = (v: bigint): bigint => ((v % BN254_P) + BN254_P) % BN254_P;
+
   return {
-    commitment: BigInt(match[1]),
-    nullifier: BigInt(match[2]),
-    compress: BigInt(match[3]),
+    commitment: canon(BigInt(match[1])),
+    nullifier: canon(BigInt(match[2])),
+    compress: canon(BigInt(match[3])),
   };
 }
 
@@ -252,14 +259,15 @@ function compareAndReport(noirOutputs: NargoOutputs, sorobanHashes: SorobanHashe
       noir: noirOutputs.compress,
       soroban: sorobanHashes.compress,
       match: noirOutputs.compress === sorobanHashes.compress,
-      note: 'Noir: Poseidon2::hash([1,2],2) [t=4,IV=2*2^64] vs Soroban: poseidon2_compress(1,2) [t=2,+absorption]',
+      note: 'Noir poseidon2_pool::compress(1,2) [ported t=2 perm + absorption] vs Soroban poseidon2_compress(1,2)',
     },
     {
-      name: 'Commitment hash (inputs: amount=100, pubkey=7, blinding=42, sep=0x01)',
+      name: 'Domain-separated hash2 (inputs: a=100, b=7, sep=0x01)',
+      // out[0] of the cross-check circuit is the pool-aligned t=3 hash2.
       noir: noirOutputs.commitment,
       soroban: sorobanHashes.hash2_commitment,
       match: noirOutputs.commitment === sorobanHashes.hash2_commitment,
-      note: 'Noir: Poseidon2::hash([100,7,42,1],4) [t=4,IV=4*2^64] vs Soroban: poseidon2_hash2(100,7,sep=1) [t=3,no-IV]',
+      note: 'Noir poseidon2_pool::hash2_with_sep(100,7,1) [ported t=3 perm] vs Soroban poseidon2_hash2(100,7,sep=1)',
     },
   ];
 
