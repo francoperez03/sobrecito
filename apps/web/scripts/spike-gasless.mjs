@@ -1,38 +1,43 @@
 /**
- * SPIKE: gasless claim via OZ Channels hosted relayer
+ * SPIKE: gasless claim via OZ Channels plugin (self-hosted relayer)
  *
- * Verifica que el relayer OZ Channels acepta una SorobanAuthorizationEntry
- * firmada (clave de prueba Ed25519, no Freighter) para pool.transact y
- * paga el fee de la transacción (el empleado no necesita XLM).
+ * Verifica que el OZ Relayer auto-hospedado (con el Channels plugin) acepta
+ * una SorobanAuthorizationEntry firmada con una clave Ed25519 de prueba para
+ * pool.transact y paga el fee — el empleado no necesita XLM.
  *
  * Mide:
- *   - Validez de la API key (primer indicador de la cuenta)
+ *   - Validez de la API key (header x-api-key)
  *   - Construcción del HostFunction XDR para pool.transact (Approach B: manual)
  *   - Latencia de submitSorobanTransaction (desde la llamada hasta result.hash)
- *   - Si el contrato del pool es aceptado por el endpoint hosted
+ *   - Si el contrato del pool es aceptado por el relayer
  *
  * Veredicto:
- *   GO   — tx confirma en testnet Y latencia < 30s
- *   Plan-B — contrato no whitelisted / latencia > 30s / auth entry fallida / key no provisionada
+ *   GO     — tx confirma en testnet Y latencia < 30s
+ *   Plan-B — contrato rechazado / latencia > 30s / auth entry fallida /
+ *            relayer no disponible / API key ausente
  *
  * Cómo correr (desde la raíz del repo):
- *   RELAYER_API_KEY=<tu-key> node sobrecito/apps/web/scripts/spike-gasless.mjs
+ *   RELAYER_URL=http://localhost:8080 RELAYER_API_KEY=<tu-key> \
+ *     node sobrecito/apps/web/scripts/spike-gasless.mjs
  *
- * Cómo obtener la key:
- *   1. Registrarse en https://relayer.openzeppelin.com
- *   2. Crear un proyecto testnet y copiar la API key
- *   3. Confirmar que https://channels.openzeppelin.com/testnet responde 200
+ * Cómo levantar el relayer:
+ *   Ver sobrecito/apps/web/scripts/RELAYER-SETUP.md
+ *
+ * Modo managed (alternativa):
+ *   Obtener key en https://channels.openzeppelin.com/testnet/gen y usar:
+ *   RELAYER_URL=https://channels.openzeppelin.com/testnet RELAYER_API_KEY=<key> ...
+ *   (En modo managed se omite pluginId — ver comentario inline.)
  *
  * Notas de disclosure:
- *   - Este spike firma con una clave Ed25519 de prueba (Keypair.random()), NO con
- *     Freighter. El objetivo es probar que el relayer acepta una auth entry firmada
- *     y paga el fee. El plan 02 porta el signing a Freighter.signAuthEntry.
- *   - Prueba ZK de spike: dummy (zeros). El plan 03 conecta la prueba real.
+ *   - Firma con una clave Ed25519 de prueba (Keypair.random()), no Freighter.
+ *     El objetivo es probar que el relayer acepta auth entry + paga el fee.
+ *     Plan 02 porta el signing a Freighter.signAuthEntry.
+ *   - Prueba ZK de spike: dummy (zeros). Plan 03 conecta la prueba real.
  *   - PoC, no auditado, solo testnet.
  */
 
 import { readFileSync } from 'node:fs'
-import { createRequire } from 'node:module'
+import { createHash } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 
@@ -51,33 +56,39 @@ const poolId = deployments.pools[0].poolContractId
 console.log(`[spike] pool contract id (live from deployments.json): ${poolId}`)
 
 // ---------------------------------------------------------------------------
-// API key guard — sin key no hay nada que correr (checkpoint humano A3)
+// Env guards — sin URL y API key no hay nada que correr
 // ---------------------------------------------------------------------------
 
+const RELAYER_URL = process.env.RELAYER_URL ?? 'http://localhost:8080'
 const RELAYER_API_KEY = process.env.RELAYER_API_KEY
-const RELAYER_URL =
-  process.env.RELAYER_URL ?? 'https://channels.openzeppelin.com/testnet'
+
+// Detectar si es managed (channels.openzeppelin.com) o self-hosted (localhost / custom)
+const IS_MANAGED = RELAYER_URL.includes('channels.openzeppelin.com')
 
 if (!RELAYER_API_KEY) {
   console.error('')
   console.error('[spike] ERROR: RELAYER_API_KEY no está configurada.')
-  console.error('[spike] Pasos para obtener la key:')
-  console.error('[spike]   1. Registrarse en https://relayer.openzeppelin.com')
-  console.error('[spike]   2. Crear un proyecto testnet → copiar la API key')
-  console.error('[spike]   3. Confirmar: GET https://channels.openzeppelin.com/testnet → 200')
-  console.error('[spike]   4. Correr: RELAYER_API_KEY=<key> node sobrecito/apps/web/scripts/spike-gasless.mjs')
+  if (IS_MANAGED) {
+    console.error('[spike] Para el servicio managed de OZ:')
+    console.error('[spike]   1. Obtener key (self-serve): GET https://channels.openzeppelin.com/testnet/gen')
+    console.error('[spike]   2. RELAYER_API_KEY=<key> node sobrecito/apps/web/scripts/spike-gasless.mjs')
+  } else {
+    console.error('[spike] Para el relayer self-hosted:')
+    console.error('[spike]   1. Seguir sobrecito/apps/web/scripts/RELAYER-SETUP.md')
+    console.error('[spike]   2. Definir RELAYER_API_KEY con el Bearer token del relayer')
+    console.error('[spike]   3. RELAYER_URL=http://localhost:8080 RELAYER_API_KEY=<key> node ...')
+  }
   console.error('')
   process.exit(1)
 }
 
-console.log(`[spike] RELAYER_API_KEY presente (${RELAYER_API_KEY.slice(0, 4)}...)`)
 console.log(`[spike] RELAYER_URL: ${RELAYER_URL}`)
+console.log(`[spike] RELAYER_API_KEY: ${RELAYER_API_KEY.slice(0, 4)}...`)
+console.log(`[spike] modo: ${IS_MANAGED ? 'managed (channels.openzeppelin.com)' : 'self-hosted'}`)
 
 // ---------------------------------------------------------------------------
-// Imports dinámicos — después del guard para que el error de key sea claro
+// Imports dinámicos — después de los guards para que los errores sean claros
 // ---------------------------------------------------------------------------
-
-const require = createRequire(import.meta.url)
 
 const {
   ChannelsClient,
@@ -90,7 +101,6 @@ const {
   Address,
   Keypair,
   Networks,
-  SorobanDataBuilder,
   nativeToScVal,
   xdr,
   XdrLargeInt,
@@ -103,22 +113,18 @@ const {
 
 const NETWORK_PASSPHRASE = Networks.TESTNET
 const RPC_URL = 'https://soroban-testnet.stellar.org'
-const SPIKE_RECIPIENT = 'GBWJZZ3XSNAY3WLFNLXUZXEEYMZCYVG4TW6Z5VSASJS2TOWF7GGPPKMW' // deployer, prueba
+const SPIKE_RECIPIENT = deployments.deployer // address conocida, spike-grade
 const SPIKE_AMOUNT = BigInt(1) // 1 stroop, spike-grade
 
 console.log(`[spike] network: testnet`)
-console.log(`[spike] recipient (spike-grade, no real funds): ${SPIKE_RECIPIENT}`)
+console.log(`[spike] recipient (spike-grade, deployer address): ${SPIKE_RECIPIENT}`)
 
 // ---------------------------------------------------------------------------
-// Helpers de encoding (versión mínima spike-grade)
+// Helpers de encoding — versión spike-grade con zeros en la prueba ZK
 // ---------------------------------------------------------------------------
 
 function u256(v) {
   return new XdrLargeInt('u256', typeof v === 'bigint' ? v.toString() : String(v)).toScVal()
-}
-
-function bytes32(v) {
-  return xdr.ScVal.scvBytes(Buffer.alloc(32, 0))
 }
 
 function entry(key, val) {
@@ -126,10 +132,11 @@ function entry(key, val) {
 }
 
 /**
- * buildSpikeProofScVal — versión spike-grade con zeros.
- * El objetivo es que el relayer acepte la invocación y pague el fee.
- * Si el contrato requiere una prueba ZK válida para simular, se registra
- * como Plan-B (Critical Unknown #2: contrato no acepta invocación dummy).
+ * buildSpikeProofScVal — prueba ZK con zeros (spike-grade).
+ *
+ * El objetivo del spike es validar que el relayer acepta la invocación y
+ * paga el fee. Si la simulación del contrato requiere una prueba ZK válida,
+ * eso se registra como Plan-B (SIMULATION_FAILED — Critical Unknown #2).
  */
 function buildSpikeProofScVal() {
   const zeroBytes64 = Buffer.alloc(64, 0)
@@ -169,15 +176,10 @@ function buildSpikeExtDataScVal() {
 }
 
 // ---------------------------------------------------------------------------
-// Spike body — build func XDR + sign auth entry + submit + verdict
+// HostFunction XDR para pool.transact
+// T-08-02 mitigation: poolId codificado en contractAddress (el relayer no puede redirigir)
 // ---------------------------------------------------------------------------
 
-/**
- * Construye el HostFunction XDR para pool.transact (spike-grade).
- * Approach B: construcción manual de InvokeContractArgs con una prueba dummy.
- * El relayer puede rechazar si el contrato exige simulación válida
- * (Critical Unknown #2); eso se registra como Plan-B.
- */
 function buildPoolTransactHostFunctionXdr() {
   const proofArg = buildSpikeProofScVal()
   const extDataArg = buildSpikeExtDataScVal()
@@ -193,64 +195,60 @@ function buildPoolTransactHostFunctionXdr() {
   return hf.toXDR('base64')
 }
 
-/**
- * Construye una SorobanAuthorizationEntry para el test keypair.
- *
- * Approach B (plan 08-01 Task 2 step 2): construcción manual con
- * xdr.SorobanAuthorizationEntry. Usada en el spike con una clave Ed25519
- * de prueba en lugar de Freighter (que necesita la extensión del browser).
- * El plan 02 porta esta lógica a Freighter.signAuthEntry.
- *
- * Approach A (authorizeEntry del SDK) queda documentada como alternativa;
- * el spike prueba B primero por ser más directa para Node.
- *
- * Critical Unknown #1: ¿puede construirse la auth entry sin simular contra
- * la cuenta canal del relayer? Este spike valida que sí (Approach B).
- */
-async function buildAndSignAuthEntry(testKey, funcXdrBase64, currentLedger) {
-  // T-08-03 mitigation: signatureExpirationLedger = currentLedger + 200 (~10 min)
+// ---------------------------------------------------------------------------
+// SorobanAuthorizationEntry (Approach B: manual + test key)
+//
+// Critical Unknown #1: ¿se puede construir la auth entry sin simular contra
+// la cuenta canal del relayer? Este spike valida que sí (Approach B).
+//
+// T-08-03 mitigation: signatureExpirationLedger = currentLedger + 200 (~10 min).
+// El plugin valida que el buffer sea >= MIN_SIGNATURE_EXPIRATION_LEDGER_BUFFER
+// (default: 2 ledgers). Con +200 hay margen suficiente.
+//
+// En producción (plan 02) Freighter.signAuthEntry hace este paso con la clave
+// real del empleado; aquí se usa una clave throwaway (T-08-04).
+// ---------------------------------------------------------------------------
+
+async function buildAndSignAuthEntry(testKey, currentLedger) {
   const signatureExpirationLedger = currentLedger + 200
   console.log(`[spike] signatureExpirationLedger = ${signatureExpirationLedger} (current + 200)`)
 
-  // Construir el InvocationTree para pool.transact
-  const contractInvocation = xdr.SorobanAuthorizedInvocation.sorobanAuthorizedInvocationV0(
+  const contractFn = xdr.SorobanAuthorizedFunction.sorobanAuthorizedFunctionTypeContractFn(
+    new xdr.InvokeContractArgs({
+      contractAddress: new Address(poolId).toScAddress(),
+      functionName: 'transact',
+      args: [],
+    }),
+  )
+  const invocation = xdr.SorobanAuthorizedInvocation.sorobanAuthorizedInvocationV0(
     new xdr.SorobanAuthorizedInvocationV0({
-      function: xdr.SorobanAuthorizedFunction.sorobanAuthorizedFunctionTypeContractFn(
-        new xdr.InvokeContractArgs({
-          contractAddress: new Address(poolId).toScAddress(),
-          functionName: 'transact',
-          args: [],  // args vacíos en el auth tree (el relayer los obtiene del func XDR)
-        }),
-      ),
+      function: contractFn,
       subInvocations: [],
     }),
   )
 
-  // Preimage de la auth entry para firmar
+  // Nonce aleatorio (i64)
+  const nonceBytes = Buffer.alloc(8)
+  for (let i = 0; i < 8; i++) nonceBytes[i] = Math.floor(Math.random() * 256)
+  const nonce = nonceBytes.readBigInt64BE(0)
+
   const preimage = xdr.HashIdPreimage.envelopeTypeSorobanAuthorization(
     new xdr.HashIdPreimageSorobanAuthorization({
-      networkId: Buffer.from(
-        require('node:crypto').createHash('sha256').update(NETWORK_PASSPHRASE).digest(),
-      ),
-      nonce: BigInt(Math.floor(Math.random() * Number.MAX_SAFE_INTEGER)),
+      networkId: Buffer.from(createHash('sha256').update(NETWORK_PASSPHRASE).digest()),
+      nonce,
       signatureExpirationLedger,
-      invocation: contractInvocation,
+      invocation,
     }),
   )
 
-  const preimageBytes = preimage.toXDR()
-  const { createHash } = require('node:crypto')
-  const preimageHash = createHash('sha256').update(preimageBytes).digest()
-
-  // Firmar con la clave de prueba (Ed25519, no Freighter)
+  const preimageHash = createHash('sha256').update(preimage.toXDR()).digest()
   const signature = testKey.sign(preimageHash)
 
-  // Construir la SorobanAuthorizationEntry firmada
   const authEntry = new xdr.SorobanAuthorizationEntry({
     credentials: xdr.SorobanCredentials.sorobanCredentialsAddress(
       new xdr.SorobanAddressCredentials({
         address: new Address(testKey.publicKey()).toScAddress(),
-        nonce: preimage.value().nonce(),
+        nonce,
         signatureExpirationLedger,
         signature: xdr.ScVal.scvMap([
           new xdr.ScMapEntry({
@@ -264,65 +262,68 @@ async function buildAndSignAuthEntry(testKey, funcXdrBase64, currentLedger) {
         ]),
       }),
     ),
-    rootInvocation: contractInvocation,
+    rootInvocation: invocation,
   })
 
   return authEntry.toXDR('base64')
 }
 
+// ---------------------------------------------------------------------------
+// Spike body principal
+// ---------------------------------------------------------------------------
+
 async function runSpike() {
   const t0 = performance.now()
 
-  // 1. Test keypair (spike-grade, throwaway — T-08-04: no clave de producción)
+  // Clave de prueba throwaway (T-08-04: no clave de producción)
   const testKey = Keypair.random()
   console.log(`[spike] test keypair (throwaway): ${testKey.publicKey()}`)
 
-  // 2. Obtener ledger actual del RPC para calcular signatureExpirationLedger
+  // Obtener ledger actual
   let currentLedger
   try {
     const server = new StellarRpc.Server(RPC_URL)
-    const latestLedger = await server.getLatestLedger()
-    currentLedger = latestLedger.sequence
+    const latest = await server.getLatestLedger()
+    currentLedger = latest.sequence
     console.log(`[spike] current ledger: ${currentLedger}`)
   } catch (err) {
-    console.error(`[spike] ERROR: no se pudo obtener ledger actual: ${err.message}`)
+    console.error(`[spike] ERROR: no se pudo obtener ledger actual del RPC: ${err.message}`)
     process.exit(1)
   }
 
-  // 3. Construir HostFunction XDR (Approach B, manual InvokeContractArgs)
-  // Critical Unknown #1 probe: construir sin simular contra la cuenta canal
-  console.log('[spike] Construyendo HostFunction XDR para pool.transact (Approach B)...')
+  // HostFunction XDR
+  console.log('[spike] Construyendo HostFunction XDR para pool.transact...')
   const funcXdr = buildPoolTransactHostFunctionXdr()
-  console.log(`[spike] funcXdr length (base64): ${funcXdr.length}`)
-  console.log(`[spike] funcXdr contains hostFunctionTypeInvokeContract: verificado en código`)
+  console.log(`[spike] funcXdr OK (base64, ${funcXdr.length} chars)`)
 
-  // 4. Construir y firmar SorobanAuthorizationEntry (Approach B: manual)
+  // SorobanAuthorizationEntry firmada
   console.log('[spike] Construyendo SorobanAuthorizationEntry (Approach B: manual + clave prueba)...')
   let signedAuthEntryBase64
-  let authApproach = 'B-manual-test-key'
   try {
-    signedAuthEntryBase64 = await buildAndSignAuthEntry(testKey, funcXdr, currentLedger)
-    console.log(`[spike] auth entry construida OK (Approach ${authApproach})`)
-    console.log(`[spike] signedAuthEntry length (base64): ${signedAuthEntryBase64.length}`)
+    signedAuthEntryBase64 = await buildAndSignAuthEntry(testKey, currentLedger)
+    console.log(`[spike] auth entry OK (${signedAuthEntryBase64.length} chars base64)`)
   } catch (err) {
-    console.error(`[spike] ERROR construyendo auth entry (Approach B): ${err.message}`)
+    console.error(`[spike] ERROR construyendo auth entry: ${err.message}`)
     console.error('[spike] Plan-B trigger: auth entry construction failed')
     process.exit(1)
   }
 
-  // 5. Inicializar ChannelsClient
-  const client = new ChannelsClient({
-    baseUrl: RELAYER_URL,
-    apiKey: RELAYER_API_KEY,
-  })
-  console.log(`[spike] ChannelsClient creado (baseUrl: ${RELAYER_URL})`)
+  // ChannelsClient:
+  //   - Self-hosted: pluginId requerido (enruta a /api/v1/plugins/channels/call)
+  //   - Managed: sin pluginId (endpoint directo, con load balancer de OZ)
+  const clientConfig = IS_MANAGED
+    ? { baseUrl: RELAYER_URL, apiKey: RELAYER_API_KEY }
+    : { baseUrl: RELAYER_URL, pluginId: 'channels', apiKey: RELAYER_API_KEY }
 
-  // 6. Submit con medición de latencia
-  // T-08-02 mitigation: el func XDR ya tiene el poolId codificado en contractAddress
+  const client = new ChannelsClient(clientConfig)
+  console.log(`[spike] ChannelsClient creado (pluginId: ${clientConfig.pluginId ?? 'none (managed)'})`)
+
+  // Submit
   let submitResult
-  let submitMs
+  let submitMs = 0
   let poolAccepted = false
   let txHash = null
+  let txStatus = null
   let apiKeyValid = false
   let errorCode = null
   let errorClass = null
@@ -340,32 +341,38 @@ async function runSpike() {
     poolAccepted = true
     apiKeyValid = true
     txHash = submitResult.hash
+    txStatus = submitResult.status
     console.log(`[spike] submitSorobanTransaction OK en ${(submitMs / 1000).toFixed(2)}s`)
     console.log(`[spike] txHash: ${txHash}`)
-    console.log(`[spike] latestLedger: ${submitResult.latestLedger}`)
-    console.log(`[spike] status: ${submitResult.status}`)
+    console.log(`[spike] status: ${txStatus}`)
+    console.log(`[spike] transactionId: ${submitResult.transactionId}`)
   } catch (err) {
     submitMs = performance.now() - tSubmit
 
     if (err instanceof PluginTransportError) {
       errorClass = 'PluginTransportError'
-      errorCode = err.statusCode ?? 'unknown'
-      apiKeyValid = errorCode !== 401
+      errorCode = String(err.statusCode ?? 'unknown')
+      apiKeyValid = errorCode !== '401'
       console.error(`[spike] PluginTransportError (status ${errorCode}): ${err.message}`)
-      if (errorCode === 401) {
+      if (errorCode === '401') {
         console.error('[spike] Plan-B trigger: API key inválida (401 Unauthorized)')
       } else {
-        console.error('[spike] Plan-B trigger: error de transporte (red / endpoint)')
+        console.error(`[spike] Plan-B trigger: error de transporte (${errorCode}). ¿Está corriendo el relayer en ${RELAYER_URL}?`)
       }
     } else if (err instanceof PluginExecutionError) {
       errorClass = 'PluginExecutionError'
       errorCode = err.errorDetails?.code ?? 'unknown'
-      apiKeyValid = true  // 401 es PluginTransportError, no PluginExecutionError
+      apiKeyValid = true
       console.error(`[spike] PluginExecutionError (code ${errorCode}): ${err.message}`)
-      if (errorCode === 'INVALID_PARAMS' || errorCode === 'CONTRACT_NOT_ALLOWED') {
-        console.error('[spike] Plan-B trigger: contrato no whitelisted — considerar self-host del relayer')
+      if (errorCode === 'SIMULATION_FAILED' || errorCode === 'INVALID_PARAMS') {
+        console.error('[spike] Plan-B trigger: simulación rechazó proof dummy (Critical Unknown #2).')
+        console.error('[spike]   El contrato puede requerir una prueba ZK válida para simular.')
+      } else if (errorCode === 'AUTH_EXPIRY_TOO_SHORT') {
+        console.error('[spike] Plan-B trigger: signatureExpirationLedger muy corto para el relayer.')
+      } else if (errorCode === 'NO_CHANNELS_CONFIGURED') {
+        console.error('[spike] Plan-B trigger: channel accounts no configuradas. Completar RELAYER-SETUP.md §setChannelAccounts.')
       } else if (errorCode === 'ONCHAIN_FAILED') {
-        console.error('[spike] Plan-B trigger: auth entry falló on-chain — revisar construcción (Approach A con authorizeEntry)')
+        console.error('[spike] Plan-B trigger: auth entry falló on-chain. Investigar Approach A (authorizeEntry del SDK).')
       } else {
         console.error(`[spike] Plan-B trigger: ejecución rechazada (${errorCode})`)
       }
@@ -373,10 +380,9 @@ async function runSpike() {
       errorClass = 'PluginUnexpectedError'
       apiKeyValid = true
       console.error(`[spike] PluginUnexpectedError: ${err.message}`)
-      console.error('[spike] Plan-B trigger: error inesperado del plugin')
     } else {
-      errorClass = 'UnexpectedError'
-      console.error(`[spike] Error inesperado (no plugin): ${err.message}`)
+      errorClass = 'UnknownError'
+      console.error(`[spike] Error inesperado: ${err.message}`)
       console.error('[spike] Stack:', err.stack)
     }
   }
@@ -388,27 +394,19 @@ async function runSpike() {
   // ---------------------------------------------------------------------------
 
   const spikeResult = {
-    // Critical Unknown #5: API key válida
     apiKeyValid,
-    // Critical Unknown #1: qué approach de auth entry funcionó
-    authApproach,
-    // Critical Unknown #2: contrato pool aceptado por el relayer
+    authApproach: 'B-manual-test-key',
     poolAccepted,
-    // Resultado de la tx
     txHash,
-    // Critical Unknown #3: latencia
+    txStatus,
     submitMs: Math.round(submitMs),
-    // Ledger y status si hubo éxito
-    latestLedger: submitResult?.latestLedger ?? null,
-    status: submitResult?.status ?? null,
-    // Error si hubo fallo
     errorClass,
     errorCode,
-    // Metadata
     currentLedger,
     signatureExpirationLedger: currentLedger + 200,
     poolId,
     relayerUrl: RELAYER_URL,
+    relayerMode: IS_MANAGED ? 'managed' : 'self-hosted',
     totalMs: Math.round(totalMs),
   }
 
@@ -423,25 +421,31 @@ async function runSpike() {
   const latencySeconds = submitMs / 1000
 
   if (!apiKeyValid) {
-    console.error('Plan-B: API key inválida (401). Provisionar en https://relayer.openzeppelin.com.\n')
+    console.error('Plan-B: API key inválida (401). Verificar RELAYER_API_KEY contra el relayer configurado.\n')
     process.exit(1)
   }
 
   if (!poolAccepted) {
-    if (errorCode === 'INVALID_PARAMS' || errorCode === 'CONTRACT_NOT_ALLOWED') {
-      console.warn(`Plan-B: contrato pool no whitelisted (${errorCode}). Recomendación: self-host del OZ Relayer.\n`)
+    if (errorCode === 'SIMULATION_FAILED' || errorCode === 'INVALID_PARAMS') {
+      console.warn(`Plan-B: simulación rechazó la invocación (${errorCode}). El contrato puede requerir proof ZK válida para simular. Evaluar si se necesita generar proof real antes del spike o usar el smoke test contract del ejemplo oficial.\n`)
+    } else if (errorCode === 'AUTH_EXPIRY_TOO_SHORT') {
+      console.warn('Plan-B: auth entry expira muy pronto según el relayer. Ajustar el buffer.\n')
+    } else if (errorCode === 'NO_CHANNELS_CONFIGURED') {
+      console.warn('Plan-B: channel accounts no configuradas. Completar el paso setChannelAccounts de RELAYER-SETUP.md.\n')
     } else if (errorCode === 'ONCHAIN_FAILED') {
-      console.warn('Plan-B: auth entry falló on-chain. Investigar construcción (probar Approach A con authorizeEntry del SDK).\n')
+      console.warn('Plan-B: auth entry falló on-chain. Investigar construcción — probar Approach A (authorizeEntry del SDK).\n')
+    } else if (errorClass === 'PluginTransportError') {
+      console.warn(`Plan-B: relayer no disponible (${errorCode}). Verificar que esté corriendo en ${RELAYER_URL}.\n`)
     } else {
-      console.warn(`Plan-B: relayer rechazó la tx (${errorClass} ${errorCode}). Revisar logs del relayer.\n`)
+      console.warn(`Plan-B: relayer rechazó la tx (${errorClass} / ${errorCode}). Ver logs del relayer.\n`)
     }
     process.exit(1)
   }
 
   if (latencySeconds > 30) {
-    console.warn(`Plan-B: latencia ${latencySeconds.toFixed(1)}s excede el umbral de 30s. Considerar skipWait:true + polling o documentar en UX.\n`)
+    console.warn(`Plan-B: latencia ${latencySeconds.toFixed(1)}s excede el umbral de 30s. Considerar skipWait:true + polling, o documentar en UX.\n`)
   } else {
-    console.log(`GO: relayer aceptó pool.transact, tx ${txHash} confirmada en ${latencySeconds.toFixed(1)}s (< 30s umbral). Approach auth entry: ${authApproach}. Desbloquea planes 08-02 y 08-03.\n`)
+    console.log(`GO: relayer aceptó pool.transact, tx ${txHash} con status "${txStatus}" en ${latencySeconds.toFixed(1)}s (< 30s umbral). Auth approach: B-manual-test-key. Desbloquea planes 08-02 y 08-03.\n`)
   }
 }
 
