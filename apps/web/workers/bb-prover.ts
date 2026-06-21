@@ -1,16 +1,21 @@
 /**
- * bb-prover.ts — Web Worker UltraHonk (bb.js 0.87.0)
+ * bb-prover.ts — Web Worker UltraHonk (bb.js 0.87.0 + noir_js 1.0.0-beta.9)
  *
  * Reemplaza el worker ark-groth16 (public/zk/worker.js) manteniendo el mismo
  * protocolo de mensajes: { type, messageId, data } / { type, messageId, ...result }
  * y el mismo shape de respuesta de handleProve.
+ *
+ * Flujo de proving (igual que spike_browser_prove.ts):
+ *   1. Noir.execute(inputs) → { witness } (Uint8Array comprimido)
+ *   2. UltraHonkBackend.generateProof(witness, { keccak: true }) → { proof, publicInputs }
+ *   3. publicInputs: Field[] de 12 elementos → serializar a 384 bytes BE (NOIR-05)
  *
  * Protocolo preservado:
  *   INIT_PROVER  → { success, proverReady }
  *   PROVE        → { success, proof, publicInputs, sorobanFormat, timings }
  *   VERIFY       → { success, verified }
  *   READY        (emitido al cargar)
- *   PROGRESS     (emitido durante INIT_PROVER si demora)
+ *   PROGRESS     (emitido durante INIT_PROVER)
  *
  * Corrección NOIR-05 (09-03):
  *   bb 0.87.0 produce publicInputs como Field[] de 12 elementos; el PPO va
@@ -18,21 +23,25 @@
  *   proof mide 14 592 bytes.
  */
 
+import { Noir } from '@noir-lang/noir_js'
 import { UltraHonkBackend } from '@aztec/bb.js'
 
 // ---------------------------------------------------------------------------
 // Estado del worker
 // ---------------------------------------------------------------------------
 
+let noir: Noir | null = null
 let backend: UltraHonkBackend | null = null
 let backendReady = false
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let circuitJson: any = null
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 /**
- * Convierte un field element hex (con o sin '0x') a un Buffer de 32 bytes BE.
+ * Convierte un field element hex (con o sin '0x') a un Uint8Array de 32 bytes BE.
  * Usado para serializar los 12 Field[] de publicInputs a un blob de 384 bytes.
  */
 function hexToBytes32(field: string): Uint8Array {
@@ -70,7 +79,7 @@ async function handleInitProver(
   messageId: string | number | undefined,
 ): Promise<{ success: boolean; proverReady?: boolean; error?: string }> {
   try {
-    if (backendReady && backend) {
+    if (backendReady && backend && noir) {
       return { success: true, proverReady: true }
     }
 
@@ -81,15 +90,16 @@ async function handleInitProver(
     }
 
     sendProgress(messageId, 30, 100, 'Parsing circuit...')
-    const circuitJson = await resp.json() as { bytecode: string }
+    circuitJson = await resp.json()
 
-    sendProgress(messageId, 60, 100, 'Initializing UltraHonk backend...')
+    sendProgress(messageId, 60, 100, 'Initializing Noir + UltraHonk backend...')
     const threads =
       typeof navigator !== 'undefined' && navigator.hardwareConcurrency
         ? navigator.hardwareConcurrency
         : 1
 
     backend = new UltraHonkBackend(circuitJson.bytecode, { threads })
+    noir = new Noir(circuitJson)
 
     backendReady = true
     sendProgress(messageId, 100, 100, 'Prover ready')
@@ -113,35 +123,44 @@ async function handleProve(
   error?: string
 }> {
   try {
-    if (!backendReady || !backend) {
+    if (!backendReady || !backend || !noir) {
       // Inicialización lazy
-      await handleInitProver(null, messageId)
-      if (!backend) {
+      const initResult = await handleInitProver(null, messageId)
+      if (!initResult.success || !backend || !noir) {
         throw new Error('Backend no inicializado tras lazy init')
       }
     }
 
     const startTotal = performance.now()
 
-    sendProgress(messageId, 0, 100, 'Generating proof...')
+    sendProgress(messageId, 0, 100, 'Executing witness...')
+
+    // Paso 1: ejecutar el circuito Noir para obtener el witness comprimido
+    // InputMap es Record<string, InputValue> de @noir-lang/noirc_abi; el cast
+    // es seguro porque los callers pasan exactamente ese shape.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { witness } = await noir!.execute(data.inputs as any)
+
+    sendProgress(messageId, 40, 100, 'Generating proof...')
     const proveStart = performance.now()
 
+    // Paso 2: generar la prueba UltraHonk con keccak oracle (igual que el verifier on-chain)
     const { proof: rawProof, publicInputs: rawPublicInputs } =
-      await backend.generateProof(data.inputs)
+      await backend!.generateProof(witness, { keccak: true })
 
     const proveMs = performance.now() - proveStart
 
     // rawProof: Uint8Array (14592 bytes)
     // rawPublicInputs: string[] (Field[], hex strings, 12 elementos con bb 0.87.0)
     // Serializar publicInputs: concatenar los 12 fields como 32-byte BE cada uno => 384 bytes
-    const piChunks = rawPublicInputs.map((f: string) => hexToBytes32(f))
+    const piChunks = (rawPublicInputs as string[]).map((f: string) => hexToBytes32(f))
     const publicInputsFlat = new Uint8Array(piChunks.length * 32)
     piChunks.forEach((chunk, i) => publicInputsFlat.set(chunk, i * 32))
 
     const totalMs = performance.now() - startTotal
 
     console.log(
-      `[bb-prover] proof=${rawProof.length} bytes, publicInputs=${publicInputsFlat.length} bytes (${rawPublicInputs.length} fields)`,
+      `[bb-prover] proof=${rawProof.length} bytes, publicInputs=${publicInputsFlat.length} bytes (${(rawPublicInputs as string[]).length} fields)`,
     )
 
     sendProgress(messageId, 100, 100, 'Proof complete')
@@ -188,10 +207,10 @@ async function handleVerify(data: {
       publicInputsFields.push(hex)
     }
 
-    const verified = await backend.verifyProof({
-      proof: proofArr,
-      publicInputs: publicInputsFields,
-    })
+    const verified = await backend.verifyProof(
+      { proof: proofArr, publicInputs: publicInputsFields },
+      { keccak: true },
+    )
 
     return { success: true, verified }
   } catch (error) {

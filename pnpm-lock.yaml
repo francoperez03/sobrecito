@@ -23,6 +23,9 @@ importers:
       '@noble/hashes':
         specifier: 2.2.0
         version: 2.2.0
+      '@noir-lang/noir_js':
+        specifier: 1.0.0-beta.9
+        version: 1.0.0-beta.9
       '@phosphor-icons/react':
         specifier: 2.1.10
         version: 2.1.10(react-dom@19.2.7)(react@19.2.7)
@@ -860,6 +863,29 @@ packages:
   /@noble/hashes@2.2.0:
     resolution: {integrity: sha512-IYqDGiTXab6FniAgnSdZwgWbomxpy9FtYvLKs7wCUs2a8RkITG+DFGO1DM9cr+E3/RgADRpFjrKVaJ1z6sjtEg==}
     engines: {node: '>= 20.19.0'}
+    dev: false
+
+  /@noir-lang/acvm_js@1.0.0-beta.9:
+    resolution: {integrity: sha512-cWDKgOkDCj6USfSITB0IM/o3ThndLOsrH6pDptaB6D6wHpSxTOpl/pKP8m1KHXGLVsU0BjIImZ2RrWB4F3a2Pw==}
+    dev: false
+
+  /@noir-lang/noir_js@1.0.0-beta.9:
+    resolution: {integrity: sha512-UDHvQBvWiAbo70+taFQyUgBysVxgxuMkEXxtQUPD8v9sbHp4J5ecGRrtp/1eq15D0zpVc34Vfo8zy2CWndfbaA==}
+    dependencies:
+      '@noir-lang/acvm_js': 1.0.0-beta.9
+      '@noir-lang/noirc_abi': 1.0.0-beta.9
+      '@noir-lang/types': 1.0.0-beta.9
+      pako: 2.1.0
+    dev: false
+
+  /@noir-lang/noirc_abi@1.0.0-beta.9:
+    resolution: {integrity: sha512-JOBLJBZqE6skGztI5xy4GW5WB40YGADt0mU/vf1QAuVY9yArRU3oAJIjuXi4Mo1fvE1TSx/4XPZr7Rocl6Effg==}
+    dependencies:
+      '@noir-lang/types': 1.0.0-beta.9
+    dev: false
+
+  /@noir-lang/types@1.0.0-beta.9:
+    resolution: {integrity: sha512-2KB4uSUUHjDZzrUY8CIRyaIS4Q9d0s1T9bwabw1rysSBICDkgKOdVKkG0szaCFbmeDNQ3kqanPjqBj7IEEHD7A==}
     dev: false
 
   /@oxc-project/types@0.133.0:

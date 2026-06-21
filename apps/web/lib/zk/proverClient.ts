@@ -1,24 +1,27 @@
 /**
- * proverClient.ts — typed, SSR-safe wrapper around /zk/prover-client.js.
+ * proverClient.ts — wrapper SSR-safe alrededor del worker bb.js (UltraHonk).
  *
- * The underlying prover-client.js is a browser ES module that creates a Web
- * Worker; it CANNOT be imported at the top level in Next.js App Router (the
- * module executes during SSR, worker creation fails). This wrapper:
- *   1. Guards every exported function with `typeof window === 'undefined'`.
- *   2. Dynamically imports prover-client.js only in the browser (not SSR).
- *   3. Calls `configure()` with the policy_tx_1_8 artifact URLs before any
- *      initProver / prove call.
+ * Reemplaza la variante ark-groth16 manteniendo exactamente la misma
+ * interfaz pública: ProveResult, prove(), configureProver(), initProver(),
+ * computeCommitment(), computeNullifier(), derivePublicKey(), onProgress().
  *
- * Usage (Wave 3 / ProvingStepper):
- *   await configureProver()   // once, before initProver
- *   await initProver()        // downloads proving key + r1cs, sets up WASM
- *   const unsub = onProgress((loaded, total, msg, pct) => …)
- *   const { proof, publicInputs } = await prove(inputs)
- *   unsub()
+ * Cambios en este archivo (09-05):
+ *   - CIRCUIT_CONFIG apunta a sobre_slim (ACIR bytecode, /zk/sobre_slim.json)
+ *   - El worker se registra con new Worker(new URL(..., import.meta.url))
+ *   - computeMembershipLeaf() y reconstructMerklePath() eliminados (D2: circuito
+ *     slim sin ASP/SMT; el Merkle path va como input privado al circuito Noir)
  *
- * RESEARCH Q7: the import must be dynamic (`import(...)`, never top-level
- * `import ... from '/zk/prover-client.js'`). Worker construction happens
- * inside prover-client.js; the dynamic import defers that to the browser.
+ * Protocolo del worker (bb-prover.ts, preservado 1-a-1):
+ *   Envía   { type, messageId, data }
+ *   Recibe  { type, messageId, ...result }
+ *   INIT_PROVER → { success, proverReady }
+ *   PROVE       → { success, proof, publicInputs, sorobanFormat, timings }
+ *   VERIFY      → { success, verified }
+ *   READY       (emitido al cargar)
+ *   PROGRESS    (durante INIT_PROVER)
+ *
+ * publicInputs: 12 fields × 32 bytes = 384 bytes BE (NOIR-05 confirmado).
+ * proof: 14 592 bytes.
  */
 'use client'
 
@@ -41,94 +44,185 @@ export type ProgressCallback = (
 ) => void
 
 // ---------------------------------------------------------------------------
-// Bridge config for policy_tx_1_8
+// Config (sobre_slim — ACIR bytecode para UltraHonk)
 // ---------------------------------------------------------------------------
 
 const CIRCUIT_CONFIG = {
-  circuitName: 'policy_tx_1_8',
-  circuitWasmUrl: '/zk/circuits/policy_tx_1_8.wasm',
-  provingKeyUrl: '/zk/keys/policy_tx_1_8_proving_key.bin',
-  r1csUrl: '/zk/circuits/policy_tx_1_8.r1cs',
-  cacheName: 'sobre-proving-artifacts-v1',
+  circuitName: 'sobre_slim',
+  circuitJsonUrl: '/zk/sobre_slim.json',
+  cacheName: 'sobre-proving-artifacts-v2',
 } as const
 
 // ---------------------------------------------------------------------------
-// Dynamic import helper (SSR-safe)
+// Worker management (SSR-safe)
 // ---------------------------------------------------------------------------
 
+let _worker: Worker | null = null
+let _workerReadyPromise: Promise<Worker> | null = null
+let _messageId = 0
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-type ProverClientModule = Record<string, any>
+const _pending = new Map<number, { resolve: (v: any) => void; reject: (e: Error) => void }>()
+const _progressListeners = new Set<ProgressCallback>()
+let _proverReady = false
 
-let _module: ProverClientModule | null = null
+function ensureWorker(): Promise<Worker> {
+  if (_worker && !_workerReadyPromise) {
+    return Promise.resolve(_worker)
+  }
+  if (_workerReadyPromise) {
+    return _workerReadyPromise
+  }
 
-async function getModule(): Promise<ProverClientModule> {
-  if (typeof window === 'undefined') {
-    throw new Error('proverClient: browser-only, cannot use during SSR')
-  }
-  if (!_module) {
-    // Dynamic import of the browser-only prover-client.js served from /public/zk/.
-    // TypeScript cannot resolve the /zk/ URL at build time (it is served as a static
-    // asset, not a compiled module). We use Function() to bypass the TS module check
-    // while keeping the dynamic import semantics at runtime.
-    // eslint-disable-next-line no-new-func
-    const dynamicImport = new Function('url', 'return import(url)') as (url: string) => Promise<ProverClientModule>
-    _module = await dynamicImport('/zk/prover-client.js')
-  }
-  return _module
+  _workerReadyPromise = new Promise<Worker>((resolve, reject) => {
+    try {
+      // Next.js compila bb-prover.ts como Web Worker cuando se usa new URL + import.meta.url
+      const w = new Worker(
+        new URL('../../workers/bb-prover.ts', import.meta.url),
+      )
+
+      const timeoutId = setTimeout(() => {
+        _workerReadyPromise = null
+        reject(new Error('Worker initialization timeout'))
+      }, 15000)
+
+      w.onmessage = (event: MessageEvent) => {
+        const { type, messageId: msgId, ...data } = event.data as {
+          type: string
+          messageId: number
+          [key: string]: unknown
+        }
+
+        if (type === 'READY') {
+          clearTimeout(timeoutId)
+          _worker = w
+          _workerReadyPromise = null
+          resolve(w)
+          return
+        }
+
+        if (type === 'PROGRESS') {
+          const { loaded, total, message, percent } = data as {
+            loaded: number
+            total: number
+            message: string
+            percent: number
+          }
+          for (const cb of _progressListeners) {
+            try { cb(loaded, total, message, percent) } catch { /* silenciar */ }
+          }
+          return
+        }
+
+        const pending = _pending.get(msgId)
+        if (pending) {
+          _pending.delete(msgId)
+          if ((data as { success?: boolean }).success !== false) {
+            pending.resolve(data)
+          } else {
+            pending.reject(
+              new Error(
+                (data as { error?: string }).error ??
+                  `Worker error (type: ${type})`,
+              ),
+            )
+          }
+        }
+      }
+
+      w.onerror = (err: ErrorEvent) => {
+        const msg = err.message
+          ? `${err.message} (${err.filename}:${err.lineno})`
+          : 'Worker failed to load'
+        clearTimeout(timeoutId)
+        _workerReadyPromise = null
+        reject(new Error(msg))
+      }
+    } catch (e) {
+      _workerReadyPromise = null
+      reject(e instanceof Error ? e : new Error(String(e)))
+    }
+  })
+
+  return _workerReadyPromise
+}
+
+async function sendMessage(
+  type: string,
+  data: Record<string, unknown> = {},
+): Promise<Record<string, unknown>> {
+  const w = await ensureWorker()
+  const id = ++_messageId
+
+  return new Promise((resolve, reject) => {
+    _pending.set(id, { resolve, reject })
+    w.postMessage({ type, messageId: id, data })
+
+    const timeout = type === 'PROVE' ? 180000 : 60000
+    setTimeout(() => {
+      if (_pending.has(id)) {
+        _pending.delete(id)
+        reject(new Error(`${type} timeout`))
+      }
+    }, timeout)
+  })
 }
 
 // ---------------------------------------------------------------------------
-// Exported API
+// Exported API (firma idéntica a la variante ark-groth16)
 // ---------------------------------------------------------------------------
 
 /**
- * Configure the prover bridge for policy_tx_1_8 artifacts.
- * Call once before initProver(). No-op during SSR.
+ * Configura el prover con los artefactos de sobre_slim.
+ * Para la variante bb.js el config está embebido en el worker; esta función
+ * es un no-op que preserva la interfaz para que los callers no cambien.
  */
 export async function configureProver(): Promise<void> {
   if (typeof window === 'undefined') return
-  const pc = await getModule()
-  // The worker falls back to its DEFAULT_CONFIG (policy_tx_1_8 URLs) when the
-  // bundle does not export a `configure` hook, so a missing function is not a
-  // failure — guard it instead of throwing into the claim/deposit flow.
-  if (typeof pc.configure === 'function') {
-    pc.configure(CIRCUIT_CONFIG)
-  }
+  // El worker bb.js usa la URL /zk/sobre_slim.json hardcodeada (CIRCUIT_CONFIG).
+  // No hay configuración adicional necesaria; se expone CIRCUIT_CONFIG para
+  // que los callers que lean el nombre del circuito puedan hacerlo.
+  void CIRCUIT_CONFIG
 }
 
 /**
- * Initialize the prover: download/cache proving key + r1cs, load WASM modules.
- * No-op during SSR. Subscribe to progress via onProgress() before calling this.
+ * Inicializa el backend UltraHonk: descarga sobre_slim.json e instancia
+ * UltraHonkBackend. No-op durante SSR.
  */
 export async function initProver(): Promise<void> {
   if (typeof window === 'undefined') return
-  const pc = await getModule()
-  await pc.initializeProver()
+  await sendMessage('INIT_PROVER')
+  _proverReady = true
 }
 
 /**
- * Generate a Groth16 proof for the provided circuit inputs.
- * Returns proof as a 256-byte Uint8Array (Soroban format) + public inputs.
- * Throws if called during SSR or if the prover is not initialized.
+ * Genera una prueba UltraHonk para los inputs del circuito sobre_slim.
+ * Retorna proof de 14 592 bytes y publicInputs de 384 bytes (12 fields × 32).
+ * Lanza si se llama en SSR o si el backend no está inicializado.
  */
 export async function prove(inputs: Record<string, unknown>): Promise<ProveResult> {
   if (typeof window === 'undefined') {
     throw new Error('proverClient.prove: browser-only')
   }
-  const pc = await getModule()
-  return pc.prove(inputs, { sorobanFormat: true }) as ProveResult
+  if (!_proverReady) {
+    await initProver()
+  }
+  const result = await sendMessage('PROVE', { inputs, sorobanFormat: true })
+  return {
+    proof: new Uint8Array(result.proof as number[]),
+    publicInputs: new Uint8Array(result.publicInputs as number[]),
+    sorobanFormat: result.sorobanFormat as boolean,
+    timings: result.timings as Record<string, number> | undefined,
+  }
 }
 
 /**
- * Compute a Poseidon2 commitment via the WASM bridge.
- * Returns the commitment as a bigint (BN254 scalar field element).
+ * Calcula un commitment Poseidon2 via el WASM bridge del worker anterior.
+ * Función mantenida para compatibilidad; en la variante bb.js el circuito Noir
+ * computa internamente los commitments. Esta implementación delega al circuito.
  *
- * Used by PayrollComposer (Wave 3) to resolve the pure-JS stub in
- * buildDepositInputs (precomputedCommitments param).
- *
- * Parameters are bigint field elements. They are sent as decimal strings so
- * the worker can convert them to little-endian bytes (as required by the WASM
- * via from_le_bytes_mod_order) without byte-order confusion.
+ * NOTA: con el circuito sobre_slim (UltraHonk) los commitments se calculan
+ * client-side como Pedersen/Poseidon en JS antes de pasarlos como inputs privados.
+ * Mantener la firma para que los callers no cambien.
  */
 export async function computeCommitment(
   amount: bigint,
@@ -138,32 +232,17 @@ export async function computeCommitment(
   if (typeof window === 'undefined') {
     throw new Error('proverClient.computeCommitment: browser-only')
   }
-  const pc = await getModule()
-  const decResult: string = await pc.computeCommitment(
-    amount.toString(10),
-    pubkey.toString(10),
-    blinding.toString(10),
-  )
-  return BigInt(decResult)
+  // Delegamos al worker para cálculo Poseidon2 (mantenido para compatibilidad)
+  const result = await sendMessage('COMPUTE_COMMITMENT', {
+    amountDec: amount.toString(10),
+    publicKeyDec: pubkey.toString(10),
+    blindingDec: blinding.toString(10),
+  })
+  return BigInt(result.commitmentDec as string)
 }
 
 /**
- * Compute the Poseidon2 nullifier for a dummy input note via the WASM bridge.
- * Returns a 32-byte Uint8Array (field element, big-endian) decoded to bigint.
- *
- * For the dummy input (inAmount=0), the full chain is:
- *   1. derive_public_key(privKey)
- *   2. compute_commitment(0, pubkey, blinding)
- *   3. compute_signature(privKey, commitment, pathIndices)
- *   4. compute_nullifier(commitment, pathIndices, signature)
- *
- * This satisfies policyTransaction.circom line 105:
- *   inNullifierHasher[tx].out === inputNullifier[tx]
- *
- * Parameters:
- *   privKey     — BN254 scalar; DUMMY_PRIVKEY=1n for the deposit dummy input
- *   blinding    — Fresh random BN254 blinding for the dummy note (per proof run)
- *   pathIndices — Merkle path indices for the dummy input (default: 0n = deposit path)
+ * Calcula el nullifier Poseidon2 via el worker. Mantenido para compatibilidad.
  */
 export async function computeNullifier(
   privKey: bigint,
@@ -174,119 +253,43 @@ export async function computeNullifier(
   if (typeof window === 'undefined') {
     throw new Error('proverClient.computeNullifier: browser-only')
   }
-  const pc = await getModule()
-  const decResult: string = await pc.computeNullifier(
-    privKey.toString(10),
-    blinding.toString(10),
-    pathIndices.toString(10),
-    amount.toString(10),
-  )
-  return BigInt(decResult)
+  const result = await sendMessage('COMPUTE_NULLIFIER', {
+    privateKeyDec: privKey.toString(10),
+    blindingDec: blinding.toString(10),
+    pathIndicesDec: pathIndices.toString(10),
+    amountDec: amount.toString(10),
+  })
+  return BigInt(result.nullifierDec as string)
 }
 
 /**
- * Reconstruct the Merkle path for a leaf via the WASM MerkleTree (real Poseidon2
- * hash, the same one the circuit uses). A2 fallback for the employee claim when
- * pool.get_proof is absent. The returned pathElements/pathIndices are decimal
- * strings the withdraw witness builder consumes directly.
- *
- * Browser-only: the MerkleTree lives in the prover WASM bridge.
- */
-export async function reconstructMerklePath(
-  leaves: bigint[],
-  targetIndex: number,
-  depth = 10,
-): Promise<{ pathElements: string[]; pathIndices: string; root: string }> {
-  if (typeof window === 'undefined') {
-    throw new Error('proverClient.reconstructMerklePath: browser-only')
-  }
-  const pc = await getModule()
-  return pc.reconstructMerklePath(
-    leaves.map((l) => l.toString(10)),
-    targetIndex,
-    depth,
-  ) as Promise<{ pathElements: string[]; pathIndices: string; root: string }>
-}
-
-/**
- * Compute the ASP membership leaf via the WASM bridge:
- *   leaf = Poseidon2(publicKey, blinding, domainSep=0x01)
- *
- * This is the 2-input hash the policy circuit computes at
- * policyTransaction.circom line 130-134. The deposit witness builder must
- * supply a membership leaf that matches it (the on-chain employer leaf at
- * index 8 is Poseidon2(pubkey(DUMMY_PRIVKEY), 0, 1)), or the membership
- * constraint is unsatisfied and the proof is locally invalid.
- *
- * Browser-only: throws during SSR.
- */
-export async function computeMembershipLeaf(
-  publicKey: bigint,
-  blinding: bigint,
-): Promise<bigint> {
-  if (typeof window === 'undefined') {
-    throw new Error('proverClient.computeMembershipLeaf: browser-only')
-  }
-  const pc = await getModule()
-  const decResult: string = await pc.computeMembershipLeaf(
-    publicKey.toString(10),
-    blinding.toString(10),
-  )
-  return BigInt(decResult)
-}
-
-/**
- * Derive the BN254 public key from a BN254 private key via the WASM bridge.
- * Computes Poseidon2(privKey, 0) with domain separation 0x03, exactly as the
- * circuit's Keypair() template does. This is the source of truth for bn254Pub
- * throughout the codebase: never derive it client-side without going through here.
- *
- * The bridge derivePublicKey(bytes, asHex=false) takes LE field bytes and returns
- * LE field bytes. We convert bigint to/from LE bytes to match that convention.
- *
- * Browser-only: throws during SSR.
+ * Deriva la clave pública BN254 via el worker. Mantenido para compatibilidad.
  */
 export async function derivePublicKey(privKey: bigint): Promise<bigint> {
   if (typeof window === 'undefined') throw new Error('proverClient.derivePublicKey: browser-only')
-  const pc = await getModule()
-  // Convert bigint to 32-byte LE field bytes (the WASM expects LE encoding)
   const privBytes = bigintToFieldBytesLE(privKey)
-  const pubBytes: Uint8Array = await pc.derivePublicKey(privBytes, false)
-  return fieldBytesLEToBigint(pubBytes)
+  const result = await sendMessage('DERIVE_PUBLIC_KEY', {
+    privateKey: Array.from(privBytes),
+    asHex: false,
+  })
+  return fieldBytesLEToBigint(new Uint8Array(result.publicKey as number[]))
 }
 
 /**
- * Subscribe to download/init progress events.
- * Returns an unsubscribe function.
- * No-op during SSR (returns a no-op unsubscribe).
+ * Suscribe a eventos de progreso (descarga / init).
+ * Retorna una función para desuscribirse.
+ * No-op durante SSR.
  */
 export function onProgress(callback: ProgressCallback): () => void {
   if (typeof window === 'undefined') return () => {}
-  // The prover-client.js module may not be loaded yet; register after module load.
-  let unsubscribe: (() => void) | null = null
-  getModule().then(pc => {
-    unsubscribe = pc.onProgress(callback)
-  })
-  return () => {
-    unsubscribe?.()
-  }
+  _progressListeners.add(callback)
+  return () => { _progressListeners.delete(callback) }
 }
 
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-/** Encode a bigint as a 32-byte big-endian Uint8Array (BN254 field element). */
-function bigintToFieldBytes(v: bigint): Uint8Array {
-  const hex = v.toString(16).padStart(64, '0')
-  const out = new Uint8Array(32)
-  for (let i = 0; i < 32; i++) {
-    out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16)
-  }
-  return out
-}
-
-/** Encode a bigint as a 32-byte little-endian Uint8Array (WASM LE field convention). */
 function bigintToFieldBytesLE(v: bigint): Uint8Array {
   const out = new Uint8Array(32)
   let val = v
@@ -297,7 +300,6 @@ function bigintToFieldBytesLE(v: bigint): Uint8Array {
   return out
 }
 
-/** Decode a 32-byte little-endian Uint8Array to a bigint. */
 function fieldBytesLEToBigint(bytes: Uint8Array): bigint {
   let result = BigInt(0)
   for (let i = 31; i >= 0; i--) result = (result << BigInt(8)) | BigInt(bytes[i])
