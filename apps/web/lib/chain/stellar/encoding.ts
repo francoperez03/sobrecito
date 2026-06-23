@@ -64,8 +64,11 @@ export function buildProofScVal(p: {
   //   asp_membership_root, asp_non_membership_root, ext_data_hash,
   //   input_nullifiers, output_commitments, proof, public_amount, root
   return xdr.ScVal.scvMap([
-    entry('asp_membership_root', u256(p.aspMembershipRoot)),
-    entry('asp_non_membership_root', u256(p.aspNonMembershipRoot)),
+    // TODO(plan-03): remove asp_membership_root / asp_non_membership_root from the
+    // on-chain Proof struct once pool.rs is updated to the sobre_slim (D2) ABI.
+    // For now default to '0' when absent (ASP-free callers in plan 09.1-02).
+    entry('asp_membership_root', u256(p.aspMembershipRoot ?? '0')),
+    entry('asp_non_membership_root', u256(p.aspNonMembershipRoot ?? '0')),
     entry('ext_data_hash', bytes(p.extDataHash)),
     entry('input_nullifiers', xdr.ScVal.scvVec(p.inputNullifiers.map(u256))),
     entry('output_commitments', xdr.ScVal.scvVec(p.outputCommitments.map(u256))),

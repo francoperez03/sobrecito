@@ -82,10 +82,12 @@ export interface ProofPublicInputs {
   inputNullifiers: U256Like[]
   /** Output commitments. */
   outputCommitments: U256Like[]
-  /** ASP membership root (self-consistent reconstructed root). */
-  aspMembershipRoot: U256Like
-  /** ASP non-membership root (empty SMT → 0). */
-  aspNonMembershipRoot: U256Like
+  // TODO(plan-03): remove these fields — sobre_slim (D2 scope) drops ASP checks.
+  // Made optional so plan 09.1-02 can compile ASP-free; plan 03 Task 2 removes them.
+  /** ASP membership root (self-consistent reconstructed root). @deprecated plan-03 removes */
+  aspMembershipRoot?: U256Like
+  /** ASP non-membership root (empty SMT → 0). @deprecated plan-03 removes */
+  aspNonMembershipRoot?: U256Like
 }
 
 /** Arguments for an employer deposit (employer funds the pool). */

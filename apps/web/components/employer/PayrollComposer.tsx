@@ -40,18 +40,13 @@ import {
   initProver,
   onProgress,
   prove,
-  computeCommitment,
-  computeNullifier,
-  computeMembershipLeaf,
-  derivePublicKey,
-  reconstructMerklePath,
 } from '@/lib/zk/proverClient'
 import {
   connectFreighter,
   submitDeposit,
 } from '@/lib/employer-deposit'
 import { loadAuditorPublicKey } from '@/lib/auditorKeyStore'
-import { readDeployments, fetchPoolRoot, fetchASPRoots, fetchUsdcBalance, formatUsdc } from '@/lib/rpc'
+import { readDeployments, fetchPoolRoot, fetchUsdcBalance, formatUsdc } from '@/lib/rpc'
 
 // ---------------------------------------------------------------------------
 // State machine type
@@ -373,11 +368,8 @@ export function PayrollComposer({ onSent }: { onSent?: () => void }) {
       // this phase is instant. The onProgress subscription updates stepState.
       setStepState({ phase: 'downloading', loaded: 0, total: 0, message: 'Checking cache…' })
 
-      // Fetch roots from chain
-      const [poolRoot, aspRoots] = await Promise.all([
-        fetchPoolRoot(),
-        fetchASPRoots(),
-      ])
+      // Fetch pool root from chain
+      const poolRoot = await fetchPoolRoot()
 
       // Step 3: Generate proof ZK (in-browser, nothing leaves the device)
       setStepState({ phase: 'proving', elapsed: 0 })
@@ -403,82 +395,20 @@ export function PayrollComposer({ onSent }: { onSent?: () => void }) {
         encrypted_outputs: blobs,
       })
 
-      // Compute real Poseidon2 commitments via WASM bridge.
-      // This resolves the pure-JS stub from plan 04 (precomputedCommitments).
-      // The SAME blindings used in buildFrozenBlobs flow in here — commitment
-      // and encrypted blob are consistent (Pitfall 2 integrity check).
-      const precomputedCommitments = await Promise.all(
-        notes.map((n, i) =>
-          computeCommitment(n.denomination, n.outPubkey, blindings[i]),
-        ),
-      )
-
       // Fresh dummyBlinding per proof run (prevents AlreadySpentNullifier — Pitfall 4)
       const dummyBlinding = generateRandomBlinding()
 
-      // Compute dummy-input nullifier via WASM Poseidon2 bridge.
-      // The circuit enforces inNullifierHasher.out === inputNullifier[0] unconditionally
-      // (policyTransaction.circom line 105). Using the pure-JS placeholder here causes
-      // an unsatisfied constraint and proof failure. WASM chain:
-      //   privKey=424242, amount=0, pathIndices=0 (deposit path, pool Merkle check disabled)
-      // 424242 is the employer key whose pubkey seeds the on-chain ASP membership
-      // leaf at index 8; the ASP policy checks run even for the dummy input, so the
-      // pubkey derived here MUST match that leaf (see buildMembershipProof below).
-      const DUMMY_PRIVKEY = BigInt(424242)
-      const precomputedNullifier = await computeNullifier(DUMMY_PRIVKEY, dummyBlinding, BigInt(0))
-
-      // ASP policy proof for the dummy input. The circuit verifies a membership
-      // proof and a non-membership proof for every input unconditionally, so the
-      // deposit needs valid proofs against the live ASP trees:
-      //   1. pubkey = Poseidon2(424242, 0, domain=3) — the circuit's inKeypair.publicKey
-      //   2. leaf   = Poseidon2(pubkey, 0, domain=1)  — the on-chain employer leaf
-      //   3. path for index 8 of the known on-chain ASP membership tree
-      //      (1024 leaves: empty = Poseidon2("XLM") zero leaf, leaves[0..7]=1..8,
-      //      leaf[8]=leaf). reconstructMerklePath rebuilds with the SAME zero leaf
-      //      and insertion order, so leaves go to indices 0..8 as on-chain.
-      const employerPubkey = await derivePublicKey(DUMMY_PRIVKEY)
-      const membershipLeaf = await computeMembershipLeaf(employerPubkey, BigInt(0))
-      const ASP_MEMBERSHIP_LEAVES: bigint[] = [
-        BigInt(1), BigInt(2), BigInt(3), BigInt(4),
-        BigInt(5), BigInt(6), BigInt(7), BigInt(8),
-        membershipLeaf,
-      ]
-      const EMPLOYER_LEAF_INDEX = 8
-      const memberPath = await reconstructMerklePath(
-        ASP_MEMBERSHIP_LEAVES,
-        EMPLOYER_LEAF_INDEX,
-        10,
-      )
-      const precomputedMembership = {
-        publicKey: employerPubkey,
-        leaf: membershipLeaf,
-        pathElements: memberPath.pathElements,
-        pathIndices: memberPath.pathIndices,
-      }
-
-      // The ASP membership root fed to the circuit (and, via the extracted public
-      // inputs, to the pool) MUST be the root of the SAME tree the path was
-      // reconstructed from — otherwise the membership constraint
-      // (policyTransaction.circom:144) can't be satisfied. The pool does NOT
-      // cross-check this against the live asp_membership contract (pool.rs
-      // verify_proof reads proof.asp_membership_root verbatim), so we mirror the
-      // CLI proof-gen (main.rs:257) and use the reconstructed root, NOT the live
-      // on-chain fetch (which is an empty tree the leaf was never inserted into).
-      const aspMemberRoot = memberPath.root
-
+      // Sobre_slim Noir ABI: commitments + nullifier are computed in JS via poseidon2Pool
+      // (no worker COMPUTE_* calls — those handlers are dead in bb-prover.ts after D2 scope).
+      // No ASP fields needed: sobre_slim intentionally drops the allowlist proofs.
       const inputs = buildDepositInputs({
         notes,
         blindings,
         encOutputs: blobs,
         extDataHash,
         poolRoot,
-        aspMemberRoot,
-        aspNonMemberRoot: aspRoots.nonMemberRoot,
         senderAddress: address,
         dummyBlinding,
-        precomputedCommitments, // WASM Poseidon2 values — pure-JS stub overridden
-        precomputedNullifier,   // WASM Poseidon2 nullifier — pure-JS stub overridden (gap closure)
-        precomputedMembership,  // WASM ASP membership/non-membership policy proof for the dummy input
       })
 
       const { proof } = await prove(inputs)
@@ -512,15 +442,15 @@ export function PayrollComposer({ onSent }: { onSent?: () => void }) {
         encOutputs: blobs,
         totalBaseUnits, // real USDC moved from employer into the pool
         sender: address,
-        // Semantic public inputs → the on-chain Proof struct (must match the proof).
+        // Semantic public inputs from the Noir ABI witness (ASP-free, plan 09.1-02).
+        // TODO(plan-03): finalize publicInputsBlob/proofBytes to ProofPublicInputs type.
+        // Plan 03 Task 2 rewrites this object once types.ts ProofPublicInputs is updated.
         publicInputs: {
-          root: poolRoot,
+          root: inputs.root,
           publicAmount: totalBaseUnits,
           extDataHash: extDataHashBytes,
-          inputNullifiers: [String(precomputedNullifier)],
-          outputCommitments: precomputedCommitments.map((c) => String(c)),
-          aspMembershipRoot: aspMemberRoot,
-          aspNonMembershipRoot: aspRoots.nonMemberRoot,
+          inputNullifiers: [inputs.input_nullifier],
+          outputCommitments: [0,1,2,3,4,5,6,7].map(i => (inputs as Record<string, string>)[`output_commitment_${i}`]),
         },
       })
 
