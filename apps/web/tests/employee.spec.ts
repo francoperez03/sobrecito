@@ -38,12 +38,12 @@ test.describe('Employee claim', () => {
     await expect(page.getByText('200', { exact: true })).toHaveCount(0)
   })
 
-  test('amber warning fires BEFORE the Claim salary CTA', async ({ page }) => {
+  test('amber warning fires BEFORE the Cash out CTA', async ({ page }) => {
     await gotoClaim(page)
     const warning = page.getByText(
-      'Once claimed, this amount is visible on-chain.',
+      'Once you cash out, this amount becomes visible on-chain.',
     )
-    const cta = page.getByRole('button', { name: 'Claim salary' })
+    const cta = page.getByRole('button', { name: 'Cash out' })
     await expect(warning).toBeVisible()
     await expect(cta).toBeVisible()
     // Source/DOM order: the amber chip precedes the CTA.
@@ -55,11 +55,11 @@ test.describe('Employee claim', () => {
     expect(order).toBe(true)
   })
 
-  test('clicking Claim without a wallet fails gracefully (no crash)', async ({
+  test('clicking Cash out without a wallet fails gracefully (no crash)', async ({
     page,
   }) => {
     await gotoClaim(page)
-    await page.getByRole('button', { name: 'Claim salary' }).click()
+    await page.getByRole('button', { name: 'Cash out' }).click()
     // No Freighter extension in CI: unshieldNote rejects, the card shows the error
     // state, and the page stays alive (heading still rendered, amount still sealed).
     await expect(

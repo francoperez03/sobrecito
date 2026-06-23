@@ -77,9 +77,18 @@ export function ConnectFreighter({
         {/* Divider */}
         <span aria-hidden className="h-4 w-px bg-white/10" />
 
-        {/* Balance */}
-        <span className="font-mono text-sm text-ink-muted tabular-nums">
-          {balanceLabel} <span className="text-ink-muted/70">USDC</span>
+        {/* Balance — amber at 0 so an unfundable wallet reads as a blocker, not a
+            passive figure. The title labels the otherwise-bare number. */}
+        <span
+          className={`font-mono text-sm tabular-nums ${
+            balanceLabel === '0' ? 'text-accent-warm' : 'text-ink-muted'
+          }`}
+          title="USDC available to pay"
+        >
+          {balanceLabel}{' '}
+          <span className={balanceLabel === '0' ? 'text-accent-warm/70' : 'text-ink-muted/70'}>
+            USDC
+          </span>
         </span>
 
         {/* Disconnect */}

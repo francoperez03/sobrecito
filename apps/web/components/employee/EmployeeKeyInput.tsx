@@ -36,7 +36,7 @@ export function EmployeeKeyInput({
   return (
     <div className="flex flex-col gap-3">
       <span className="text-xs text-ink-muted uppercase tracking-widest">
-        Private employee key
+        Access key
       </span>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-stretch">
         {/* Masked field + eye toggle. The toggle sits inside the field so the
@@ -44,8 +44,8 @@ export function EmployeeKeyInput({
         <div className="relative flex-1 min-w-0">
           <input
             type={revealed ? 'text' : 'password'}
-            aria-label="Private employee key (hex or base64)"
-            placeholder="Paste your private employee key (hex or base64)"
+            aria-label="Access key (hex or base64)"
+            placeholder="Paste your access key"
             value={value}
             onChange={(e) => onChange(e.target.value)}
             onKeyDown={(e) => {
@@ -89,7 +89,7 @@ export function EmployeeKeyInput({
             processing ? 'opacity-80 animate-pulse cursor-wait' : '',
           ].join(' ')}
         >
-          {processing ? 'Scanning…' : 'Scan pool'}
+          {processing ? 'Checking…' : 'View my salary'}
         </button>
       </div>
 

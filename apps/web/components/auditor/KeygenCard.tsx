@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { generateAuditorKeypair, keyToBase64 } from 'viewkey'
-import { Copy, Check, Key } from '@phosphor-icons/react'
+import { Copy, Check, Key, Warning } from '@phosphor-icons/react'
 import { saveAuditorPublicKey, loadAuditorPublicKey } from '@/lib/auditorKeyStore'
 import { markStep } from '@/lib/progressStore'
 
@@ -83,8 +83,19 @@ export function KeygenCard() {
         ].join(' ')}
       >
         <Key size={16} weight="bold" aria-hidden />
-        {pubBase64 ? 'Regenerate keypair' : 'Generate keypair'}
+        {pubBase64 ? 'Regenerate view-key' : 'Generate view-key'}
       </button>
+
+      {/* Rotation footgun (A2): once the employer has your public key, regenerating
+          rotates it and any payroll already encrypted to the old key can no longer
+          be opened. Warn before the auditor does it. */}
+      {pubBase64 && (
+        <p className="flex items-start gap-1.5 text-xs text-accent-warm">
+          <Warning size={13} weight="fill" aria-hidden className="mt-0.5 shrink-0" />
+          Regenerating rotates your view-key. Payroll already encrypted to your
+          current key can no longer be opened.
+        </p>
+      )}
 
       {pubBase64 && (
         <div className="flex flex-col gap-4 pt-1">

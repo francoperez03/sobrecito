@@ -51,7 +51,7 @@ export function EmployeeNotesTable({
             data-testid="claim-disclosure"
             className="self-start rounded-full bg-accent-warm/10 text-accent-warm text-xs px-3 py-1.5"
           >
-            Once claimed, this amount is visible on-chain.
+            Once you cash out, this amount becomes visible on-chain.
           </div>
         )}
 
@@ -60,7 +60,7 @@ export function EmployeeNotesTable({
           <div className="grid grid-cols-[1fr_auto] gap-4 px-1 pb-2 border-b border-white/5">
             <span className="text-xs text-ink-muted uppercase tracking-widest">Amount</span>
             <span className="text-xs text-ink-muted uppercase tracking-widest text-right">
-              Claim
+              Cash out
             </span>
           </div>
 
@@ -118,7 +118,7 @@ function EmployeeRow({
           </span>
         )}
         <span className="font-mono text-[11px] text-ink-muted/60 truncate">
-          Ledger {note.ledger} · {note.txHash.slice(0, 8)}…{note.txHash.slice(-4)}
+          Payment #{i + 1}
         </span>
       </div>
 
@@ -130,10 +130,10 @@ function EmployeeRow({
             onClick={() => onClaim(note.index)}
             disabled={claiming}
             data-testid="claim-cta"
-            aria-label={`Claim salary for payment ${note.index}`}
+            aria-label={`Cash out payment ${i + 1}`}
             className="bg-accent-fill text-white font-[900] text-sm px-4 h-9 rounded-full hover:opacity-90 active:scale-[0.98] transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg disabled:opacity-70 whitespace-nowrap"
           >
-            {claiming ? 'Claiming…' : 'Claim'}
+            {claiming ? 'Cashing out…' : 'Cash out'}
           </button>
         )}
         {isClaimed && note.receiptTxHash && (
@@ -146,7 +146,7 @@ function EmployeeRow({
             className="inline-flex items-center gap-1.5 text-xs text-accent-soft hover:text-accent transition-colors whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded"
           >
             <span aria-hidden>✓</span>
-            <span>Claimed</span>
+            <span>Cashed out</span>
             <span className="font-mono text-ink-muted/60">
               {note.receiptTxHash.slice(0, 10)}…
             </span>

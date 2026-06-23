@@ -48,7 +48,7 @@ export function DashboardSummary({ notes }: DashboardSummaryProps) {
         transition={{ duration: 0.4, ease: EASE_BRAND, delay: 0.2 }}
       >
         <div className="flex flex-col gap-0.5">
-          <span className="text-xs text-ink-muted uppercase tracking-widest">Claimable</span>
+          <span className="text-xs text-ink-muted uppercase tracking-widest">Available</span>
           <span
             className="font-mono text-2xl text-ink"
             data-testid="summary-claimable"
@@ -58,7 +58,7 @@ export function DashboardSummary({ notes }: DashboardSummaryProps) {
         </div>
 
         <div className="flex flex-col gap-0.5">
-          <span className="text-xs text-ink-muted uppercase tracking-widest">Claimed</span>
+          <span className="text-xs text-ink-muted uppercase tracking-widest">Cashed out</span>
           <span
             className="font-mono text-2xl text-accent-soft"
             data-testid="summary-claimed"

@@ -38,6 +38,11 @@ export function explorerTxUrl(txHash: string): string {
   return getChainAdapter().explorerTxUrl(txHash)
 }
 
+/** Block-explorer (stellar.expert, testnet) contract URL for a Soroban contract id. */
+export function explorerContractUrl(contractId: string): string {
+  return `https://stellar.expert/explorer/testnet/contract/${contractId}`
+}
+
 /** Format USDC base units (7 decimals) as a human string, trimming trailing zeros.
  *  Uses BigInt() (not `0n`/`1n` literals) because the web tsconfig targets ES2017. */
 export function formatUsdc(base: bigint): string {

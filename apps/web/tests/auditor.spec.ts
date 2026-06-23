@@ -111,11 +111,11 @@ test.describe('Auditor console', () => {
     await page.goto('/auditor')
     await expect(
       page.getByRole('textbox', {
-        name: 'View-key (X25519 private key, base64)',
+        name: 'View-key',
       }),
     ).toBeVisible()
     await expect(
-      page.getByRole('button', { name: 'Reconstruct batch' }),
+      page.getByRole('button', { name: 'Reveal detail' }),
     ).toBeVisible()
     // D-09 disclosure is present (key stays client-side).
     await expect(
@@ -133,16 +133,16 @@ test.describe('Auditor console', () => {
     await page.goto('/auditor')
 
     await page
-      .getByRole('textbox', { name: 'View-key (X25519 private key, base64)' })
+      .getByRole('textbox', { name: 'View-key' })
       .fill(AUDITOR_PRIV)
-    await page.getByRole('button', { name: 'Reconstruct batch' }).click()
+    await page.getByRole('button', { name: 'Reveal detail' }).click()
 
     await expect(
-      page.getByText('✓ Totals match — batch is sound.'),
+      page.getByText(/Reconciled — every amount accounts for the total/),
     ).toBeVisible()
-    // A revealed batch section confirms the reconstruction path ran.
+    // A revealed pay-run section confirms the reveal path ran.
     await expect(
-      page.getByRole('heading', { name: /Batch · ledger/ }).first(),
+      page.getByRole('heading', { name: 'Pay run' }).first(),
     ).toBeVisible()
   })
 
@@ -156,9 +156,9 @@ test.describe('Auditor console', () => {
     await page.goto('/auditor')
 
     await page
-      .getByRole('textbox', { name: 'View-key (X25519 private key, base64)' })
+      .getByRole('textbox', { name: 'View-key' })
       .fill(AUDITOR_PRIV)
-    await page.getByRole('button', { name: 'Reconstruct batch' }).click()
+    await page.getByRole('button', { name: 'Reveal detail' }).click()
 
     // Revealed amount nodes carry both classes (the auditor reveal styling).
     const revealed = page.locator('.font-mono.text-accent-soft')
@@ -176,10 +176,10 @@ test.describe('Auditor console', () => {
     await page.goto('/auditor')
 
     const textarea = page.getByRole('textbox', {
-      name: 'View-key (X25519 private key, base64)',
+      name: 'View-key',
     })
     await textarea.fill('invalid-key')
-    await page.getByRole('button', { name: 'Reconstruct batch' }).click()
+    await page.getByRole('button', { name: 'Reveal detail' }).click()
 
     // Amber invalid ring is applied (the only invalid-input signal, no red).
     await expect(textarea).toHaveClass(/ring-accent-warm/)
@@ -188,7 +188,7 @@ test.describe('Auditor console', () => {
     await expect(page.getByTestId('auditor-empty')).toHaveCount(0)
     // The page is still alive: the input card and CTA remain interactive.
     await expect(
-      page.getByRole('button', { name: 'Reconstruct batch' }),
+      page.getByRole('button', { name: 'Reveal detail' }),
     ).toBeVisible()
   })
 
@@ -201,13 +201,13 @@ test.describe('Auditor console', () => {
     await page.goto('/auditor')
 
     const textarea = page.getByRole('textbox', {
-      name: 'View-key (X25519 private key, base64)',
+      name: 'View-key',
     })
     // A valid 32-byte hex key, but NOT the one the fixtures were encrypted to.
     await textarea.fill(
       '1111111111111111111111111111111111111111111111111111111111111111',
     )
-    await page.getByRole('button', { name: 'Reconstruct batch' }).click()
+    await page.getByRole('button', { name: 'Reveal detail' }).click()
 
     // Empty (informational) copy shows; the malformed-key copy does not.
     await expect(page.getByTestId('auditor-empty')).toBeVisible()
@@ -224,16 +224,12 @@ test.describe('Auditor console', () => {
     await page.goto('/auditor')
 
     await page
-      .getByRole('textbox', { name: 'View-key (X25519 private key, base64)' })
+      .getByRole('textbox', { name: 'View-key' })
       .fill(AUDITOR_PRIV)
-    await page.getByRole('button', { name: 'Reconstruct batch' }).click()
+    await page.getByRole('button', { name: 'Reveal detail' }).click()
 
-    await expect(
-      page.getByRole('heading', { name: /Batch · ledger 3110570/ }),
-    ).toBeVisible()
-    await expect(
-      page.getByRole('heading', { name: /Batch · ledger 3110580/ }),
-    ).toBeVisible()
+    // Two distinct pay-run sections, each with its own tx link.
+    await expect(page.getByRole('heading', { name: 'Pay run' })).toHaveCount(2)
     await expect(page.getByTestId('batch-txhash')).toHaveCount(2)
   })
 
@@ -243,11 +239,11 @@ test.describe('Auditor console', () => {
     await page.goto('/auditor')
 
     await page
-      .getByRole('textbox', { name: 'View-key (X25519 private key, base64)' })
+      .getByRole('textbox', { name: 'View-key' })
       .fill(AUDITOR_PRIV)
-    await page.getByRole('button', { name: 'Reconstruct batch' }).click()
+    await page.getByRole('button', { name: 'Reveal detail' }).click()
 
-    await expect(page.getByTestId('batch-txhash').first()).toContainText('tx ')
+    await expect(page.getByTestId('batch-txhash').first()).toContainText('↗')
   })
 
   // AUD-03: clicking Generate keypair shows a base64 public key and Copy CTA.
@@ -255,7 +251,7 @@ test.describe('Auditor console', () => {
     await page.goto('/auditor')
 
     await openKeygen(page)
-    await page.getByRole('button', { name: 'Generate keypair' }).click()
+    await page.getByRole('button', { name: 'Generate view-key' }).click()
 
     const pub = page.getByTestId('keygen-pubkey')
     await expect(pub).toBeVisible()
@@ -307,7 +303,7 @@ test.describe('Auditor console', () => {
     await page.goto('/auditor')
 
     await openKeygen(page)
-    await page.getByRole('button', { name: 'Generate keypair' }).click()
+    await page.getByRole('button', { name: 'Generate view-key' }).click()
 
     // Exactly one keygen-pubkey node (the public key); the private key is never rendered.
     const codeNodes = await page.locator('[data-testid="keygen-pubkey"]').count()
@@ -335,7 +331,7 @@ test.describe('Auditor console', () => {
     await page.goto('/auditor')
 
     await openKeygen(page)
-    await page.getByRole('button', { name: 'Generate keypair' }).click()
+    await page.getByRole('button', { name: 'Generate view-key' }).click()
 
     const copyPriv = page.getByTestId('keygen-copy-priv')
     await expect(copyPriv).toBeEnabled()
@@ -356,7 +352,7 @@ test.describe('Auditor console', () => {
     expect(after).toBe(before)
 
     // Regenerating rotates the keypair and re-arms the one-shot copy.
-    await page.getByRole('button', { name: 'Regenerate keypair' }).click()
+    await page.getByRole('button', { name: 'Regenerate view-key' }).click()
     await expect(copyPriv).toBeEnabled()
   })
 
@@ -365,7 +361,7 @@ test.describe('Auditor console', () => {
   test('persists the public key and pre-fills it on remount', async ({ page }) => {
     await page.goto('/auditor')
     await openKeygen(page)
-    await page.getByRole('button', { name: 'Generate keypair' }).click()
+    await page.getByRole('button', { name: 'Generate view-key' }).click()
 
     const pubText = ((await page.getByTestId('keygen-pubkey').textContent()) ?? '').trim()
     expect(pubText.length).toBeGreaterThan(0)

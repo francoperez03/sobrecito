@@ -31,10 +31,10 @@ export interface ClaimStepperProps {
 // ---------------------------------------------------------------------------
 
 const STEPS = [
-  { key: 'fetching-proof', label: '1. Fetching Merkle proof' },
-  { key: 'downloading',    label: '2. Downloading proving engine' },
-  { key: 'proving',        label: '3. Generating ZK proof' },
-  { key: 'signing',        label: '4. Sign in Freighter' },
+  { key: 'fetching-proof', label: '1. Preparing your payment' },
+  { key: 'downloading',    label: '2. Loading the prover' },
+  { key: 'proving',        label: '3. Proving it’s yours, privately' },
+  { key: 'signing',        label: '4. Confirm in Freighter' },
 ] as const
 
 function stepIndex(phase: string): number {
@@ -76,15 +76,15 @@ export function ClaimStepper({ step }: ClaimStepperProps) {
           <div>
             {isDone ? (
               <h3 className="text-h3 font-[900] tracking-[-0.01em] leading-[1.15] text-accent-soft">
-                Salary claimed.
+                Cashed out.
               </h3>
             ) : isError ? (
               <h3 className="text-h3 font-[900] tracking-[-0.01em] leading-[1.15] text-accent-warm">
-                Claim failed
+                Cash out failed
               </h3>
             ) : (
               <h3 className="text-h3 font-[900] tracking-[-0.01em] leading-[1.15]">
-                Claiming salary
+                Cashing out
               </h3>
             )}
           </div>
@@ -131,7 +131,7 @@ export function ClaimStepper({ step }: ClaimStepperProps) {
                           transition={{ duration: 0.25, ease: EASE_BRAND }}
                         >
                           <span className="text-xs text-ink-muted animate-pulse">
-                            Fetching Merkle path from pool…
+                            Preparing your payment…
                           </span>
                         </motion.div>
                       )}
@@ -258,7 +258,7 @@ export function ClaimStepper({ step }: ClaimStepperProps) {
             step.phase === 'downloading' ||
             step.phase === 'proving') && (
             <div className="bg-accent-warm/10 text-accent-warm text-xs px-3 py-2 rounded-full self-start">
-              Demo PoC · testnet · claiming reveals the amount on-chain.
+              Demo PoC · testnet · cashing out reveals the amount on-chain.
             </div>
           )}
 
