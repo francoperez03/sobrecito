@@ -394,10 +394,10 @@ test.describe('Employee dashboard', () => {
       .fill(EMPLOYEE_TEST_SEED_HEX)
     await page.getByRole('button', { name: 'View my salary' }).click()
 
-    // Three NoteCards with the fixture ledger numbers.
-    await expect(page.getByText(/Ledger 3110500/)).toBeVisible({ timeout: 15000 })
-    await expect(page.getByText(/Ledger 3110501/)).toBeVisible()
-    await expect(page.getByText(/Ledger 3110502/)).toBeVisible()
+    // Three payment rows, numbered by position.
+    await expect(page.getByText('Payment #1')).toBeVisible({ timeout: 15000 })
+    await expect(page.getByText('Payment #2')).toBeVisible()
+    await expect(page.getByText('Payment #3')).toBeVisible()
 
     // Each note is pending (isSpent=false default): one Claim button per row.
     await expect(page.getByTestId('claim-cta')).toHaveCount(3)
@@ -508,7 +508,10 @@ test.describe('Employee dashboard', () => {
       .fill(EMPLOYEE_TEST_SEED_HEX)
     await page.getByRole('button', { name: 'View my salary' }).click()
 
-    await expect(page.getByTestId('receipt-link')).toBeVisible({ timeout: 15000 })
+    // All notes already cashed out (scanned as spent, no interactive receipt):
+    // no claim CTAs, and the counter reflects every note as cashed out.
+    await expect(page.getByTestId('summary-counter')).toBeVisible({ timeout: 15000 })
+    await expect(page.getByTestId('summary-counter')).toHaveText('3 / 3')
     await expect(page.getByTestId('claim-cta')).toHaveCount(0)
   })
 
@@ -548,6 +551,8 @@ test.describe('Employee dashboard', () => {
     // Before generating, neither value is present.
     await expect(page.getByTestId('keygen-seed')).toHaveCount(0)
 
+    // Creating a key is name-gated: name it first, then the button enables.
+    await page.getByTestId('keygen-alias-input').fill('Ana')
     await page.getByTestId('keygen-generate').click()
 
     // Public key surfaces visibly; the seed is present (sr-only) but not shown.
@@ -559,7 +564,8 @@ test.describe('Employee dashboard', () => {
     const seedText = ((await seedEl.textContent()) ?? '').trim()
     const pubText = ((await pubEl.textContent()) ?? '').trim()
     expect(seedText).toMatch(/^[0-9a-f]{64}$/)
-    expect(pubText).toMatch(/^[0-9a-f]{64}$/)
+    // Payment address = x25519Pub (64 hex) || bn254Pub (64 hex) = 128 hex.
+    expect(pubText).toMatch(/^[0-9a-f]{128}$/)
     // A random seed is overwhelmingly not all-zeros.
     expect(seedText).not.toBe('0'.repeat(64))
 
