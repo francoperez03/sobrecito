@@ -1,10 +1,10 @@
 /**
- * csvParser.ts — browser-safe port of packages/cli/src/pipeline/parseCSV.ts.
+ * csvParser.ts — browser-safe CSV parser for payroll.
  *
  * Accepts a string (from FileReader.readAsText or a <textarea>) and returns
  * typed PayrollRow[]. Columns: name, amount, public_key.
  *
- * Key differences from the Node CLI version:
+ * Browser-safe by design:
  *   - No readFileSync, no csv-parse/sync (both Node-only).
  *   - No hard 8-row limit: the UI enforces the note budget via decompose().
  *   - name is display-only; NEVER passed to shell/SQL/eval (T-06.2-05).

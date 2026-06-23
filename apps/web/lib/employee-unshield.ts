@@ -29,9 +29,9 @@ export interface NoteMeta {
   notePrivkeyHex: string
   /** Note blinding factor (decimal string) bound into the commitment. */
   blinding: string
-  /** Pre-generated withdrawal proof (base64 chain-native) embedded by `sobre pay`. */
+  /** Pre-generated withdrawal proof (base64 chain-native) embedded by the employer pipeline. */
   withdrawProofXdr?: string
-  /** Pre-generated ext_data (base64 chain-native) embedded by `sobre pay`. */
+  /** Pre-generated ext_data (base64 chain-native) embedded by the employer pipeline. */
   withdrawExtDataXdr?: string
 }
 
