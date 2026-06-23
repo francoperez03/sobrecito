@@ -70,6 +70,11 @@ export interface ExtDataInput {
  * Semantic public-input values that the on-chain `Proof` carries. These are the
  * SAME values the proof was generated against; the adapter encodes them into the
  * chain's proof representation.
+ *
+ * UltraHonk / sobre_slim (D2 scope): ASP membership fields dropped. The Proof
+ * struct now carries two opaque blobs (public_inputs + proof_bytes) in addition
+ * to the structured fields the pool validates independently (root, nullifiers,
+ * commitments, public_amount, ext_data_hash).
  */
 export interface ProofPublicInputs {
   /** Pool Merkle root the proof targets. */
@@ -82,17 +87,26 @@ export interface ProofPublicInputs {
   inputNullifiers: U256Like[]
   /** Output commitments. */
   outputCommitments: U256Like[]
-  // TODO(plan-03): remove these fields — sobre_slim (D2 scope) drops ASP checks.
-  // Made optional so plan 09.1-02 can compile ASP-free; plan 03 Task 2 removes them.
-  /** ASP membership root (self-consistent reconstructed root). @deprecated plan-03 removes */
-  aspMembershipRoot?: U256Like
-  /** ASP non-membership root (empty SMT → 0). @deprecated plan-03 removes */
-  aspNonMembershipRoot?: U256Like
+  /**
+   * 384-byte public-inputs blob from bb (12 × 32-byte big-endian U256 fields):
+   *   [root, public_amount, ext_data_hash, input_nullifier,
+   *    output_commitment_0 .. output_commitment_7]
+   * Passed directly to the UltraHonk verifier via the pool's Proof.public_inputs.
+   */
+  publicInputsBlob: Uint8Array
+  /**
+   * 14592-byte UltraHonk proof blob from bb 0.87.0. Passed directly to the
+   * verifier via the pool's Proof.proof_bytes.
+   */
+  proofBytes: Uint8Array
 }
 
 /** Arguments for an employer deposit (employer funds the pool). */
 export interface DepositArgs {
-  /** 256-byte Groth16 proof (A||B||C) from the in-browser prover. */
+  /**
+   * 14592-byte UltraHonk proof blob from bb 0.87.0 (passed as Proof.proof_bytes
+   * on-chain). The 384-byte public-inputs blob travels in publicInputs.publicInputsBlob.
+   */
   proof: Uint8Array
   /** Public inputs the proof was generated against. */
   publicInputs: ProofPublicInputs
