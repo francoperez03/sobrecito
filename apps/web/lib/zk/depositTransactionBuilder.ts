@@ -1,5 +1,5 @@
 /**
- * depositTransactionBuilder.ts — 1→8 deposit witness assembly for policy_tx_1_8.
+ * depositTransactionBuilder.ts — 1→8 deposit witness assembly for sobre_slim (Noir ABI).
  *
  * Two exports (chain-agnostic domain logic — the ext_data_hash encoding moved to
  * lib/chain/stellar/encoding.ts, reached via getChainAdapter().encoding.hashExtData):
@@ -9,9 +9,25 @@
  *                        SINGLE CALL SITE: blobs frozen once, never regenerated.
  *                        The same blindings MUST flow into buildDepositInputs so the
  *                        output commitments match the encrypted note contents (Pitfall 2).
- *   buildDepositInputs — assemble the full witness input object for the browser prover
- *                        (1 dummy input, 8 real outputs) using the blindings returned
- *                        by buildFrozenBlobs.
+ *   buildDepositInputs — assemble the full witness input object for the Noir prover
+ *                        (1 dummy in, 8 real out) using the pool-aligned Poseidon2
+ *                        from poseidon2Pool.ts. Returns the exact sobre_slim Noir ABI
+ *                        with snake_case keys and NO ASP fields.
+ *
+ * Noir ABI (sobre_slim/src/main.nr):
+ *   Public (12 flat scalar strings):
+ *     root, public_amount, ext_data_hash, input_nullifier,
+ *     output_commitment_0..output_commitment_7
+ *   Private:
+ *     in_amount: string           (scalar, '0' for dummy deposit)
+ *     in_private_key: string      (scalar, DUMMY_PRIVKEY=424242)
+ *     in_blinding: string         (scalar)
+ *     in_path_indices: string     (scalar bitmask)
+ *     in_path_elements: string[10] (flat, not nested)
+ *     in_path_bits: string[10]    (bit-decomposition of in_path_indices)
+ *     out_amount: string[8]
+ *     out_pub_key: string[8]
+ *     out_blinding: string[8]
  *
  * ES2017 only: BigInt() calls, never 0n/1n/…617n literals.
  * No default export — callers import named functions.
@@ -19,21 +35,17 @@
 
 import { encryptNote, buildEncryptedOutputs, BN254_FIELD_MODULUS } from 'viewkey'
 import type { DenomNote } from './denominationBuilder'
+import { hash1WithSep, hash3WithSep } from './poseidon2Pool'
 
 // ---------------------------------------------------------------------------
 // BN254 constants (ES2017: no BigInt literals, use BigInt() constructor)
 // ---------------------------------------------------------------------------
 const BN254_MOD = BigInt('21888242871839275222246405745257275088548364400416034343698204186575808495617')
 
-// The employer (deposit) private key. The circuit treats inAmount=0 as a dummy
-// input so the Merkle membership check against the pool is disabled, BUT the ASP
-// POLICY checks (membership + non-membership) run unconditionally for every input
-// (policyTransaction.circom lines 127-170). The membership leaf at index 8 of the
-// on-chain ASP membership tree is Poseidon2(pubkey(424242), 0, domainSep=1), so the
-// witness must derive its public key from THIS exact private key or the membership
-// constraint (line 134) and the non-membership key constraint (line 154) fail and
-// the proof is locally invalid. Aligned with the Rust payroll-proof-gen reference
-// (priv_key = Scalar::from(424242u64)) and ops/scripts/measure-verify-cost.sh.
+// The employer (deposit) private key. For sobre_slim (Noir ABI, D2 scope): the
+// ASP policy checks are intentionally dropped. The deposit uses in_amount=0 (dummy
+// input), so the Merkle membership check is skipped by the circuit (main.nr:81-84).
+// DUMMY_PRIVKEY=424242 is aligned with the Rust payroll-proof-gen reference.
 const DUMMY_PRIVKEY = BigInt(424242)
 
 // ---------------------------------------------------------------------------
@@ -116,11 +128,11 @@ export async function buildFrozenBlobs(
 }
 
 // ---------------------------------------------------------------------------
-// buildDepositInputs — witness input assembly for policy_tx_1_8
+// buildDepositInputs — Noir ABI witness for sobre_slim (1 dummy in, 8 real out)
 // ---------------------------------------------------------------------------
 
 /**
- * Inputs to buildDepositInputs.
+ * Inputs to buildDepositInputs (Noir ABI shape — no ASP fields).
  *
  * `blindings`    — the SAME array returned by buildFrozenBlobs. These MUST be
  *                  the blindings used when encrypting the notes (Pitfall 2).
@@ -133,90 +145,67 @@ export interface DepositInputsParams {
   encOutputs: Uint8Array[]
   extDataHash: bigint
   poolRoot: string
-  aspMemberRoot: string
-  aspNonMemberRoot: string
   senderAddress: string
   dummyBlinding: bigint
-  /**
-   * Pre-computed Poseidon2 output commitments from the WASM bridge
-   * (compute_commitment(amount, pubkey, blinding) × 8).
-   *
-   * If provided, these values are used INSTEAD of the pure-JS placeholder
-   * computeCommitmentPure(). Wave 3 MUST provide these for actual proof generation.
-   * The unit tests omit this field (pure-JS fallback is sufficient for shape checks).
-   */
-  precomputedCommitments?: bigint[]
-  /**
-   * Pre-computed Poseidon2 nullifier from the WASM bridge
-   * (compute_nullifier(DUMMY_PRIVKEY, dummyBlinding)).
-   *
-   * If provided, used instead of computeNullifierPure(). Wave 3 MUST provide
-   * this for actual proof generation.
-   */
-  precomputedNullifier?: bigint
-  /**
-   * Pre-computed ASP policy-proof data from the WASM bridge for the dummy input.
-   *
-   * The policy circuit verifies a membership proof and a non-membership proof for
-   * EVERY input regardless of inAmount (policyTransaction.circom lines 127-170), so
-   * the deposit's dummy input still needs valid proofs against the live ASP trees:
-   *   - publicKey:   Poseidon2(DUMMY_PRIVKEY, 0, domainSep=3) — the circuit's
-   *                  inKeypair.publicKey. Used as the membership leaf preimage AND
-   *                  as the non-membership key (constraint at line 154).
-   *   - leaf:        Poseidon2(publicKey, 0, domainSep=1) — the on-chain employer
-   *                  leaf at ASP membership index 8 (constraint at line 134).
-   *   - pathElements/pathIndices: Merkle path for index 8, reconstructed from the
-   *                  known on-chain ASP membership tree (1024 leaves, empty = the
-   *                  Poseidon2("XLM") zero leaf, leaves[0..7]=1..8, leaf[8]=leaf).
-   *                  The computed root must equal aspMemberRoot (constraint at 144).
-   *
-   * If omitted (unit-test context), the builder emits zero placeholders that DO
-   * NOT satisfy the policy constraints — only valid for shape checks, never for a
-   * real proof. Wave 3 / PayrollComposer MUST provide this.
-   */
-  precomputedMembership?: {
-    publicKey: bigint
-    leaf: bigint
-    pathElements: string[]
-    pathIndices: string
-  }
 }
 
 /**
- * Assemble the witness input object for the policy_tx_1_8 prover.
+ * Return type of buildDepositInputs: the exact sobre_slim Noir ABI witness.
+ *
+ * Public inputs (12 flat scalar strings — bb 0.87 returns them as 12 fields):
+ *   root, public_amount, ext_data_hash, input_nullifier, output_commitment_0..7
+ * Private inputs:
+ *   in_amount, in_private_key, in_blinding, in_path_indices (scalar strings)
+ *   in_path_elements (string[10] flat), in_path_bits (string[10] bit-decomposed)
+ *   out_amount, out_pub_key, out_blinding (string[8])
+ */
+export interface DepositWitness {
+  // Public
+  root: string
+  public_amount: string
+  ext_data_hash: string
+  input_nullifier: string
+  output_commitment_0: string
+  output_commitment_1: string
+  output_commitment_2: string
+  output_commitment_3: string
+  output_commitment_4: string
+  output_commitment_5: string
+  output_commitment_6: string
+  output_commitment_7: string
+  // Private
+  in_amount: string
+  in_private_key: string
+  in_blinding: string
+  in_path_indices: string
+  in_path_elements: string[]
+  in_path_bits: string[]
+  out_amount: string[]
+  out_pub_key: string[]
+  out_blinding: string[]
+}
+
+/**
+ * Assemble the witness input object for the sobre_slim Noir prover.
  *
  * Circuit shape: 1 dummy input → 8 real outputs.
- *   - inAmount=['0'] disables the Merkle membership check (deposit path).
+ *   - in_amount='0' disables the Merkle membership check (deposit path, main.nr:81-84).
+ *   - DUMMY_PRIVKEY=424242 as in_private_key for the dummy input.
  *   - dummyBlinding: fresh per run (prevents AlreadySpentNullifier on the dummy nullifier).
- *   - publicAmount: sum of all 8 output note denominations (as field element).
- *   - outputCommitment[i]: Poseidon2(denomination, outPubkey, blindings[i]).
- *     In the browser, the WASM bridge computes this; in the witness builder the
- *     commitment values are passed as decimal strings.
+ *   - public_amount: sum of all 8 output note denominations (as field element).
+ *   - output_commitment_i: hash3WithSep(denomination, outPubKey, blindings[i], 1).
+ *   - input_nullifier: the circuit hash chain for in_amount=0:
+ *       pub_key = hash1WithSep(DUMMY_PRIVKEY, 3n)
+ *       in_commitment = hash3WithSep(0n, pub_key, dummyBlinding, 1n)
+ *       sig = hash3WithSep(DUMMY_PRIVKEY, in_commitment, 0n, 4n)
+ *       input_nullifier = hash3WithSep(in_commitment, 0n, sig, 2n)
  *
  * All values are returned as decimal strings (the witness generator expects strings).
+ * No ASP fields — D2 scope, sobre_slim intentionally drops the allowlist proofs.
  */
-export function buildDepositInputs(params: DepositInputsParams): {
-  root: string
-  publicAmount: string
-  extDataHash: string
-  inputNullifier: string[]
-  outputCommitment: string[]
-  membershipRoots: string[][]
-  nonMembershipRoots: string[][]
-  inAmount: string[]
-  inPrivateKey: string[]
-  inBlinding: string[]
-  inPathIndices: string[]
-  inPathElements: string[][]
-  membershipProofs: Array<Array<{ leaf: string; blinding: string; pathElements: string[]; pathIndices: string }>>
-  nonMembershipProofs: Array<Array<{ key: string; siblings: string[]; oldKey: string; oldValue: string; isOld0: string }>>
-  outAmount: string[]
-  outPubkey: string[]
-  outBlinding: string[]
-} {
+export function buildDepositInputs(params: DepositInputsParams): DepositWitness {
   const {
-    notes, blindings, extDataHash, poolRoot, aspMemberRoot, aspNonMemberRoot,
-    dummyBlinding, precomputedCommitments, precomputedNullifier, precomputedMembership,
+    notes, blindings, extDataHash, poolRoot, dummyBlinding,
   } = params
 
   if (notes.length !== 8) {
@@ -226,81 +215,60 @@ export function buildDepositInputs(params: DepositInputsParams): {
     throw new Error(`buildDepositInputs: expected exactly 8 blindings, got ${blindings.length}`)
   }
 
-  // publicAmount = sum of denominations, reduced as a field element
+  // public_amount = sum of denominations, reduced as a BN254 field element
   const extAmount = notes.reduce((s, n) => s + n.denomination, BigInt(0))
-  const publicAmount = toFieldElement(extAmount).toString()
+  const public_amount = toFieldElement(extAmount).toString()
 
-  // Dummy input nullifier: Poseidon2(DUMMY_PRIVKEY, dummyBlinding) from WASM bridge.
-  // If not pre-computed (unit test context), falls back to a deterministic placeholder.
-  // Wave 3 MUST provide precomputedNullifier for actual proof generation.
-  const inputNullifier = (
-    precomputedNullifier ?? computeNullifierPure(DUMMY_PRIVKEY, dummyBlinding)
-  ).toString()
+  // Dummy input nullifier via the circuit's exact hash chain (main.nr:64-74):
+  //   pub_key = hash1WithSep(DUMMY_PRIVKEY, 3n)
+  //   in_commitment = hash3WithSep(0n, pub_key, dummyBlinding, 1n)
+  //   sig = hash3WithSep(DUMMY_PRIVKEY, in_commitment, 0n, 4n)
+  //   input_nullifier = hash3WithSep(in_commitment, 0n, sig, 2n)
+  // in_path_indices=0 for the deposit dummy input (Merkle check skipped).
+  const pub_key = hash1WithSep(DUMMY_PRIVKEY, BigInt(3))
+  const in_commitment = hash3WithSep(BigInt(0), pub_key, dummyBlinding, BigInt(1))
+  const sig = hash3WithSep(DUMMY_PRIVKEY, in_commitment, BigInt(0), BigInt(4))
+  const input_nullifier = hash3WithSep(in_commitment, BigInt(0), sig, BigInt(2)).toString()
 
-  // Output commitments: Poseidon2(denomination, outPubkey, blinding) from WASM bridge.
-  // If not pre-computed (unit test context), falls back to a deterministic placeholder.
-  // Wave 3 MUST provide precomputedCommitments for actual proof generation.
-  const outputCommitment = notes.map((n, i) =>
-    (precomputedCommitments?.[i] ?? computeCommitmentPure(n.denomination, n.outPubkey, blindings[i])).toString(),
+  // Output commitments: hash3WithSep(denomination, outPubKey, blinding, 1) (main.nr:93)
+  const outputCommitments = notes.map((n, i) =>
+    hash3WithSep(n.denomination, n.outPubkey, blindings[i], BigInt(1)).toString(),
   )
 
+  // in_path_bits: bit-decomposition of in_path_indices (0 for deposit).
+  // For dummy deposit, all bits are '0'.
+  const in_path_bits = Array(10).fill('0')
+
   return {
-    // public inputs
+    // 12 public inputs (flat scalar strings)
     root: poolRoot,
-    publicAmount,
-    extDataHash: extDataHash.toString(),
-    inputNullifier: [inputNullifier],
-    outputCommitment,
-    membershipRoots: [[aspMemberRoot]],
-    nonMembershipRoots: [[aspNonMemberRoot]],
-    // private inputs
-    inAmount: ['0'],
-    inPrivateKey: [DUMMY_PRIVKEY.toString()],
-    inBlinding: [dummyBlinding.toString()],
-    inPathIndices: ['0'],
-    inPathElements: [Array(10).fill('0')],
-    // ASP policy proofs for the dummy input. The circuit runs these checks for
-    // every input unconditionally (no inAmount gate), so the deposit's dummy
-    // input needs a VALID membership proof against the on-chain ASP membership
-    // tree and a non-membership proof against the (empty) ASP non-membership SMT.
-    //
-    //   - membership.leaf  = Poseidon2(pubkey, 0, domainSep=1) (the on-chain
-    //     employer leaf at index 8). membership.blinding = 0 (matches the leaf).
-    //   - membership.pathElements/pathIndices: path for index 8 reconstructed from
-    //     the known on-chain tree; its computed root equals aspMemberRoot.
-    //   - non-membership.key = the SAME real pubkey (constraint at circuit line 154).
-    //     The on-chain SMT is empty (root 0), so isOld0=1, oldKey/oldValue=0,
-    //     siblings all 0 — a valid non-inclusion proof for any key.
-    //
-    // Without precomputedMembership (unit tests) we fall back to zero placeholders,
-    // which DO NOT satisfy the constraints — shape checks only, never a real proof.
-    membershipProofs: [[
-      precomputedMembership
-        ? {
-            leaf: precomputedMembership.leaf.toString(),
-            blinding: '0',
-            pathElements: precomputedMembership.pathElements,
-            pathIndices: precomputedMembership.pathIndices,
-          }
-        : { leaf: '0', blinding: '0', pathElements: Array(10).fill('0'), pathIndices: '0' },
-    ]],
-    nonMembershipProofs: [[
-      {
-        key: precomputedMembership ? precomputedMembership.publicKey.toString() : '0',
-        siblings: Array(10).fill('0'),
-        oldKey: '0',
-        oldValue: '0',
-        isOld0: '1',
-      },
-    ]],
-    outAmount: notes.map(n => n.denomination.toString()),
-    outPubkey: notes.map(n => n.outPubkey.toString()),
-    outBlinding: blindings.map(b => b.toString()),
+    public_amount,
+    ext_data_hash: extDataHash.toString(),
+    input_nullifier,
+    output_commitment_0: outputCommitments[0],
+    output_commitment_1: outputCommitments[1],
+    output_commitment_2: outputCommitments[2],
+    output_commitment_3: outputCommitments[3],
+    output_commitment_4: outputCommitments[4],
+    output_commitment_5: outputCommitments[5],
+    output_commitment_6: outputCommitments[6],
+    output_commitment_7: outputCommitments[7],
+    // Private inputs (scalar strings)
+    in_amount: '0',
+    in_private_key: DUMMY_PRIVKEY.toString(),
+    in_blinding: dummyBlinding.toString(),
+    in_path_indices: '0',
+    in_path_elements: Array(10).fill('0'),
+    in_path_bits,
+    // 8 output notes
+    out_amount: notes.map(n => n.denomination.toString()),
+    out_pub_key: notes.map(n => n.outPubkey.toString()),
+    out_blinding: blindings.map(b => b.toString()),
   }
 }
 
 // ---------------------------------------------------------------------------
-// Pure-JS fallbacks (used in node/test context; WASM versions used in browser)
+// Helpers
 // ---------------------------------------------------------------------------
 
 /**
@@ -311,32 +279,6 @@ function toFieldElement(v: bigint): bigint {
   const mod = BN254_MOD
   return ((v % mod) + mod) % mod
 }
-
-/**
- * Pure-JS nullifier placeholder for the dummy input note.
- * In the browser WASM bridge, compute_nullifier uses Poseidon2.
- * Here we use a deterministic fallback: (privKey * 2^128 + blinding) mod BN254.
- * This MUST be overridden with the WASM Poseidon2 result in the actual proof flow.
- */
-function computeNullifierPure(privKey: bigint, blinding: bigint): bigint {
-  // Deterministic placeholder: xor of privKey and blinding, mod BN254
-  return toFieldElement(privKey + blinding * BigInt('0x100000000'))
-}
-
-/**
- * Pure-JS commitment placeholder.
- * In the browser WASM bridge, compute_commitment uses Poseidon2(amount, pubkey, blinding).
- * Here we use a deterministic fallback for the unit test context.
- * The ACTUAL Poseidon2 computation happens via the WASM bridge when the proof is generated.
- */
-function computeCommitmentPure(amount: bigint, pubkey: bigint, blinding: bigint): bigint {
-  // Deterministic placeholder: (amount + pubkey + blinding) mod BN254
-  return toFieldElement(amount + pubkey + blinding)
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 /** Decode a 64-char hex string to a 32-byte Uint8Array. */
 function hexToBytes32(hex: string): Uint8Array {
@@ -364,3 +306,7 @@ function generateRandomBlinding(): bigint {
   }
   return v % BN254_MOD
 }
+
+// Suppress unused import warning — BN254_FIELD_MODULUS is imported for
+// any callers that may have previously relied on this re-export.
+void BN254_FIELD_MODULUS
