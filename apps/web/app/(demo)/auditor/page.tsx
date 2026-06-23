@@ -345,7 +345,8 @@ export default function AuditorPage() {
                     <BatchGroupHeader
                       ledger={group.ledger}
                       txHash={group.txHash}
-                      noteCount={group.notes.length}
+                      paymentCount={group.notes.filter((n) => n.amount > BigInt(0)).length}
+                      paddingCount={group.notes.filter((n) => n.amount === BigInt(0)).length}
                       subSum={group.notes.reduce((a, n) => a + n.amount, BigInt(0))}
                     />
                     <AuditorTable notes={group.notes} reconstructed={reconstructed} />
