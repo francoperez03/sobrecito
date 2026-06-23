@@ -108,6 +108,8 @@ export interface WithdrawWitness {
   out_amount: string[]
   out_pub_key: string[]
   out_blinding: string[]
+  // Index signature required for dynamic key access (output_commitment_N lookups)
+  [key: string]: string | string[]
 }
 
 // ---------------------------------------------------------------------------
