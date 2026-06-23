@@ -17,6 +17,11 @@ soroban-utils.workspace = true
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
+# External, UNAUDITED UltraHonk verifier (rs-soroban-ultrahonk). Used ONLY by the
+# real-proof e2e test (transact_with_real_ultrahonk_proof) to exercise verify_proof
+# against a genuine bb 0.87.0 proof. It is NOT part of the pool's runtime build
+# (the deployed pool delegates to the on-chain UltraHonkVerifierContract by address).
+rs-soroban-ultrahonk = { path = "../../../../../rs-soroban-ultrahonk/contracts/rs-soroban-ultrahonk" }
 
 [lints]
 workspace = true

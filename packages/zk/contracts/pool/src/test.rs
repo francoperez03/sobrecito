@@ -515,7 +515,6 @@ fn transact_rejects_reused_nullifier() {
 #[test]
 #[ignore]
 fn print_demo_ext_data_hash() {
-    use soroban_sdk::testutils::Address as _;
     let env = test_env();
 
     let deployer_strkey = "GBWJZZ3XSNAY3WLFNLXUZXEEYMZCYVG4TW6Z5VSASJS2TOWF7GGPPKMW";
@@ -603,4 +602,118 @@ fn print_real_batch_ext_data_hash() {
         .collect::<std::vec::Vec<_>>()
         .join("");
     std::println!("ext_data_hash_hex={hex}");
+}
+
+// ─── Real UltraHonk e2e (verify ZK real, no mock) ──────────────────────────────
+
+/// Raw `bb 0.87.0` artifacts for the `sobre_slim` circuit, generated from
+/// `circuits/sobre_slim/Prover.toml` (in_amount=0, public_amount=0, root = the
+/// empty-tree root of a fresh depth-10 pool, recipient = mikey, 8 empty outputs).
+/// See `packages/zk/README.md` for the regeneration command (`nargo execute` +
+/// `bb prove`/`write_vk --oracle_hash keccak`).
+const REAL_PROOF: &[u8] = include_bytes!("../../../testdata/sobre_slim_real.proof.bin");
+const REAL_PUBLIC_INPUTS: &[u8] =
+    include_bytes!("../../../testdata/sobre_slim_real.public_inputs.bin");
+const REAL_VK: &[u8] = include_bytes!("../../../testdata/sobre_slim_real.vk.bin");
+
+/// Read field `i` (0-based) from the 384-byte public-inputs blob as a U256.
+/// Layout: 12 fields × 32 bytes, big-endian (root, public_amount, ext_data_hash,
+/// input_nullifier, output_commitment_0..7).
+fn read_pi_field(env: &Env, i: usize) -> U256 {
+    let start = i.checked_mul(32).expect("field offset overflow");
+    let slice = &REAL_PUBLIC_INPUTS[start..start.checked_add(32).expect("overflow")];
+    let mut buf = [0u8; 32];
+    buf.copy_from_slice(slice);
+    U256::from_be_bytes(env, &Bytes::from_array(env, &buf))
+}
+
+/// PROOF-08 (A3 soundness): a REAL UltraHonk proof verifies on-chain through the
+/// genuine `rs-soroban-ultrahonk` verifier contract, exercising `verify_proof()`
+/// end to end (not a mock). The pool registers the real verifier with the
+/// `sobre_slim` VK, then `transact()` passes all public-input checks AND the ZK
+/// verification.
+///
+/// Witness (Prover.toml): no input note (in_amount=0), public_amount=0 (reshield,
+/// no USDC transfer, respects the 1-USDC testnet cap), recipient = mikey, 8 empty
+/// encrypted_outputs. The proof's `root` is the empty-tree root of a freshly
+/// constructed depth-10 pool, so the on-chain Merkle history check passes without
+/// any prior insert.
+#[test]
+fn transact_with_real_ultrahonk_proof() {
+    use rs_soroban_ultrahonk::UltraHonkVerifierContract;
+
+    let env = test_env();
+    let admin = Address::generate(&env);
+    let token = register_mock_token(&env);
+
+    // Register the REAL (external, unaudited) UltraHonk verifier with the
+    // sobre_slim VK. The constructor validates the VK bytes.
+    let vk_bytes = Bytes::from_slice(&env, REAL_VK);
+    let verifier = env.register(UltraHonkVerifierContract, (vk_bytes,));
+
+    // levels=10 matches the circuit's depth-10 Merkle tree (sobre_slim main.nr).
+    let levels = 10u32;
+    let pool_id = register_pool(&env, &admin, &token, &verifier, levels);
+    let pool = PoolContractClient::new(&env, &pool_id);
+
+    // The fresh pool's empty-tree root must equal the proof's `root` public input;
+    // otherwise the Merkle-history check would reject before reaching verify.
+    let pi_root = read_pi_field(&env, 0);
+    assert_eq!(
+        pool.get_root(),
+        pi_root,
+        "fresh depth-10 pool root must match the proof's root public input"
+    );
+
+    // ExtData that hashes to the proof's `ext_data_hash` (field 2): recipient =
+    // mikey deployer, ext_amount=0, 8 empty encrypted_outputs.
+    let deployer_strkey = "GBWJZZ3XSNAY3WLFNLXUZXEEYMZCYVG4TW6Z5VSASJS2TOWF7GGPPKMW";
+    let recipient = Address::from_str(&env, deployer_strkey);
+    let mut encrypted_outputs: Vec<Bytes> = Vec::new(&env);
+    for _ in 0..8u32 {
+        encrypted_outputs.push_back(Bytes::new(&env));
+    }
+    let ext = ExtData {
+        recipient,
+        ext_amount: I256::from_i32(&env, 0),
+        encrypted_outputs,
+    };
+
+    // Sanity: the ExtData hash matches the proof's ext_data_hash public input.
+    let ext_hash = compute_ext_hash(&env, &ext);
+    let pi_ext_hash = read_pi_field(&env, 2);
+    assert_eq!(
+        U256::from_be_bytes(&env, &Bytes::from(ext_hash.clone())),
+        pi_ext_hash,
+        "ExtData hash must match the proof's ext_data_hash public input"
+    );
+
+    // Structured Proof fields (read from the same public-inputs blob the verifier sees).
+    let public_amount = read_pi_field(&env, 1);
+    let mut input_nullifiers: Vec<U256> = Vec::new(&env);
+    input_nullifiers.push_back(read_pi_field(&env, 3));
+    let mut output_commitments: Vec<U256> = Vec::new(&env);
+    for i in 0..8usize {
+        output_commitments.push_back(read_pi_field(&env, 4usize.checked_add(i).unwrap()));
+    }
+
+    let proof = Proof {
+        public_inputs: Bytes::from_slice(&env, REAL_PUBLIC_INPUTS),
+        proof_bytes: Bytes::from_slice(&env, REAL_PROOF),
+        root: pi_root,
+        input_nullifiers,
+        output_commitments,
+        public_amount,
+        ext_data_hash: ext_hash,
+    };
+
+    env.mock_all_auths();
+    let sender = Address::generate(&env);
+
+    // The real verifier runs here — verify_proof() is exercised end to end.
+    let result = pool.try_transact(&proof, &ext, &sender);
+    assert!(
+        result.is_ok(),
+        "real UltraHonk proof must verify and transact: {result:?}"
+    );
 }
