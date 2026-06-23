@@ -364,15 +364,20 @@ export default function EmployeePage() {
           )}
 
           {state === 'empty' && (
-            <DoubleBezel radius="2rem" className="px-6 py-7">
-              <StatePanel
-                testId="employee-empty"
-                tone="calm"
-                icon={<MagnifyingGlass size={20} weight="bold" aria-hidden />}
-                title="Nothing here yet"
-                body="No payments are sealed to this key yet. If your employer just ran payroll, wait for it to confirm on-chain, then check again."
-              />
-            </DoubleBezel>
+            <div className="flex flex-col gap-4">
+              {/* Show the payment address even with no payments yet: the scan
+                  succeeded, so this is the address to hand the employer to get paid. */}
+              {paymentAddress && <PaymentAddressCard address={paymentAddress} />}
+              <DoubleBezel radius="2rem" className="px-6 py-7">
+                <StatePanel
+                  testId="employee-empty"
+                  tone="calm"
+                  icon={<MagnifyingGlass size={20} weight="bold" aria-hidden />}
+                  title="No payments yet"
+                  body="Your key works, but no payments are sealed to it yet. Share your payment address above with your employer, and check back once they run payroll."
+                />
+              </DoubleBezel>
+            </div>
           )}
 
           {state === 'done' && notes.length > 0 && (

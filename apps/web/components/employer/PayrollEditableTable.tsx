@@ -130,8 +130,10 @@ export function PayrollEditableTable({ rows, onChange }: PayrollEditableTablePro
 
           return (
             <div key={i} className="flex flex-col border-b border-white/5 last:border-0">
-              {/* Fixed input row — textboxes never move */}
-              <div className="grid grid-cols-[auto_6fr_1fr_3fr_auto] gap-4 py-3 items-center">
+              {/* Fixed input row — align by the input baseline so the "Paying
+                  {alias}" confirmation / error under the key field grows the cell
+                  downward WITHOUT shifting the amount, details and remove cells. */}
+              <div className="grid grid-cols-[auto_6fr_1fr_3fr_auto] gap-4 py-3 items-baseline">
                 <span className="text-sm text-ink-muted tabular-nums">{i + 1}</span>
 
                 {/* Public key column: one field — paste a key, or search the
