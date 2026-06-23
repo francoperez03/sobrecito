@@ -34,7 +34,7 @@ need stellar
 need jq
 
 DEPLOYMENTS_JSON="$REPO_ROOT/ops/deployments/$NETWORK/deployments.json"
-POOL_ID="$(jq -r '.pools[0].poolContractId' "$DEPLOYMENTS_JSON")"
+POOL_ID="$(jq -r '.noir_pool' "$DEPLOYMENTS_JSON")"
 
 [[ -f "$BATCH_DIR/proof.json" ]] || die "missing $BATCH_DIR/proof.json (run proof gen first)"
 [[ -f "$BATCH_DIR/ext_data_arg.json" ]] || die "missing $BATCH_DIR/ext_data_arg.json"
