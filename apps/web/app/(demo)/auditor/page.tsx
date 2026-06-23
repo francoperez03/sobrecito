@@ -17,12 +17,14 @@ import { ReconciliationFooter } from '@/components/auditor/ReconciliationFooter'
 import { KeygenCard } from '@/components/auditor/KeygenCard'
 import { BatchGroupHeader } from '@/components/auditor/BatchGroupHeader'
 import { SealedState } from '@/components/auditor/SealedState'
-import { readDeployments, readPoolUsdcBalance } from '@/lib/rpc'
+import { readDeployments, fetchBatchExtAmount } from '@/lib/rpc'
 import { markStep } from '@/lib/progressStore'
 
-// The on-chain total T is the REAL USDC balance of the pool (independent source),
-// not a demo constant. The reconciliation footer asserts that the sum of the
-// auditor's decrypted amounts equals the USDC actually held by the pool.
+// The on-chain total T is the sum of the public per-batch deposit amounts
+// (ext_amount), an independent on-chain source the ZK proof attests. The
+// reconciliation footer asserts the auditor's decrypted detail equals that proven
+// deposit total. It is withdrawal-invariant: employee claims drain the live pool
+// balance but never change what was deposited (and proven) per batch.
 
 // 'invalid' = the pasted string is not a well-formed view-key (parse threw).
 // 'empty'   = the key is valid but no notes in the pool decrypt under it.
@@ -157,8 +159,22 @@ export default function AuditorPage() {
         setState('empty')
         return
       }
+      // On-chain total = Σ of the public per-batch deposit amounts (ext_amount),
+      // which the ZK proof attests for each batch. This is withdrawal-INVARIANT:
+      // employee claims drain the live pool USDC balance but never change the
+      // proven deposit totals the decrypted detail must reconcile against. (Using
+      // the live balance here caused a false "doesn't add up" once anyone cashed
+      // out, since balance = deposits − withdrawals < Σ deposits.)
       try {
-        setOnChainTotal(await readPoolUsdcBalance())
+        const batches = groupByLedger(result.notes)
+        const extAmounts = await Promise.all(
+          batches.map((b) => fetchBatchExtAmount(b.txHash)),
+        )
+        const provenTotal = extAmounts.reduce<bigint>(
+          (acc, v) => acc + (v ?? BigInt(0)),
+          BigInt(0),
+        )
+        setOnChainTotal(provenTotal)
       } catch {
         setOnChainTotal(BigInt(0))
       }
