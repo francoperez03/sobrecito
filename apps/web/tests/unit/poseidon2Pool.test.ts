@@ -17,6 +17,7 @@ import {
   compress,
   ZERO_LEAF,
 } from '@/lib/zk/poseidon2Pool'
+import { reconstructMerklePath } from '@/lib/zk/proverClient'
 
 const BN254_P = BigInt('21888242871839275222246405745257275088548364400416034343698204186575808495617')
 
@@ -76,5 +77,27 @@ describe('poseidon2Pool – ZERO_LEAF constant', () => {
 
   it('ZERO_LEAF hex equals 0x25302288db99350344974183ce310d63b53abb9ef0f8575753eed36e0118f9ce', () => {
     expect('0x' + ZERO_LEAF.toString(16)).toBe('0x25302288db99350344974183ce310d63b53abb9ef0f8575753eed36e0118f9ce')
+  })
+})
+
+describe('reconstructMerklePath – round-trip (pure JS, pool-aligned)', () => {
+  it('1-leaf tree at index 0: reconstructed root equals hand-computed compress chain', async () => {
+    // A tree of depth 2 with 1 leaf:
+    // level 0: [leaf, ZERO_LEAF, ZERO_LEAF, ZERO_LEAF]
+    // level 1: [compress(leaf, ZERO_LEAF), compress(ZERO_LEAF, ZERO_LEAF)]
+    // level 2: compress(compress(leaf, ZERO_LEAF), compress(ZERO_LEAF, ZERO_LEAF))
+    const leaf = BigInt('42')
+    const { root } = await reconstructMerklePath([leaf], 0, 2)
+    const expectedRoot = compress(
+      compress(leaf, ZERO_LEAF),
+      compress(ZERO_LEAF, ZERO_LEAF),
+    )
+    expect(BigInt(root)).toBe(expectedRoot)
+  })
+
+  it('empty depth-10 tree produces root == 2302223575749844940221218608817648865122641281382153518325924961250440546344', async () => {
+    // No leaves → all positions are ZERO_LEAF → root is the empty depth-10 root
+    const { root } = await reconstructMerklePath([], 0, 10)
+    expect(BigInt(root)).toBe(BigInt('2302223575749844940221218608817648865122641281382153518325924961250440546344'))
   })
 })

@@ -287,6 +287,85 @@ export function onProgress(callback: ProgressCallback): () => void {
 }
 
 // ---------------------------------------------------------------------------
+// Merkle path reconstruction (pure JS — no worker, no WASM)
+// ---------------------------------------------------------------------------
+
+/**
+ * Reconstructs the Merkle membership path for a note at `targetIndex` in a
+ * depth-`levels` incremental Merkle tree seeded with the pool ZERO_LEAF.
+ *
+ * Pure JS implementation using compress + ZERO_LEAF from poseidon2Pool.ts.
+ * Importable in Node (Vitest) without the bb.js worker.
+ *
+ * Return shape: { pathElements, pathIndices, root }
+ *   pathElements[k]: sibling at level k (decimal string)
+ *   pathIndices: decimal bitmask (sum of bit_k << k) where bit_k = direction
+ *   root: computed tree root (decimal string)
+ *
+ * Matches compute_root semantics from circuits/sobre_slim/src/main.nr:
+ *   bit==0 => current is left child: compress(cur, sib)
+ *   bit==1 => current is right child: compress(sib, cur)
+ */
+export async function reconstructMerklePath(
+  leaves: bigint[],
+  targetIndex: number,
+  levels: number,
+): Promise<{ pathElements: string[]; pathIndices: string; root: string }> {
+  const { compress, ZERO_LEAF } = await import('./poseidon2Pool')
+
+  // Precompute zero-hash chain: zeros[k] is the root of an empty subtree of depth k
+  const zeros: bigint[] = new Array(levels + 1)
+  zeros[0] = ZERO_LEAF
+  for (let k = 1; k <= levels; k++) {
+    zeros[k] = compress(zeros[k - 1], zeros[k - 1])
+  }
+
+  // Build the bottom level: fill in given leaves, pad with zeros[0]
+  const size = 1 << levels
+  const tree: bigint[][] = new Array(levels + 1)
+  tree[0] = new Array(size)
+  for (let i = 0; i < size; i++) {
+    tree[0][i] = i < leaves.length ? leaves[i] : zeros[0]
+  }
+
+  // Build up each level
+  for (let k = 1; k <= levels; k++) {
+    const levelSize = 1 << (levels - k)
+    tree[k] = new Array(levelSize)
+    for (let i = 0; i < levelSize; i++) {
+      tree[k][i] = compress(tree[k - 1][i * 2], tree[k - 1][i * 2 + 1])
+    }
+  }
+
+  // Extract path for targetIndex
+  const pathElements: string[] = []
+  let idx = targetIndex
+  let bitmask = BigInt(0)
+
+  for (let k = 0; k < levels; k++) {
+    const bit = idx & 1
+    if (bit === 1) {
+      // current is right child — sibling is left
+      pathElements.push(tree[k][idx - 1].toString(10))
+    } else {
+      // current is left child — sibling is right
+      const sibIdx = idx + 1
+      const sibCount = 1 << (levels - k)
+      pathElements.push(
+        sibIdx < sibCount ? tree[k][sibIdx].toString(10) : zeros[k].toString(10),
+      )
+    }
+    if (bit === 1) {
+      bitmask |= BigInt(1) << BigInt(k)
+    }
+    idx = idx >> 1
+  }
+
+  const root = tree[levels][0].toString(10)
+  return { pathElements, pathIndices: bitmask.toString(10), root }
+}
+
+// ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
 
