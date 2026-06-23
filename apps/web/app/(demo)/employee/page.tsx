@@ -205,6 +205,7 @@ export default function EmployeePage() {
       const withStatus: EmployeeNoteWithStatus[] = await Promise.all(
         found.map(async (n) => {
           let status: NoteStatus = 'pending'
+          let receiptTxHash: string | undefined
           try {
             // The spent nullifier is bound to the note's REAL amount and Merkle
             // path index (see claimNote: computeNullifier with path.pathIndices +
@@ -218,11 +219,17 @@ export default function EmployeePage() {
               BigInt(pathIndices),
               n.amount,
             )
-            status = spentNullifiers.has(nullifier.toString()) ? 'claimed' : 'pending'
+            // scanSpentNullifiers maps nullifier → claim txHash, so a note spent in
+            // ANY prior session shows its on-chain receipt link, not just this round.
+            const claimTx = spentNullifiers.get(nullifier.toString())
+            if (claimTx) {
+              status = 'claimed'
+              receiptTxHash = claimTx
+            }
           } catch {
             status = 'pending' // A1: degrade gracefully on error
           }
-          return { ...n, status }
+          return { ...n, status, ...(receiptTxHash ? { receiptTxHash } : {}) }
         }),
       )
 

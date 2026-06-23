@@ -1,0 +1,9 @@
+[package]
+name = "sobre_slim"
+type = "bin"
+authors = ["sobrecito"]
+
+[dependencies]
+# No external poseidon dep: the pool-aligned Poseidon2 (t=2/t=3/t=4) is ported
+# in-circuit (src/poseidon2_pool.nr). The noir-lang/poseidon v0.2.0 lib uses a
+# t=4 sponge with IV that does NOT match the deployed pool (see 09-01 cross-check).

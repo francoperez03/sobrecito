@@ -1,9 +1,9 @@
-//! Privacy Pool Contract
+//! Privacy Pool Contract — UltraHonk verifier edition
 //!
-//! This contract implements a privacy-preserving transaction pool with embedded
-//! policy (membership and non-membership in an association set).
-//! It enables users to deposit, transfer, and withdraw
-//! tokens while maintaining transaction privacy through zero-knowledge proofs.
+//! This contract implements a privacy-preserving payroll pool backed by an
+//! UltraHonk (Noir / bb 0.87.0) zero-knowledge verifier.  The pool accepts
+//! shielded deposits and transact calls, verifying the ZK proof by delegating
+//! to an on-chain `UltraHonkVerifierContract` that holds the immutable VK.
 //!
 //! # Architecture
 //!
@@ -11,14 +11,20 @@
 //! - A Merkle tree of commitments (via `MerkleTreeWithHistory`)
 //! - A nullifier set to track spent UTXOs
 //! - Token integration for deposits and withdrawals
+//!
+//! # D2 — ASP/SMT policy fields dropped
+//!
+//! The slim circuit (`sobre_slim`, 09-02) does not include ASP membership or
+//! non-membership roots; those public inputs are absent from the 12-field
+//! layout.  The pool therefore no longer stores or validates
+//! `asp_membership_root` / `asp_non_membership_root`.  See 09-04 SUMMARY for
+//! disclosure.
 
 #![allow(clippy::too_many_arguments)]
 use crate::merkle_with_history::{Error as MerkleError, MerkleTreeWithHistory};
-use contract_types::{Groth16Error, Groth16Proof};
 use soroban_sdk::{
     Address, Bytes, BytesN, Env, I256, Map, U256, Vec, contract, contractclient, contracterror,
-    contractevent, contractimpl, contracttype, crypto::bn254::Bn254Fr, token::TokenClient,
-    xdr::ToXdr,
+    contractevent, contractimpl, contracttype, token::TokenClient, xdr::ToXdr,
 };
 use soroban_utils::constants::bn256_modulus;
 
@@ -51,12 +57,11 @@ pub enum Error {
     NotInitialized = 11,
     /// Arithmetic overflow occurred
     Overflow = 12,
-    /// Public input is not canonical in the BN254 scalar field
+    /// Public input is not canonical in the BN254 scalar field (unused in UltraHonk path but kept for ABI stability)
     NonCanonicalPublicInput = 13,
 }
 
 /// Conversion from MerkleTreeWithHistory errors to pool contract errors
-/// Errors from MerkleTreeWithHistory are not `contracterror`
 impl From<MerkleError> for Error {
     fn from(e: MerkleError) -> Self {
         match e {
@@ -70,15 +75,44 @@ impl From<MerkleError> for Error {
     }
 }
 
-/// Zero-knowledge proof data for a transaction
+// ─── UltraHonk verifier client ──────────────────────────────────────────────
+
+/// Cross-contract client for the UltraHonk on-chain verifier
+/// (`rs-soroban-ultrahonk`).  The verifier holds an immutable VK set at
+/// deploy time; `verify_proof` returns `Ok(())` on success and a typed error
+/// on failure (the pool maps any error to `Error::InvalidProof`).
+#[contractclient(crate_path = "soroban_sdk", name = "UltraHonkVerifierClient")]
+pub trait UltraHonkVerifierInterface {
+    fn verify_proof(
+        env: Env,
+        public_inputs: Bytes,
+        proof_bytes: Bytes,
+    ) -> Result<(), soroban_sdk::Error>;
+}
+
+// ─── Proof struct ────────────────────────────────────────────────────────────
+
+/// Zero-knowledge proof data for a shielded transaction (UltraHonk edition).
 ///
-/// Contains all the cryptographic data needed to verify a transaction,
-/// including the proof itself, public inputs, and nullifiers.
+/// `public_inputs` is the 384-byte blob produced by `bb 0.87.0` for the
+/// `sobre_slim` circuit (12 fields × 32 bytes, big-endian U256):
+///   [root, public_amount, ext_data_hash, input_nullifier,
+///    output_commitment_0 .. output_commitment_7]
+///
+/// `proof_bytes` is the 14 592-byte proof blob from `bb 0.87.0`.
+///
+/// `root`, `input_nullifiers`, `output_commitments`, `public_amount`, and
+/// `ext_data_hash` are provided in structured form so the pool can validate
+/// them (nullifier replay, Merkle history, ext-hash binding) without
+/// deserializing the opaque `public_inputs` blob.
 #[contracttype]
 pub struct Proof {
-    /// The serialized zero-knowledge proof
-    pub proof: Groth16Proof,
-    /// Merkle root the proof was generated against
+    /// Raw public-inputs blob from bb (384 bytes = 12 × 32, big-endian U256).
+    /// Passed directly to the UltraHonk verifier; not parsed by the pool.
+    pub public_inputs: Bytes,
+    /// Raw UltraHonk proof blob from bb (14 592 bytes).
+    pub proof_bytes: Bytes,
+    /// Merkle root the proof was generated against (for on-chain history check)
     pub root: U256,
     /// Nullifiers for spent input UTXOs (prevents double-spending)
     pub input_nullifiers: Vec<U256>,
@@ -88,17 +122,14 @@ pub struct Proof {
     pub public_amount: U256,
     /// Hash of the external data (binds proof to transaction parameters)
     pub ext_data_hash: BytesN<32>,
-    /// Merkle root the policy membership proof was generated against
-    pub asp_membership_root: U256,
-    /// Merkle root the policy NON-membership proof was generated against
-    pub asp_non_membership_root: U256,
 }
+
+// ─── ExtData ─────────────────────────────────────────────────────────────────
 
 /// External data for a transaction
 ///
-/// Contains public information about the transaction that is hashed and
-/// included in the zero-knowledge proof to bind the proof to specific
-/// transaction parameters (e.g. recipient address).
+/// Contains public information that is hashed and included in the ZK proof to
+/// bind it to specific transaction parameters (e.g. recipient address).
 #[contracttype]
 #[derive(Clone)]
 pub struct ExtData {
@@ -112,17 +143,8 @@ pub struct ExtData {
 
 /// Hash external data using Keccak256
 ///
-/// Serializes the external data to XDR, hashes it with Keccak256,
-/// and reduces the result modulo the BN256 field size.
-///
-/// # Arguments
-///
-/// * `env` - The Soroban environment
-/// * `ext` - The external data to hash
-///
-/// # Returns
-///
-/// Returns the 32-byte hash of the external data
+/// Serializes the external data to XDR, hashes it with Keccak256, and reduces
+/// the result modulo the BN256 field size.
 pub fn hash_ext_data(env: &Env, ext: &ExtData) -> BytesN<32> {
     let payload = ext.clone().to_xdr(env);
     let digest: BytesN<32> = env.crypto().keccak256(&payload).into();
@@ -133,12 +155,12 @@ pub fn hash_ext_data(env: &Env, ext: &ExtData) -> BytesN<32> {
     BytesN::from_array(env, &buf)
 }
 
+// ─── Account ─────────────────────────────────────────────────────────────────
+
 /// User account registration data
 ///
 /// Used for registering a user's public key to enable encrypted communication
 /// for receiving transfers.
-/// Not required to interact with the pool. But facilitates in-pool transfers
-/// via events. As parties can learn about each other public key.
 #[contracttype]
 pub struct Account {
     /// Owner address of the account
@@ -149,96 +171,57 @@ pub struct Account {
     pub note_key: Bytes,
 }
 
-// Contract clients for cross-contract dependencies
-#[contractclient(crate_path = "soroban_sdk", name = "ASPMembershipClient")]
-pub trait ASPMembershipInterface {
-    fn get_root(env: Env) -> Result<U256, soroban_sdk::Error>;
-}
-
-#[contractclient(crate_path = "soroban_sdk", name = "ASPNonMembershipClient")]
-pub trait ASPNonMembershipInterface {
-    fn get_root(env: Env) -> Result<U256, soroban_sdk::Error>;
-}
-
-#[contractclient(crate_path = "soroban_sdk", name = "CircomGroth16VerifierClient")]
-pub trait CircomGroth16VerifierInterface {
-    fn verify(
-        env: Env,
-        proof: Groth16Proof,
-        public_inputs: Vec<Bn254Fr>,
-    ) -> Result<bool, Groth16Error>;
-}
+// ─── Storage keys ────────────────────────────────────────────────────────────
 
 /// Storage keys for contract persistent data
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum DataKey {
-    /// Administrator address with permissions to modify contract settings
+    /// Administrator address
     Admin,
     /// Address of the token contract used for deposits/withdrawals
     Token,
-    /// Address of the ZK proof verifier contract
+    /// Address of the UltraHonk verifier contract
     Verifier,
     /// Maximum allowed deposit amount per transaction
     MaximumDepositAmount,
     /// Map of spent nullifiers (nullifier -> bool)
     Nullifiers,
-    /// Address of the ASP Membership contract
-    ASPMembership,
-    /// Address of the ASP Non-Membership contract
-    ASPNonMembership,
 }
 
+// ─── Events ──────────────────────────────────────────────────────────────────
+
 /// Event emitted when a new commitment is added to the Merkle tree
-///
-/// This event allows off-chain observers to track new UTXOs and decrypt
-/// outputs intended for them.
 #[contractevent]
 #[derive(Clone)]
 pub struct NewCommitmentEvent {
-    /// The commitment hash added to the tree
     #[topic]
     pub commitment: U256,
-    /// Index position in the Merkle tree
     pub index: u32,
-    /// Encrypted output data (decryptable by the recipient)
     pub encrypted_output: Bytes,
 }
 
 /// Event emitted when a nullifier is spent
-///
-/// This event allows off-chain observers to track which UTXOs have been spent.
 #[contractevent]
 #[derive(Clone)]
 pub struct NewNullifierEvent {
-    /// The nullifier that was spent
     #[topic]
     pub nullifier: U256,
 }
 
 /// Event emitted when a user registers their public keys
-///
-/// This event allows other users to discover keys for sending private
-/// transfers. Two key types are required:
-/// - encryption_key: X25519 key for encrypting note data (amount, blinding)
-/// - note_key: BN254 key for creating commitments in the ZK circuit
 #[contractevent]
 #[derive(Clone)]
 pub struct PublicKeyEvent {
-    /// Address of the account owner
     #[topic]
     pub owner: Address,
-    /// X25519 encryption public key
     pub encryption_key: Bytes,
-    /// BN254 note public key
     pub note_key: Bytes,
 }
 
-/// Privacy Pool Contract
-///
-/// Implements a private transaction pool.
-/// Users can deposit tokens, perform private transfers, and withdraw while
-/// maintaining transaction privacy through zero-knowledge proofs.
+// ─── Contract ────────────────────────────────────────────────────────────────
+
+/// Privacy Pool Contract (UltraHonk edition)
 #[contract]
 pub struct PoolContract;
 
@@ -246,31 +229,15 @@ pub struct PoolContract;
 impl PoolContract {
     /// Constructor: initialize the privacy pool contract
     ///
-    /// Sets up the contract with the specified token, verifier, and Merkle tree
-    /// configuration. This function can only be called once.
+    /// Sets up the contract with the specified token, UltraHonk verifier, and
+    /// Merkle tree configuration.  This function can only be called once.
     ///
-    /// # Arguments
-    ///
-    /// * `env` - The Soroban environment
-    /// * `admin` - Address of the contract administrator
-    /// * `token` - Address of the token contract for deposits/withdrawals
-    /// * `verifier` - Address of the ZK proof verifier contract
-    /// * `asp_membership` - Address of the ASP Membership contract
-    /// * `asp_non_membership` - Address of the ASP Non-Membership contract
-    /// * `maximum_deposit_amount` - Maximum allowed deposit per transaction
-    /// * `levels` - Number of levels in the commitment Merkle tree (1-32)
-    ///
-    /// # Returns
-    ///
-    /// Returns `Ok(())` on success, or an error if already initialized or
-    /// invalid configuration
+    /// Note: the pool starts with an EMPTY Merkle tree (D3).
     pub fn __constructor(
         env: Env,
         admin: Address,
         token: Address,
         verifier: Address,
-        asp_membership: Address,
-        asp_non_membership: Address,
         maximum_deposit_amount: U256,
         levels: u32,
     ) -> Result<(), Error> {
@@ -281,41 +248,23 @@ impl PoolContract {
             .set(&DataKey::Verifier, &verifier);
         env.storage()
             .persistent()
-            .set(&DataKey::ASPMembership, &asp_membership);
-        env.storage()
-            .persistent()
-            .set(&DataKey::ASPNonMembership, &asp_non_membership);
-        env.storage()
-            .persistent()
             .set(&DataKey::MaximumDepositAmount, &maximum_deposit_amount);
         env.storage()
             .persistent()
             .set(&DataKey::Nullifiers, &Map::<U256, bool>::new(&env));
 
-        // Initialize the Merkle tree for commitment storage
+        // Initialize the Merkle tree for commitment storage (empty tree, D3)
         MerkleTreeWithHistory::init(&env, levels)?;
 
         Ok(())
     }
 
     /// Maximum absolute external amount allowed (2^248)
-    ///
-    /// This limit ensures amounts fit within field arithmetic constraints.
     fn max_ext_amount(env: &Env) -> U256 {
         U256::from_parts(env, 0x0100_0000_0000_0000, 0, 0, 0)
     }
 
     /// Convert a non-negative I256 to i128 with bounds checking
-    ///
-    /// # Arguments
-    ///
-    /// * `env` - The Soroban environment
-    /// * `v` - The I256 value to convert
-    ///
-    /// # Returns
-    ///
-    /// Returns `Ok(i128)` if the value is non-negative and fits in i128,
-    /// or `Err(Error::WrongExtAmount)` otherwise
     fn i256_to_i128_nonneg(env: &Env, v: &I256) -> Result<i128, Error> {
         if *v < I256::from_i32(env, 0) {
             return Err(Error::WrongExtAmount);
@@ -323,22 +272,7 @@ impl PoolContract {
         v.to_i128().ok_or(Error::WrongExtAmount)
     }
 
-    /// Calculate the public amount from external amount
-    ///
-    /// Computes `public_amount = ext_amount` in the BN256 field.
-    /// For positive results, returns the value directly.
-    /// For negative results, returns `FIELD_SIZE - |public_amount|`.
-    ///
-    /// # Arguments
-    ///
-    /// * `env` - The Soroban environment
-    /// * `ext_amount` - External amount (positive for deposit, negative for
-    ///   withdrawal)
-    ///
-    /// # Returns
-    ///
-    /// Returns the public amount as U256 in the BN256 field, or an error
-    /// if the amounts exceed limits
+    /// Calculate the public amount from external amount (BN256 field arithmetic)
     fn calculate_public_amount(env: &Env, ext_amount: I256) -> Result<U256, Error> {
         let abs_ext = Self::i256_abs_to_u256(env, &ext_amount);
         if abs_ext >= Self::max_ext_amount(env) {
@@ -351,37 +285,21 @@ impl PoolContract {
             let pa_bytes = ext_amount.to_be_bytes();
             Ok(U256::from_be_bytes(env, &pa_bytes))
         } else {
-            // Negative: compute FIELD_SIZE - |ext_amount|
             let neg = zero.sub(&ext_amount);
             let neg_bytes = neg.to_be_bytes();
             let neg_u256 = U256::from_be_bytes(env, &neg_bytes);
-
             let field = bn256_modulus(env);
             Ok(field.sub(&neg_u256))
         }
     }
 
     /// Check if a nullifier has already been spent
-    ///
-    /// # Arguments
-    ///
-    /// * `env` - The Soroban environment
-    /// * `n` - The nullifier to check
-    ///
-    /// # Returns
-    ///
-    /// Returns `true` if the nullifier has been spent, `false` otherwise
     fn is_spent(env: &Env, n: &U256) -> Result<bool, Error> {
         let nulls = Self::get_nullifiers(env)?;
         Ok(nulls.get(n.clone()).unwrap_or(false))
     }
 
     /// Mark a nullifier as spent
-    ///
-    /// # Arguments
-    ///
-    /// * `env` - The Soroban environment
-    /// * `n` - The nullifier to mark as spent
     fn mark_spent(env: &Env, n: &U256) -> Result<(), Error> {
         let mut nulls = Self::get_nullifiers(env)?;
         nulls.set(n.clone(), true);
@@ -389,141 +307,41 @@ impl PoolContract {
         Ok(())
     }
 
-    /// Reject values outside the canonical BN254 scalar-field range.
+    /// Verify a zero-knowledge proof via the UltraHonk verifier contract.
     ///
-    /// `Bn254Fr::from_bytes` expects field elements, so any `U256` that will be
-    /// converted into a verifier public input must be checked before
-    /// conversion.
-    fn validate_bn256_public_input(value: &U256, modulus: &U256) -> Result<(), Error> {
-        if value >= modulus {
-            return Err(Error::NonCanonicalPublicInput);
-        }
-
-        Ok(())
-    }
-
-    /// Validate every `U256` field that contributes to the verifier's public
-    /// input vector. The transaction path checks `ext_data_hash` against
-    /// `hash_ext_data` before proof verification, so this covers the remaining
-    /// public-input values.
-    fn validate_bn256_public_inputs(proof: &Proof, modulus: &U256) -> Result<(), Error> {
-        Self::validate_bn256_public_input(&proof.root, modulus)?;
-        Self::validate_bn256_public_input(&proof.public_amount, modulus)?;
-        for nullifier in proof.input_nullifiers.iter() {
-            Self::validate_bn256_public_input(&nullifier, modulus)?;
-        }
-        for commitment in proof.output_commitments.iter() {
-            Self::validate_bn256_public_input(&commitment, modulus)?;
-        }
-        Self::validate_bn256_public_input(&proof.asp_membership_root, modulus)?;
-        Self::validate_bn256_public_input(&proof.asp_non_membership_root, modulus)?;
-
-        Ok(())
-    }
-
-    /// Verify a zero-knowledge proof
-    ///
-    /// # Arguments
-    ///
-    /// * `env` - The Soroban environment
-    /// * `proof` - The proof to verify
-    ///
-    /// # Returns
-    ///
-    /// Returns `true` if the proof is valid, `false` otherwise
+    /// The pool passes `public_inputs` (384-byte blob) and `proof_bytes`
+    /// (14 592-byte blob) directly to the verifier — no field reconstruction.
+    /// Any error from the verifier maps to `Error::InvalidProof`.
     fn verify_proof(env: &Env, proof: &Proof) -> Result<bool, Error> {
-        // Check proof is not empty
-        if proof.proof.is_empty() {
+        // Guard: the public_inputs blob must be non-empty
+        if proof.public_inputs.is_empty() {
             return Err(Error::InvalidProof);
         }
         let verifier = Self::get_verifier(env)?;
-        let client = CircomGroth16VerifierClient::new(env, &verifier);
-        Self::validate_bn256_public_inputs(proof, &bn256_modulus(env))?;
+        let client = UltraHonkVerifierClient::new(env, &verifier);
 
-        // Public inputs must match the order declared by the policy circuit:
-        // [root, public_amount, ext_data_hash, input_nullifiers,
-        // output_commitments, membership_roots, non_membership_roots]
-        let mut public_inputs: Vec<Bn254Fr> = Vec::new(env);
-        public_inputs.push_back(Bn254Fr::from_bytes(Self::u256_to_bytes(env, &proof.root)));
-        public_inputs.push_back(Bn254Fr::from_bytes(Self::u256_to_bytes(
-            env,
-            &proof.public_amount,
-        )));
-        public_inputs.push_back(Bn254Fr::from_bytes(proof.ext_data_hash.clone()));
-        for nullifier in proof.input_nullifiers.iter() {
-            public_inputs.push_back(Bn254Fr::from_bytes(Self::u256_to_bytes(env, &nullifier)));
+        // try_verify_proof returns Result<Result<(), ContractError>, InvokeError>.
+        // Both inner and outer errors map to InvalidProof.
+        match client.try_verify_proof(&proof.public_inputs, &proof.proof_bytes) {
+            Ok(Ok(())) => Ok(true),
+            Ok(Err(_)) | Err(_) => Err(Error::InvalidProof),
         }
-        for commitment in proof.output_commitments.iter() {
-            public_inputs.push_back(Bn254Fr::from_bytes(Self::u256_to_bytes(env, &commitment)));
-        }
-        for _ in 0..proof.input_nullifiers.len() {
-            public_inputs.push_back(Bn254Fr::from_bytes(Self::u256_to_bytes(
-                env,
-                &proof.asp_membership_root,
-            )));
-        }
-        for _ in 0..proof.input_nullifiers.len() {
-            public_inputs.push_back(Bn254Fr::from_bytes(Self::u256_to_bytes(
-                env,
-                &proof.asp_non_membership_root,
-            )));
-        }
-
-        let is_valid = client.verify(&proof.proof, &public_inputs);
-
-        Ok(is_valid)
     }
 
-    /// Hash external data using Keccak256
-    ///
-    /// Serializes the external data to XDR, hashes it with Keccak256,
-    /// and reduces the result modulo the BN256 field size.
-    ///
-    /// # Arguments
-    ///
-    /// * `env` - The Soroban environment
-    /// * `ext` - The external data to hash
-    ///
-    /// # Returns
-    ///
-    /// Returns the 32-byte hash of the external data
     fn hash_ext_data(env: &Env, ext: &ExtData) -> BytesN<32> {
         hash_ext_data(env, ext)
     }
 
-    /// Convert I256 to its absolute value as U256
-    ///
-    /// # Arguments
-    ///
-    /// * `env` - The Soroban environment
-    /// * `v` - The I256 value
-    ///
-    /// # Returns
-    ///
-    /// Returns the absolute value of `v` as U256
     fn i256_abs_to_u256(env: &Env, v: &I256) -> U256 {
         let zero = I256::from_i32(env, 0);
         let abs = if *v >= zero { v.clone() } else { zero.sub(v) };
         U256::from_be_bytes(env, &abs.to_be_bytes())
     }
 
-    /// Execute a shielded transaction with deposit handling
+    /// Execute a shielded transaction with optional deposit.
     ///
-    /// This is the main entry point for users to interact with the pool.
-    /// If `ext_amount > 0`, tokens are transferred from the sender to the pool
-    /// before processing the transaction.
-    ///
-    /// # Arguments
-    ///
-    /// * `env` - The Soroban environment
-    /// * `proof` - Zero-knowledge proof and public inputs
-    /// * `ext_data` - External transaction data
-    /// * `sender` - Address of the transaction sender (must authorize funding
-    ///   transaction)
-    ///
-    /// # Returns
-    ///
-    /// Returns `Ok(())` on success, or an error if validation fails
+    /// If `ext_amount > 0`, tokens are transferred from `sender` to the pool
+    /// before the ZK proof is verified.
     pub fn transact(
         env: &Env,
         proof: Proof,
@@ -555,29 +373,18 @@ impl PoolContract {
     /// Validates the proof and all public inputs, marks nullifiers as spent,
     /// processes withdrawals, and inserts new commitments into the Merkle tree.
     ///
-    /// # Arguments
-    ///
-    /// * `env` - The Soroban environment
-    /// * `proof` - Zero-knowledge proof and public inputs
-    /// * `ext_data` - External transaction data
-    ///
-    /// # Returns
-    ///
-    /// Returns `Ok(())` on success, or an error if any validation fails
-    ///
-    /// # Validation Steps
-    ///
+    /// Validation steps:
     /// 1. Verify Merkle root is in recent history
     /// 2. Verify no nullifiers have been spent
     /// 3. Verify external data hash matches
     /// 4. Verify public amount calculation
-    /// 5. Verify zero-knowledge proof
+    /// 5. Verify zero-knowledge proof (UltraHonk, via delegated verifier)
     fn internal_transact(env: &Env, proof: Proof, ext_data: ExtData) -> Result<(), Error> {
         // 1. Merkle root check
         if !MerkleTreeWithHistory::is_known_root(env, &proof.root)? {
             return Err(Error::UnknownRoot);
         }
-        // 2. Nullifier checks (prevent double-spending)
+        // 2. Nullifier checks (prevent double-spending — T-09-02)
         for n in proof.input_nullifiers.iter() {
             if Self::is_spent(env, &n)? {
                 return Err(Error::AlreadySpentNullifier);
@@ -596,16 +403,7 @@ impl PoolContract {
             return Err(Error::WrongExtAmount);
         }
 
-        // ASP root validation REMOVED (obviated): the pool no longer cross-checks
-        // proof.asp_membership_root / asp_non_membership_root against the live ASP
-        // contracts, so deposits/withdrawals don't require the ASP membership tree
-        // to be seeded — anyone can transact. The circuit still carries the policy
-        // constraints, but they are self-satisfiable (the prover supplies an
-        // internally-consistent membership root), so verify_proof below remains
-        // sound for the funds-safety properties (root history, nullifiers, ext
-        // hash, public amount). get_asp_membership_root stays as dead code.
-
-        // 5. ZK proof verification
+        // 5. ZK proof verification (UltraHonk nativo)
         if !Self::verify_proof(env, &proof)? {
             return Err(Error::InvalidProof);
         }
@@ -628,11 +426,11 @@ impl PoolContract {
             token_client.transfer(&this, &ext_data.recipient, &amount);
         }
 
-        // 9. Insert new commitments into Merkle tree (N outputs, inserted in pairs)
+        // 8. Insert new commitments into Merkle tree (N outputs, inserted in pairs)
         let indices =
             MerkleTreeWithHistory::insert_n_leaves(env, proof.output_commitments.clone())?;
 
-        // 10. Emit one commitment event per output
+        // 9. Emit one commitment event per output
         let mut k: u32 = 0;
         for (commitment, index) in proof.output_commitments.iter().zip(indices.iter()) {
             let encrypted_output = ext_data
@@ -652,15 +450,6 @@ impl PoolContract {
     }
 
     /// Register a user's public encryption key
-    ///
-    /// Allows users to publish their public key so others can send them
-    /// encrypted outputs for private transfers.
-    /// The account owner must authorize this call
-    ///
-    /// # Arguments
-    ///
-    /// * `env` - The Soroban environment
-    /// * `account` - Account data containing owner address and public key
     pub fn register(env: Env, account: Account) {
         account.owner.require_auth();
         PublicKeyEvent {
@@ -671,9 +460,8 @@ impl PoolContract {
         .publish(&env);
     }
 
-    // ========== Storage Getters and Setters ==========
+    // ─── Storage Getters and Setters ────────────────────────────────────────
 
-    /// Get the nullifiers map from storage
     fn get_nullifiers(env: &Env) -> Result<Map<U256, bool>, Error> {
         env.storage()
             .persistent()
@@ -681,12 +469,10 @@ impl PoolContract {
             .ok_or(Error::NotInitialized)
     }
 
-    /// Save the nullifiers map to storage
     fn set_nullifiers(env: &Env, m: &Map<U256, bool>) {
         env.storage().persistent().set(&DataKey::Nullifiers, m);
     }
 
-    /// Get the token contract address
     fn get_token(env: &Env) -> Result<Address, Error> {
         env.storage()
             .persistent()
@@ -694,7 +480,6 @@ impl PoolContract {
             .ok_or(Error::NotInitialized)
     }
 
-    /// Get the maximum deposit amount
     fn get_maximum_deposit(env: &Env) -> Result<U256, Error> {
         env.storage()
             .persistent()
@@ -702,7 +487,6 @@ impl PoolContract {
             .ok_or(Error::NotInitialized)
     }
 
-    /// Get the verifier contract address
     fn get_verifier(env: &Env) -> Result<Address, Error> {
         env.storage()
             .persistent()
@@ -710,14 +494,7 @@ impl PoolContract {
             .ok_or(Error::NotInitialized)
     }
 
-    /// Convert a U256 into a 32-byte big-endian field element
-    fn u256_to_bytes(env: &Env, v: &U256) -> BytesN<32> {
-        let mut buf = [0u8; 32];
-        v.to_be_bytes().copy_into_slice(&mut buf);
-        BytesN::from_array(env, &buf)
-    }
-
-    /// Get the admin address
+    #[allow(dead_code)]
     fn get_admin(env: &Env) -> Result<Address, Error> {
         env.storage()
             .persistent()
@@ -731,112 +508,11 @@ impl PoolContract {
     }
 
     /// Update the contract administrator
-    ///
-    /// Transfers administrative control to a new address. Requires
-    /// authorization from the current admin.
-    ///
-    /// # Arguments
-    ///
-    /// * `env` - The Soroban environment
-    /// * `new_admin` - New address that will have administrative permissions
     pub fn update_admin(env: Env, new_admin: Address) -> Result<(), Error> {
         if !env.storage().persistent().has(&DataKey::Admin) {
             return Err(Error::NotInitialized);
         }
         soroban_utils::update_admin(&env, &DataKey::Admin, &new_admin);
         Ok(())
-    }
-
-    // ========== ASP Contract Functions ==========
-
-    /// Get the ASP Membership contract address
-    fn get_asp_membership(env: &Env) -> Result<Address, Error> {
-        env.storage()
-            .persistent()
-            .get(&DataKey::ASPMembership)
-            .ok_or(Error::NotInitialized)
-    }
-
-    /// Get the ASP Non-Membership contract address
-    fn get_asp_non_membership(env: &Env) -> Result<Address, Error> {
-        env.storage()
-            .persistent()
-            .get(&DataKey::ASPNonMembership)
-            .ok_or(Error::NotInitialized)
-    }
-
-    /// Update the ASP Membership contract address
-    ///
-    /// Changes the ASP Membership contract address. Requires admin
-    /// authorization.
-    ///
-    /// # Arguments
-    ///
-    /// * `env` - The Soroban environment
-    /// * `new_asp_membership` - New ASP Membership contract address
-    pub fn update_asp_membership(env: &Env, new_asp_membership: Address) -> Result<(), Error> {
-        let admin = Self::get_admin(env)?;
-        admin.require_auth();
-        env.storage()
-            .persistent()
-            .set(&DataKey::ASPMembership, &new_asp_membership);
-        Ok(())
-    }
-
-    /// Update the ASP Non-Membership contract address
-    ///
-    /// Changes the ASP Non-Membership contract address. Requires admin
-    /// authorization.
-    ///
-    /// # Arguments
-    ///
-    /// * `env` - The Soroban environment
-    /// * `new_asp_non_membership` - New ASP Non-Membership contract address
-    pub fn update_asp_non_membership(
-        env: &Env,
-        new_asp_non_membership: Address,
-    ) -> Result<(), Error> {
-        let admin = Self::get_admin(env)?;
-        admin.require_auth();
-        env.storage()
-            .persistent()
-            .set(&DataKey::ASPNonMembership, &new_asp_non_membership);
-        Ok(())
-    }
-
-    /// Get the current Merkle root from the ASP Membership contract
-    ///
-    /// Makes a cross-contract call to retrieve the current root of the
-    /// membership Merkle tree.
-    ///
-    /// # Arguments
-    ///
-    /// * `env` - The Soroban environment
-    ///
-    /// # Returns
-    ///
-    /// The current membership Merkle root as U256
-    pub fn get_asp_membership_root(env: &Env) -> Result<U256, Error> {
-        let asp_address = Self::get_asp_membership(env)?;
-        let client = ASPMembershipClient::new(env, &asp_address);
-        Ok(client.get_root())
-    }
-
-    /// Get the current Merkle root from the ASP Non-Membership contract
-    ///
-    /// Makes a cross-contract call to retrieve the current root of the
-    /// non-membership Sparse Merkle tree.
-    ///
-    /// # Arguments
-    ///
-    /// * `env` - The Soroban environment
-    ///
-    /// # Returns
-    ///
-    /// The current non-membership Merkle root as U256
-    pub fn get_asp_non_membership_root(env: &Env) -> Result<U256, Error> {
-        let asp_address = Self::get_asp_non_membership(env)?;
-        let client = ASPNonMembershipClient::new(env, &asp_address);
-        Ok(client.get_root())
     }
 }

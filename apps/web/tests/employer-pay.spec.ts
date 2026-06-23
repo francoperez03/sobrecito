@@ -3,18 +3,31 @@ import { test, expect, type Page } from '@playwright/test'
 /**
  * employer-pay.spec.ts — Playwright e2e for the PayrollComposer + ProvingStepper flow.
  *
- * Mocking strategy:
+ * Mocking strategy (bb.js worker era):
  *   1. Freighter: inject `window.freighterApi` shim before page load via
  *      page.addInitScript(). All Freighter calls (requestAccess, getAddress,
  *      getNetwork, signTransaction) return successful stubs.
- *   2. Prover: intercept the `initProver`/`prove` calls by replacing
- *      `/zk/prover-client.js` with a stub module that resolves immediately.
- *      This avoids actual WASM proving (which needs large circuit artifacts
- *      and takes 20-40s).
- *   3. RPC: route `soroban-testnet.stellar.org` to return empty results
- *      (same as employer.spec.ts mockRpc).
+ *   2. RPC: route `soroban-testnet.stellar.org` to return empty results.
+ *   3. Submit hook: window.__SOBRE_TEST_SUBMIT__ returns a deterministic
+ *      { hash, sender } so that non-proving assertions can reach the submit step.
  *
- * No real WASM proving, no testnet, no real Freighter extension.
+ * Worker interception (RESOLVED — Phase 09.1 plan 04):
+ *   The old spec intercepted the ark-groth16 static worker file and stubbed
+ *   compute functions (commitment, nullifier, membershipLeaf, merklePath,
+ *   publicKey derivation). All of those stubs are DEAD in the new bb.js path:
+ *     - proverClient.ts spawns: new Worker(new URL('../../workers/bb-prover.ts',
+ *       import.meta.url)) — compiled by Turbopack at an unstable chunk URL.
+ *     - page.route cannot reliably intercept a Turbopack worker chunk URL across
+ *       builds (Open Question #3 of RESEARCH.md, resolved here).
+ *     - PayrollComposer.tsx runs `const { proof } = await prove(inputs)` BEFORE
+ *       it reads window.__SOBRE_TEST_SUBMIT__, so stubbing the submit hook alone
+ *       does NOT bypass the ~2s WASM proving.
+ *   Therefore the proving-path e2e test (E2E-03) is an explicit test.skip with
+ *   a documented reason; the real employer→pago→claim verification is the
+ *   human-verify checkpoint (Task 3) against the live slim noir_pool.
+ *
+ * No stale static-worker interception. No dead Groth16 stubs. No faked on-chain
+ * success.
  */
 
 // ---------------------------------------------------------------------------
@@ -52,11 +65,11 @@ function makeLargeCSV(): string {
 }
 
 // ---------------------------------------------------------------------------
-// Helper: stub Freighter + prover before page load
+// Helper: stub Freighter + RPC before page load
 // ---------------------------------------------------------------------------
 
 async function injectMocks(page: Page) {
-  // Stub the Soroban RPC (same pattern as employer.spec.ts)
+  // Stub the Soroban RPC (same pattern as employer.spec.ts mockRpc)
   await page.route(`**://${RPC_HOST}/**`, async (route) => {
     const request = route.request()
     let method = ''
@@ -82,68 +95,6 @@ async function injectMocks(page: Page) {
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({ jsonrpc: '2.0', id, result }),
-    })
-  })
-
-  // Serve a stub prover-client.js that resolves immediately.
-  // The real file lives at /zk/prover-client.js; we intercept it and return
-  // a JS module with the same exported API but no actual WASM.
-  await page.route('**/zk/prover-client.js', (route) => {
-    const stubModule = `
-// Stub prover-client.js — e2e test, no real WASM
-const _listeners = new Set();
-
-export function configure() {}
-
-export async function initializeProver() {
-  // Signal progress: one tick of download
-  for (const fn of _listeners) {
-    fn(1024 * 1024, 1024 * 1024, 'Cached (test stub)', 100);
-  }
-}
-
-export function onProgress(fn) {
-  _listeners.add(fn);
-  return () => _listeners.delete(fn);
-}
-
-export async function prove(_inputs, _opts) {
-  // Return a fake 256-byte proof
-  const proof = new Uint8Array(256).fill(42);
-  const publicInputs = new Uint8Array(32).fill(0);
-  return { proof, publicInputs, sorobanFormat: true, timings: {} };
-}
-
-export async function computeCommitment(_amount, _pubkey, _blinding) {
-  // Return a fake commitment as a decimal string (matches new proverClient interface).
-  // proverClient.ts now expects computeCommitment to return a string (BigInt-parseable).
-  return '1';
-}
-
-export async function computeNullifier(_privKey, _blinding, _pathIdx) {
-  // Return a fake nullifier as a decimal string.
-  return '2';
-}
-
-export async function derivePublicKey(_priv, _asHex) {
-  // Return 32 zero bytes (the deposit flow derives bn254Pub via this bridge).
-  return new Uint8Array(32).fill(0);
-}
-
-export async function computeMembershipLeaf(_pubkey, _blinding) {
-  // Fake ASP membership leaf as a decimal string.
-  return '3';
-}
-
-export async function reconstructMerklePath(_leaves, _targetIndex, depth = 10) {
-  // Fake Merkle path of the requested depth (decimal field elements).
-  return { pathElements: Array(depth).fill('3'), pathIndices: '0' };
-}
-`
-    route.fulfill({
-      status: 200,
-      contentType: 'application/javascript; charset=utf-8',
-      body: stubModule,
     })
   })
 
@@ -218,6 +169,9 @@ export async function reconstructMerklePath(_leaves, _targetIndex, depth = 10) {
 
       // Stub the submitDeposit function via a window test hook.
       // The PayrollComposer checks window.__SOBRE_TEST_SUBMIT__ in test mode.
+      // IMPORTANT: prove() runs BEFORE this hook is read (PayrollComposer.tsx:483-525),
+      // so this stub only bypasses the on-chain submit, not the bb.js proving.
+      // The proving-path test (E2E-03) is therefore test.skip — see note above.
       ;(window as typeof window & { __SOBRE_TEST_SUBMIT__?: unknown }).__SOBRE_TEST_SUBMIT__ = async (_params: unknown) => ({
         hash: txHash,
         sender: address,
@@ -288,9 +242,6 @@ export async function reconstructMerklePath(_leaves, _targetIndex, depth = 10) {
 
           if (method === 'simulateTransaction') {
             // Return a valid ScVal (u256 = 1) as the simulation result.
-            // 'AAAACwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB' is U256(1).
-            // fetchPoolRoot and fetchASPRoots call simulateTransaction and
-            // extract `result.retval` from the parsed response.
             const U256_ONE_XDR = 'AAAACwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB'
             return new Response(
               JSON.stringify({
@@ -314,11 +265,9 @@ export async function reconstructMerklePath(_leaves, _targetIndex, depth = 10) {
 }
 
 // ---------------------------------------------------------------------------
-// Helper: upload a CSV file via page.setInputFiles
+// Helper: fill table rows by typing each row (CSV import removed from UI)
 // ---------------------------------------------------------------------------
 
-// CSV import was removed from the UI — fill the table by typing each row
-// (parse the legacy CSV fixtures into amount + public key and enter them).
 async function importCsv(page: Page, csvContent: string) {
   const rows = csvContent
     .split('\n')
@@ -397,11 +346,21 @@ test.describe('PayrollComposer employer pay flow', () => {
   })
 
   /**
-   * E2E-03: with a valid batch + stubbed prover, click Submit; assert the
-   * ProvingStepper advances preparing → downloading → proving → done and a
-   * tx hash + explorer link appears.
+   * E2E-03 (SKIPPED): with a valid batch, click Submit; assert the ProvingStepper
+   * advances through proving to done and a tx hash + explorer link appears.
+   *
+   * WHY SKIPPED: The real bb.js proving (UltraHonk, ~2s) runs BEFORE PayrollComposer
+   * reads window.__SOBRE_TEST_SUBMIT__ (see PayrollComposer.tsx:483-525). The new
+   * proverClient spawns `new Worker(new URL('../../workers/bb-prover.ts', import.meta.url))`
+   * which Turbopack bundles at an unstable chunk URL — page.route cannot intercept it
+   * reliably across builds (RESEARCH.md Open Question #3, resolved in Phase 09.1 plan 04).
+   * Stubbing the submit hook alone does not bypass the ~2s WASM proving.
+   *
+   * This path is verified by the HUMAN-VERIFY CHECKPOINT (Task 3) against the live
+   * slim noir_pool (CCZKS7KD…) and UltraHonk verifier (CCIMHTM4…). See plan 04,
+   * Task 3 for the exact step-by-step live round-trip instructions.
    */
-  test('E2E-03: valid batch + stubbed prover → stepper advances to done', async ({ page }) => {
+  test.skip('E2E-03: valid batch + bb.js prover → stepper advances to done', async ({ page }) => {
     await injectMocks(page)
     await page.goto('/employer')
 
@@ -447,6 +406,13 @@ test.describe('PayrollComposer employer pay flow', () => {
 
     await page.goto('/employer')
     await expect(page.locator('[data-testid="payroll-composer"]')).toBeVisible()
+
+    // Connect Freighter first — the audit toggle is only rendered once the
+    // wallet is connected (PayrollComposer.tsx: {address && (...)}).
+    await page.getByRole('button', { name: 'Connect Freighter' }).click()
+    await expect(
+      page.locator('[data-testid="payroll-composer"]').getByRole('button').first(),
+    ).not.toHaveText('Connect Freighter', { timeout: 5000 })
 
     // Enable "Add an auditor for compliance".
     await page.getByTestId('audit-toggle').click()

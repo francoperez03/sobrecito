@@ -57,6 +57,9 @@ interface Batch {
 export default function EmployerPage() {
   const [state, setState] = useState<LoadState>({ phase: 'loading' })
   const mountedRef = useRef(true)
+  // Commitment count from the last successful scan, read inside refreshAfterSend
+  // without a stale closure (so a post-send poll knows when a NEW run landed).
+  const eventsCountRef = useRef(0)
 
   // Scan the live pool. `showLoading` flips the rail to the loading state on the
   // initial mount; a post-send refresh (showLoading=false) updates the record in
@@ -66,6 +69,7 @@ export default function EmployerPage() {
     try {
       const events = await getChainAdapter().events.scanCommitments()
       if (!mountedRef.current) return
+      eventsCountRef.current = events.length
       if (events.length === 0) {
         setState({ phase: 'empty' })
         return
@@ -84,6 +88,38 @@ export default function EmployerPage() {
       if (mountedRef.current) setState({ phase: 'error' })
     }
   }, [])
+
+  // Post-send refresh. The Soroban RPC event log lags tx confirmation by a few
+  // seconds, so a single scan right after "Payroll sent" usually misses the new
+  // commitment (the bug: the rail only updated on manual refresh). Poll
+  // scanCommitments until the commitment count grows past the pre-send count,
+  // then update once. Falls back to a plain scan if indexing is unusually slow.
+  const refreshAfterSend = useCallback(async () => {
+    const prevCount = eventsCountRef.current
+    for (let attempt = 0; attempt < 8; attempt++) {
+      try {
+        const events = await getChainAdapter().events.scanCommitments()
+        if (!mountedRef.current) return
+        if (events.length > prevCount) {
+          let totalBase = BigInt(0)
+          try {
+            totalBase = await readPoolUsdcBalance()
+          } catch {
+            totalBase = BigInt(0)
+          }
+          if (!mountedRef.current) return
+          eventsCountRef.current = events.length
+          setState({ phase: 'ready', events, totalBase })
+          return
+        }
+      } catch {
+        // transient RPC error — keep retrying
+      }
+      await new Promise((r) => setTimeout(r, 2000))
+    }
+    // Fallback after ~16s: reflect whatever the RPC has indexed by now.
+    if (mountedRef.current) void scan(false)
+  }, [scan])
 
   useEffect(() => {
     mountedRef.current = true
@@ -112,7 +148,7 @@ export default function EmployerPage() {
               </div>
             </Reveal>
             <Reveal delay={0.1}>
-              <PayrollComposer onSent={() => void scan(false)} />
+              <PayrollComposer onSent={() => void refreshAfterSend()} />
             </Reveal>
           </div>
 

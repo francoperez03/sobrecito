@@ -1,14 +1,21 @@
 /**
  * depositTransactionBuilder.test.ts — unit tests for the 1→8 deposit witness builder.
  *
- * Verifies:
+ * Verifies the Noir ABI shape (plan 09.1-02):
  * 1. hashExtDataSobre matches the SPIKE fixture hash (0b3f2759…c66056).
  * 2. buildFrozenBlobs is non-deterministic: two calls with the same inputs
  *    produce DIFFERENT blobs AND DIFFERENT blindings (proving the freeze is
  *    necessary — you cannot call it twice and expect the same hash).
- * 3. buildDepositInputs returns the correct array shapes and that
- *    outBlinding === the blindings passed in and outputCommitment[i] is
- *    recomputable from those same blindings.
+ * 3. buildDepositInputs returns the exact Noir ABI witness shape:
+ *    - 12 public keys flat (root, public_amount, ext_data_hash, input_nullifier,
+ *      output_commitment_0..7) — each a string scalar, NOT arrays.
+ *    - Private keys: in_amount, in_private_key, in_blinding, in_path_indices
+ *      (all scalar strings), in_path_elements (string[10]), in_path_bits (string[10]),
+ *      out_amount/out_pub_key/out_blinding (each string[8]).
+ *    - NO ASP fields: no membershipRoots, nonMembershipRoots, membershipProofs,
+ *      nonMembershipProofs, aspMemberRoot.
+ *    - Commitments computed via poseidon2Pool hash3WithSep (match circuit semantics).
+ *    - input_nullifier computed via circuit hash chain for dummy input (in_amount=0).
  */
 
 import { describe, it, expect } from 'vitest'
@@ -21,6 +28,7 @@ import { hashExtData as hashExtDataSobre } from '../../lib/chain/stellar/encodin
 import type { DenomNote } from '../../lib/zk/denominationBuilder'
 import { pubkeyToBn254 } from '../../lib/zk/denominationBuilder'
 import { USDC_SCALE } from '../../lib/csvParser'
+import { hash3WithSep, hash1WithSep } from '../../lib/zk/poseidon2Pool'
 
 // ------------------------------------------------------------------
 // Test fixtures
@@ -156,46 +164,12 @@ describe('buildFrozenBlobs', () => {
 })
 
 // ------------------------------------------------------------------
-// Test 3: buildDepositInputs — array shapes + blinding/commitment consistency
+// Test 3: buildDepositInputs — Noir ABI shape (plan 09.1-02)
 // ------------------------------------------------------------------
 
-describe('buildDepositInputs', () => {
-  it('returns the correct array shapes: 8 outputs, 1 input, inAmount===["0"]', async () => {
+describe('buildDepositInputs — Noir ABI', () => {
+  it('returns the 12 flat public keys as scalar strings (no arrays)', async () => {
     const notes = makeRealNotes()
-    const { blobs, blindings } = await buildFrozenBlobs(notes, DUMMY_AUDITOR_PUBKEY_HEX)
-    const dummyBlinding = blindings[0] + BigInt(1) // distinct from output blindings
-
-    const inputs = buildDepositInputs({
-      notes,
-      blindings,
-      encOutputs: blobs,
-      extDataHash: BigInt(42),
-      poolRoot: '0',
-      aspMemberRoot: '0',
-      aspNonMemberRoot: '0',
-      senderAddress: SPIKE_RECIPIENT,
-      dummyBlinding,
-    })
-
-    // Public arrays
-    expect(inputs.outputCommitment).toHaveLength(8)
-    expect(inputs.inputNullifier).toHaveLength(1)
-    expect(inputs.membershipRoots).toHaveLength(1)
-    expect(inputs.membershipRoots[0]).toHaveLength(1)
-    expect(inputs.nonMembershipRoots).toHaveLength(1)
-    expect(inputs.nonMembershipRoots[0]).toHaveLength(1)
-
-    // Private arrays
-    expect(inputs.inAmount).toStrictEqual(['0'])
-    expect(inputs.outAmount).toHaveLength(8)
-    expect(inputs.outPubkey).toHaveLength(8)
-    expect(inputs.outBlinding).toHaveLength(8)
-    expect(inputs.inPathElements).toHaveLength(1)
-    expect(inputs.inPathElements[0]).toHaveLength(10)
-  })
-
-  it('outBlinding equals the blindings passed in (as decimal strings)', async () => {
-    const notes = makeDummyNotes()
     const { blobs, blindings } = await buildFrozenBlobs(notes, DUMMY_AUDITOR_PUBKEY_HEX)
     const dummyBlinding = BigInt(99999)
 
@@ -203,21 +177,182 @@ describe('buildDepositInputs', () => {
       notes,
       blindings,
       encOutputs: blobs,
-      extDataHash: BigInt(0),
-      poolRoot: '0',
-      aspMemberRoot: '0',
-      aspNonMemberRoot: '0',
+      extDataHash: BigInt(42),
+      poolRoot: '1234',
       senderAddress: SPIKE_RECIPIENT,
       dummyBlinding,
     })
 
+    // All 12 public keys must exist as scalar strings
+    expect(typeof inputs.root).toBe('string')
+    expect(typeof inputs.public_amount).toBe('string')
+    expect(typeof inputs.ext_data_hash).toBe('string')
+    expect(typeof inputs.input_nullifier).toBe('string')
     for (let i = 0; i < 8; i++) {
-      expect(inputs.outBlinding[i]).toBe(blindings[i].toString())
+      expect(typeof (inputs as Record<string, unknown>)[`output_commitment_${i}`]).toBe('string')
     }
   })
 
-  it('outputCommitment[i] is recomputable from the same blinding (commitment↔blinding consistency)', async () => {
+  it('has NO ASP fields (membershipRoots, nonMembershipRoots, aspMemberRoot, etc.)', async () => {
     const notes = makeRealNotes()
+    const { blobs, blindings } = await buildFrozenBlobs(notes, DUMMY_AUDITOR_PUBKEY_HEX)
+
+    const inputs = buildDepositInputs({
+      notes,
+      blindings,
+      encOutputs: blobs,
+      extDataHash: BigInt(0),
+      poolRoot: '0',
+      senderAddress: SPIKE_RECIPIENT,
+      dummyBlinding: BigInt(1),
+    }) as Record<string, unknown>
+
+    expect(inputs.membershipRoots).toBeUndefined()
+    expect(inputs.nonMembershipRoots).toBeUndefined()
+    expect(inputs.membershipProofs).toBeUndefined()
+    expect(inputs.nonMembershipProofs).toBeUndefined()
+    expect(inputs.aspMemberRoot).toBeUndefined()
+    expect(inputs.aspNonMemberRoot).toBeUndefined()
+  })
+
+  it('has NO old Circom camelCase field names', async () => {
+    const notes = makeDummyNotes()
+    const { blobs, blindings } = await buildFrozenBlobs(notes, DUMMY_AUDITOR_PUBKEY_HEX)
+
+    const inputs = buildDepositInputs({
+      notes,
+      blindings,
+      encOutputs: blobs,
+      extDataHash: BigInt(0),
+      poolRoot: '0',
+      senderAddress: SPIKE_RECIPIENT,
+      dummyBlinding: BigInt(1),
+    }) as Record<string, unknown>
+
+    // Old Circom names must not exist
+    expect(inputs.inAmount).toBeUndefined()
+    expect(inputs.inPrivateKey).toBeUndefined()
+    expect(inputs.inBlinding).toBeUndefined()
+    expect(inputs.inPathIndices).toBeUndefined()
+    expect(inputs.inPathElements).toBeUndefined()
+    expect(inputs.outPubkey).toBeUndefined()
+    expect(inputs.inputNullifier).toBeUndefined()
+    expect(inputs.outputCommitment).toBeUndefined()
+    expect(inputs.publicAmount).toBeUndefined()
+    expect(inputs.extDataHash).toBeUndefined()
+  })
+
+  it('has in_path_bits as string[10] with only "0" or "1" values (dummy deposit: all zeros)', async () => {
+    const notes = makeDummyNotes()
+    const { blobs, blindings } = await buildFrozenBlobs(notes, DUMMY_AUDITOR_PUBKEY_HEX)
+
+    const inputs = buildDepositInputs({
+      notes,
+      blindings,
+      encOutputs: blobs,
+      extDataHash: BigInt(0),
+      poolRoot: '0',
+      senderAddress: SPIKE_RECIPIENT,
+      dummyBlinding: BigInt(1),
+    })
+
+    expect(inputs.in_path_bits).toHaveLength(10)
+    // Deposit dummy input (in_amount=0): all path bits must be '0'
+    expect(inputs.in_path_bits).toStrictEqual(Array(10).fill('0'))
+    // Every element must be '0' or '1'
+    for (const bit of inputs.in_path_bits) {
+      expect(['0', '1']).toContain(bit)
+    }
+  })
+
+  it('has in_path_elements as string[10] of zeros (dummy deposit)', async () => {
+    const notes = makeDummyNotes()
+    const { blobs, blindings } = await buildFrozenBlobs(notes, DUMMY_AUDITOR_PUBKEY_HEX)
+
+    const inputs = buildDepositInputs({
+      notes,
+      blindings,
+      encOutputs: blobs,
+      extDataHash: BigInt(0),
+      poolRoot: '0',
+      senderAddress: SPIKE_RECIPIENT,
+      dummyBlinding: BigInt(1),
+    })
+
+    expect(inputs.in_path_elements).toHaveLength(10)
+    expect(inputs.in_path_elements).toStrictEqual(Array(10).fill('0'))
+  })
+
+  it('has out_amount, out_pub_key, out_blinding as string[8]', async () => {
+    const notes = makeRealNotes()
+    const { blobs, blindings } = await buildFrozenBlobs(notes, DUMMY_AUDITOR_PUBKEY_HEX)
+
+    const inputs = buildDepositInputs({
+      notes,
+      blindings,
+      encOutputs: blobs,
+      extDataHash: BigInt(0),
+      poolRoot: '0',
+      senderAddress: SPIKE_RECIPIENT,
+      dummyBlinding: BigInt(1),
+    })
+
+    expect(inputs.out_amount).toHaveLength(8)
+    expect(inputs.out_pub_key).toHaveLength(8)
+    expect(inputs.out_blinding).toHaveLength(8)
+  })
+
+  it('out_blinding equals the blindings passed in (as decimal strings)', async () => {
+    const notes = makeDummyNotes()
+    const { blobs, blindings } = await buildFrozenBlobs(notes, DUMMY_AUDITOR_PUBKEY_HEX)
+
+    const inputs = buildDepositInputs({
+      notes,
+      blindings,
+      encOutputs: blobs,
+      extDataHash: BigInt(0),
+      poolRoot: '0',
+      senderAddress: SPIKE_RECIPIENT,
+      dummyBlinding: BigInt(99999),
+    })
+
+    for (let i = 0; i < 8; i++) {
+      expect(inputs.out_blinding[i]).toBe(blindings[i].toString())
+    }
+  })
+
+  it('output_commitment_i matches hash3WithSep(out_amount, out_pub_key, blinding, 1) (circuit semantics)', async () => {
+    const notes = makeRealNotes()
+    const { blobs, blindings } = await buildFrozenBlobs(notes, DUMMY_AUDITOR_PUBKEY_HEX)
+
+    const inputs = buildDepositInputs({
+      notes,
+      blindings,
+      encOutputs: blobs,
+      extDataHash: BigInt(0),
+      poolRoot: '0',
+      senderAddress: SPIKE_RECIPIENT,
+      dummyBlinding: BigInt(5),
+    }) as Record<string, unknown>
+
+    for (let i = 0; i < 8; i++) {
+      const expectedCommitment = hash3WithSep(
+        notes[i].denomination,
+        notes[i].outPubkey,
+        blindings[i],
+        BigInt(1),
+      ).toString()
+      expect(inputs[`output_commitment_${i}`]).toBe(expectedCommitment)
+    }
+  })
+
+  it('input_nullifier matches the circuit hash chain for dummy input (in_amount=0)', async () => {
+    // Circuit chain for dummy (DUMMY_PRIVKEY=424242, in_amount=0, in_path_indices=0):
+    //   pub_key = hash1WithSep(DUMMY_PRIVKEY, 3n)
+    //   in_commitment = hash3WithSep(0n, pub_key, dummyBlinding, 1n)
+    //   sig = hash3WithSep(DUMMY_PRIVKEY, in_commitment, 0n, 4n)
+    //   input_nullifier = hash3WithSep(in_commitment, 0n, sig, 2n)
+    const notes = makeDummyNotes()
     const { blobs, blindings } = await buildFrozenBlobs(notes, DUMMY_AUDITOR_PUBKEY_HEX)
     const dummyBlinding = BigInt(777)
 
@@ -227,79 +362,21 @@ describe('buildDepositInputs', () => {
       encOutputs: blobs,
       extDataHash: BigInt(0),
       poolRoot: '0',
-      aspMemberRoot: '0',
-      aspNonMemberRoot: '0',
       senderAddress: SPIKE_RECIPIENT,
       dummyBlinding,
     })
 
-    // outBlinding values in inputs are the string form of the blindings
-    for (let i = 0; i < 8; i++) {
-      expect(inputs.outBlinding[i]).toBe(blindings[i].toString())
-    }
+    const DUMMY_PRIVKEY = BigInt(424242)
+    const pubKey = hash1WithSep(DUMMY_PRIVKEY, BigInt(3))
+    const inCommitment = hash3WithSep(BigInt(0), pubKey, dummyBlinding, BigInt(1))
+    const sig = hash3WithSep(DUMMY_PRIVKEY, inCommitment, BigInt(0), BigInt(4))
+    const expectedNullifier = hash3WithSep(inCommitment, BigInt(0), sig, BigInt(2)).toString()
 
-    // The note's outAmount matches its denomination (decimal string)
-    for (let i = 0; i < 8; i++) {
-      expect(inputs.outAmount[i]).toBe(notes[i].denomination.toString())
-    }
-
-    // The outPubkey values match the notes' outPubkey (decimal string)
-    for (let i = 0; i < 8; i++) {
-      expect(inputs.outPubkey[i]).toBe(notes[i].outPubkey.toString())
-    }
+    expect(inputs.input_nullifier).toBe(expectedNullifier)
   })
 
-  it('precomputedMembership populates valid ASP policy proofs (leaf, path, non-membership key)', async () => {
-    // The policy circuit verifies a membership + non-membership proof for every
-    // input unconditionally (policyTransaction.circom 127-170). The deposit dummy
-    // input therefore needs a VALID membership proof against the on-chain ASP tree
-    // and a non-membership key equal to the real employer pubkey. This guards the
-    // fix for the "Local proof valid: false" R1CS failure: zero placeholders never
-    // satisfied those constraints.
-    const notes = makeRealNotes()
-    const { blobs, blindings } = await buildFrozenBlobs(notes, DUMMY_AUDITOR_PUBKEY_HEX)
-    const dummyBlinding = BigInt(1234)
-
-    const employerPubkey = BigInt('11111111111111111111')
-    const membershipLeaf = BigInt('22222222222222222222')
-    const pathElements = Array.from({ length: 10 }, (_, i) => (i + 100).toString())
-    const pathIndices = '8'
-
-    const inputs = buildDepositInputs({
-      notes,
-      blindings,
-      encOutputs: blobs,
-      extDataHash: BigInt(7),
-      poolRoot: '0',
-      aspMemberRoot: '12345',
-      aspNonMemberRoot: '0',
-      senderAddress: SPIKE_RECIPIENT,
-      dummyBlinding,
-      precomputedMembership: {
-        publicKey: employerPubkey,
-        leaf: membershipLeaf,
-        pathElements,
-        pathIndices,
-      },
-    })
-
-    // Membership proof carries the real leaf + reconstructed path (not zeros).
-    const mp = inputs.membershipProofs[0][0]
-    expect(mp.leaf).toBe(membershipLeaf.toString())
-    expect(mp.blinding).toBe('0')
-    expect(mp.pathElements).toStrictEqual(pathElements)
-    expect(mp.pathIndices).toBe(pathIndices)
-
-    // Non-membership key must equal the real pubkey (circuit line 154), not '0'.
-    const nmp = inputs.nonMembershipProofs[0][0]
-    expect(nmp.key).toBe(employerPubkey.toString())
-    expect(nmp.isOld0).toBe('1')
-    expect(nmp.oldKey).toBe('0')
-    expect(nmp.oldValue).toBe('0')
-  })
-
-  it('without precomputedMembership the policy proofs fall back to zero placeholders (shape only)', async () => {
-    const notes = makeRealNotes()
+  it('in_amount is "0" (scalar string, not array)', async () => {
+    const notes = makeDummyNotes()
     const { blobs, blindings } = await buildFrozenBlobs(notes, DUMMY_AUDITOR_PUBKEY_HEX)
 
     const inputs = buildDepositInputs({
@@ -308,14 +385,46 @@ describe('buildDepositInputs', () => {
       encOutputs: blobs,
       extDataHash: BigInt(0),
       poolRoot: '0',
-      aspMemberRoot: '0',
-      aspNonMemberRoot: '0',
       senderAddress: SPIKE_RECIPIENT,
-      dummyBlinding: BigInt(5),
+      dummyBlinding: BigInt(1),
     })
 
-    expect(inputs.membershipProofs[0][0].leaf).toBe('0')
-    expect(inputs.nonMembershipProofs[0][0].key).toBe('0')
+    expect(inputs.in_amount).toBe('0')
+    expect(Array.isArray(inputs.in_amount)).toBe(false)
+  })
+
+  it('root matches the poolRoot passed in', async () => {
+    const notes = makeDummyNotes()
+    const { blobs, blindings } = await buildFrozenBlobs(notes, DUMMY_AUDITOR_PUBKEY_HEX)
+
+    const inputs = buildDepositInputs({
+      notes,
+      blindings,
+      encOutputs: blobs,
+      extDataHash: BigInt(0),
+      poolRoot: 'POOL_ROOT_TEST',
+      senderAddress: SPIKE_RECIPIENT,
+      dummyBlinding: BigInt(1),
+    })
+
+    expect(inputs.root).toBe('POOL_ROOT_TEST')
+  })
+
+  it('in_private_key matches DUMMY_PRIVKEY as decimal string', async () => {
+    const notes = makeDummyNotes()
+    const { blobs, blindings } = await buildFrozenBlobs(notes, DUMMY_AUDITOR_PUBKEY_HEX)
+
+    const inputs = buildDepositInputs({
+      notes,
+      blindings,
+      encOutputs: blobs,
+      extDataHash: BigInt(0),
+      poolRoot: '0',
+      senderAddress: SPIKE_RECIPIENT,
+      dummyBlinding: BigInt(1),
+    })
+
+    expect(inputs.in_private_key).toBe(BigInt(424242).toString())
   })
 })
 

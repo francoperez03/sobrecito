@@ -30,6 +30,29 @@ import type {
 } from '../types'
 import { buildExtDataScVal, buildProofScVal } from './encoding'
 
+/**
+ * Poll the RPC until the submitted tx is applied to a closed ledger (SUCCESS) or
+ * fails. `sendTransaction` returns while the tx is still PENDING; returning then
+ * leaves the account sequence un-advanced from the RPC's point of view, so the
+ * NEXT build reads a stale sequence and the next submit fails with txBadSeq
+ * (e.g. claiming two notes in a row without refreshing). Waiting here also makes
+ * the UI receipt ("Cashed out" / "Confirmed") reflect real on-chain success and
+ * lets the nullifier-status scan find the just-spent note.
+ */
+async function waitForTx(server: StellarRpc.Server, hash: string, label: string): Promise<void> {
+  for (let attempt = 0; attempt < 40; attempt++) {
+    await new Promise((r) => setTimeout(r, 1500))
+    const res = await server.getTransaction(hash)
+    if (res.status === 'SUCCESS') return
+    if (res.status === 'FAILED') {
+      const detail = (res as { resultXdr?: { toXDR?: (fmt: string) => string } }).resultXdr
+      throw new Error(`${label}: ${detail?.toXDR ? detail.toXDR('base64') : JSON.stringify(res)}`)
+    }
+    // NOT_FOUND → not yet in a closed ledger, keep polling
+  }
+  throw new Error(`${label}: confirmation timed out`)
+}
+
 export function createStellarWriter(config: ChainConfig, wallet: WalletAdapter): ChainWriter {
   const { rpcUrl, networkId, baseFee, poolId } = config
 
@@ -43,7 +66,13 @@ export function createStellarWriter(config: ChainConfig, wallet: WalletAdapter):
     const source = await server.getAccount(sender)
 
     // 2. Build pool.transact(proof, ext_data, sender). ext_amount POSITIVE.
-    const proofArg = buildProofScVal({ proof: args.proof, ...args.publicInputs })
+    // args.proof = the 14592-byte UltraHonk proof blob; publicInputsBlob = the
+    // 384-byte public-inputs blob (both come from bb 0.87.0 prove() output).
+    const proofArg = buildProofScVal({
+      ...args.publicInputs,
+      proofBytes: args.proof,
+      publicInputsBlob: args.publicInputs.publicInputsBlob,
+    })
     const extDataArg = buildExtDataScVal({
       recipient: sender,
       ext_amount: args.totalBaseUnits,
@@ -64,6 +93,9 @@ export function createStellarWriter(config: ChainConfig, wallet: WalletAdapter):
     if (sent.status === 'ERROR') {
       throw new Error(`Pool rejected the deposit: ${JSON.stringify(sent.errorResult)}`)
     }
+    // Wait for the deposit to close so the account sequence advances before any
+    // follow-up tx (prevents txBadSeq) and the receipt reflects real success.
+    await waitForTx(server, sent.hash, 'Pool rejected the deposit')
     return { hash: sent.hash, sender }
   }
 
@@ -80,10 +112,16 @@ export function createStellarWriter(config: ChainConfig, wallet: WalletAdapter):
 
     // 2. Proof argument: pre-built blob from a claim link, structured proof, or a
     //    demo placeholder (the wallet still signs a real tx).
+    // args.proof = the 14592-byte UltraHonk proof blob; publicInputsBlob comes from
+    // publicInputs (the 384-byte blob). Both forwarded into the alphabetical ScMap.
     const proofArg: xdr.ScVal = args.proofXdr
       ? xdr.ScVal.fromXDR(args.proofXdr, 'base64')
       : args.proof && args.publicInputs
-        ? buildProofScVal({ proof: args.proof, ...args.publicInputs })
+        ? buildProofScVal({
+            ...args.publicInputs,
+            proofBytes: args.proof,
+            publicInputsBlob: args.publicInputs.publicInputsBlob,
+          })
         : nativeToScVal(args.commitmentIndex, { type: 'u32' })
 
     // 3. ext_data argument: pre-built blob, or built from recipient + NEGATIVE
@@ -110,6 +148,9 @@ export function createStellarWriter(config: ChainConfig, wallet: WalletAdapter):
     if (sent.status === 'ERROR') {
       throw new Error(`Pool rejected the unshield: ${JSON.stringify(sent.errorResult)}`)
     }
+    // Wait for the unshield to close so claiming the next note reads a fresh
+    // account sequence (prevents txBadSeq) and "Cashed out" means confirmed.
+    await waitForTx(server, sent.hash, 'Pool rejected the unshield')
     return { hash: sent.hash, recipient }
   }
 

@@ -2932,10 +2932,14 @@ dependencies = [
 name = "pool"
 version = "0.1.0"
 dependencies = [
- "asp-membership",
- "asp-non-membership",
- "circom-groth16-verifier",
- "contract-types",
+ "soroban-sdk",
+ "soroban-utils",
+]
+
+[[package]]
+name = "poseidon2-tester"
+version = "0.1.0"
+dependencies = [
  "soroban-sdk",
  "soroban-utils",
 ]

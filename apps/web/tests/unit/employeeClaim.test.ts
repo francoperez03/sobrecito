@@ -23,24 +23,33 @@ vi.mock('@/lib/zk/proverClient', () => ({
   configureProver: vi.fn().mockResolvedValue(undefined),
   initProver: vi.fn().mockResolvedValue(undefined),
   onProgress: vi.fn().mockReturnValue(() => {}),
-  computeNullifier: vi.fn().mockResolvedValue(BigInt(42)),
-  computeCommitment: vi.fn().mockResolvedValue(BigInt(7)),
-  derivePublicKey: vi.fn().mockResolvedValue(BigInt(123)),
-  computeMembershipLeaf: vi.fn().mockResolvedValue(BigInt(456)),
-  reconstructMerklePath: vi
-    .fn()
-    .mockResolvedValue({ root: '1', pathElements: Array(10).fill('0'), pathIndices: '0' }),
   prove: vi.fn().mockResolvedValue({ proof: new Uint8Array(256).fill(1), publicInputs: new Uint8Array(32), sorobanFormat: true }),
 }))
 
+// Mock buildWithdrawInputs with the Noir ABI shape (plan 09.1-02 — flat snake_case keys, no ASP)
 vi.mock('@/lib/zk/withdrawTransactionBuilder', () => ({
   buildWithdrawInputs: vi.fn().mockReturnValue({
     root: '1',
-    publicAmount: '0',
-    inputNullifier: ['42'],
-    outputCommitment: ['7'],
-    membershipRoots: [['1']],
-    nonMembershipRoots: [['2']],
+    public_amount: '0',
+    ext_data_hash: '0',
+    input_nullifier: '42',
+    output_commitment_0: '7',
+    output_commitment_1: '7',
+    output_commitment_2: '7',
+    output_commitment_3: '7',
+    output_commitment_4: '7',
+    output_commitment_5: '7',
+    output_commitment_6: '7',
+    output_commitment_7: '7',
+    in_amount: '0',
+    in_private_key: '0',
+    in_blinding: '0',
+    in_path_indices: '0',
+    in_path_elements: Array(10).fill('0'),
+    in_path_bits: Array(10).fill('0'),
+    out_amount: Array(8).fill('0'),
+    out_pub_key: Array(8).fill('0'),
+    out_blinding: Array(8).fill('0'),
   }),
 }))
 

@@ -70,6 +70,11 @@ export interface ExtDataInput {
  * Semantic public-input values that the on-chain `Proof` carries. These are the
  * SAME values the proof was generated against; the adapter encodes them into the
  * chain's proof representation.
+ *
+ * UltraHonk / sobre_slim (D2 scope): ASP membership fields dropped. The Proof
+ * struct now carries two opaque blobs (public_inputs + proof_bytes) in addition
+ * to the structured fields the pool validates independently (root, nullifiers,
+ * commitments, public_amount, ext_data_hash).
  */
 export interface ProofPublicInputs {
   /** Pool Merkle root the proof targets. */
@@ -82,15 +87,26 @@ export interface ProofPublicInputs {
   inputNullifiers: U256Like[]
   /** Output commitments. */
   outputCommitments: U256Like[]
-  /** ASP membership root (self-consistent reconstructed root). */
-  aspMembershipRoot: U256Like
-  /** ASP non-membership root (empty SMT → 0). */
-  aspNonMembershipRoot: U256Like
+  /**
+   * 384-byte public-inputs blob from bb (12 × 32-byte big-endian U256 fields):
+   *   [root, public_amount, ext_data_hash, input_nullifier,
+   *    output_commitment_0 .. output_commitment_7]
+   * Passed directly to the UltraHonk verifier via the pool's Proof.public_inputs.
+   */
+  publicInputsBlob: Uint8Array
+  /**
+   * 14592-byte UltraHonk proof blob from bb 0.87.0. Passed directly to the
+   * verifier via the pool's Proof.proof_bytes.
+   */
+  proofBytes: Uint8Array
 }
 
 /** Arguments for an employer deposit (employer funds the pool). */
 export interface DepositArgs {
-  /** 256-byte Groth16 proof (A||B||C) from the in-browser prover. */
+  /**
+   * 14592-byte UltraHonk proof blob from bb 0.87.0 (passed as Proof.proof_bytes
+   * on-chain). The 384-byte public-inputs blob travels in publicInputs.publicInputsBlob.
+   */
   proof: Uint8Array
   /** Public inputs the proof was generated against. */
   publicInputs: ProofPublicInputs
@@ -186,8 +202,8 @@ export interface ScanRange {
 export interface ChainEventScanner {
   /** Scan NewCommitmentEvent over a ledger range (defaults to deploymentLedger). */
   scanCommitments(range?: ScanRange): Promise<ScannedEvent[]>
-  /** Scan NewNullifierEvent and return the set of spent nullifiers (decimals). */
-  scanSpentNullifiers(range?: ScanRange): Promise<Set<string>>
+  /** Scan NewNullifierEvent: map each spent nullifier (decimal) → its claim txHash. */
+  scanSpentNullifiers(range?: ScanRange): Promise<Map<string, string>>
 }
 
 /** Chain-specific binary encoding the domain needs for witness/proof building. */

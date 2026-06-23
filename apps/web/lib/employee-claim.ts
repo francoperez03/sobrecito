@@ -20,11 +20,6 @@ import {
   configureProver,
   initProver,
   onProgress,
-  computeNullifier,
-  computeCommitment,
-  derivePublicKey,
-  computeMembershipLeaf,
-  reconstructMerklePath,
 } from '@/lib/zk/proverClient'
 import { buildWithdrawInputs } from '@/lib/zk/withdrawTransactionBuilder'
 import { fetchMerkleProof, fetchPoolRoot, readDeployments } from '@/lib/rpc'
@@ -91,25 +86,11 @@ export async function claimNote(
   unsub()
 
   // Step 3: generate the ZK proof in-browser.
-  // computeNullifier uses the Poseidon2 WASM bridge so the circuit accepts it.
-  const pathIndicesBigInt = BigInt(path.pathIndices)
-  const inputNullifier = await computeNullifier(bn254Priv, note.blinding, pathIndicesBigInt, note.amount)
-
+  // Sobre_slim Noir ABI: nullifier, zero-note commitments, and in_path_bits are
+  // computed in JS via poseidon2Pool inside buildWithdrawInputs (no COMPUTE_* worker
+  // calls — those handlers are dead in bb-prover.ts after D2 scope drop).
+  // No ASP fields: sobre_slim intentionally drops the allowlist proofs.
   const poolRoot = await fetchPoolRoot()
-
-  // Self-consistent ASP membership proof for the EMPLOYEE's spending key. The
-  // pool no longer cross-checks the ASP root on-chain (obviated), so the prover
-  // supplies an internally-consistent membership root: a tree containing the
-  // employee's membership leaf = Poseidon2(derivePublicKey(bn254Priv), 0, 1).
-  const employeePubkey = await derivePublicKey(bn254Priv)
-  const membershipLeaf = await computeMembershipLeaf(employeePubkey, BigInt(0))
-  const memberPath = await reconstructMerklePath([membershipLeaf], 0, 10)
-  const aspMemberRoot = memberPath.root
-  const aspNonMemberRoot = '0' // empty non-membership SMT (non-inclusion is trivial)
-
-  // Commitment of an all-zero output note (Poseidon2(0,0,0,1)) for the 8 unused
-  // change outputs — the circuit checks outputCommitment unconditionally.
-  const zeroOutputCommitment = (await computeCommitment(BigInt(0), BigInt(0), BigInt(0))).toString()
 
   // ext_amount is NEGATIVE for a withdrawal (pool checks sign direction).
   // The withdrawn amount becomes visible on-chain — amber-warned in NoteCard.
@@ -123,21 +104,11 @@ export async function claimNote(
   const witness = buildWithdrawInputs({
     note,
     bn254Priv,
-    inputNullifier,
     pathElements: path.pathElements,
     pathIndices: path.pathIndices,
     recipientAddress: recipient,
     poolRoot,
-    aspMemberRoot,
-    aspNonMemberRoot,
     extDataHash,
-    zeroOutputCommitment,
-    precomputedMembership: {
-      publicKey: employeePubkey,
-      leaf: membershipLeaf,
-      pathElements: memberPath.pathElements,
-      pathIndices: memberPath.pathIndices,
-    },
   })
 
   let elapsed = 0
@@ -146,24 +117,14 @@ export async function claimNote(
     onStep({ phase: 'proving', elapsed })
   }, 1000)
 
-  let proof: Uint8Array
+  let proofBytes: Uint8Array
+  let publicInputsBlob: Uint8Array
   try {
     const result = await prove(witness)
-    proof = result.proof
+    proofBytes = result.proof        // 14592-byte UltraHonk proof blob
+    publicInputsBlob = result.publicInputs  // 384-byte public-inputs blob (12 × 32 BE)
   } finally {
     clearInterval(timer)
-  }
-
-  // The on-chain Proof struct's public inputs come from the witness we just proved
-  // against, so they match the proof exactly. The adapter's writer encodes them into
-  // the chain-native Proof (the pool's transact takes a struct, not raw bytes).
-  const w = witness as {
-    root: string
-    publicAmount: string
-    inputNullifier: string[]
-    outputCommitment: string[]
-    membershipRoots: string[][]
-    nonMembershipRoots: string[][]
   }
 
   // Step 4: sign and submit (employee pays their own fee). The recipient bound into
@@ -175,15 +136,20 @@ export async function claimNote(
     commitmentIndex: note.index,
     amount: note.amount.toString(),
     recipient,
-    proof,
+    // proof = the 14592-byte UltraHonk proof blob (Proof.proof_bytes on-chain)
+    proof: proofBytes,
+    // UltraHonk ProofPublicInputs: two opaque blobs from bb plus the structured
+    // fields the pool validates independently (root, nullifiers, etc.).
     publicInputs: {
-      root: w.root,
-      publicAmount: w.publicAmount,
+      root: witness.root,
+      publicAmount: witness.public_amount,
       extDataHash: extDataHashResult.bytes,
-      inputNullifiers: w.inputNullifier,
-      outputCommitments: w.outputCommitment,
-      aspMembershipRoot: w.membershipRoots[0][0],
-      aspNonMembershipRoot: w.nonMembershipRoots[0][0],
+      inputNullifiers: [witness.input_nullifier],
+      outputCommitments: [0,1,2,3,4,5,6,7].map(i => (witness as Record<string, string>)[`output_commitment_${i}`]),
+      // The 384-byte public-inputs blob from bb (passed as Proof.public_inputs on-chain)
+      publicInputsBlob,
+      // The 14592-byte UltraHonk proof blob (same as proof, carried for encoding)
+      proofBytes,
     },
   })
 
