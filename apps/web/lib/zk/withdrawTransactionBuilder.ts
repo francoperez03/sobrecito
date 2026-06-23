@@ -1,39 +1,58 @@
 /**
- * withdrawTransactionBuilder.ts — 1-in / 8-dummy-out withdraw witness assembly.
+ * withdrawTransactionBuilder.ts — 1-in / 8-zero-out withdraw witness assembly.
  *
- * policy_tx_1_8 reused for withdraw: 1 real input, 8 dummy zero outputs
- * (per 06.3-RESEARCH.md Pattern 4).
+ * sobre_slim Noir ABI (plan 09.1-02): 1 real input note, 8 zero change outputs.
  *
  * The key difference from buildDepositInputs (depositTransactionBuilder.ts):
- *   - inAmount[0] = note.amount   (NON-zero -> circuit runs Merkle membership check)
- *   - inPrivateKey[0] = bn254Priv (employee spending key)
- *   - inBlinding[0] = note.blinding
- *   - publicAmount = toFieldElement(-note.amount)  (NEGATIVE = withdrawal direction)
- *   - outputCommitment, outAmount, outPubkey, outBlinding = all zeros (no change outputs)
+ *   - in_amount = note.amount  (NON-zero → circuit runs Merkle membership check)
+ *   - in_private_key = bn254Priv (employee spending key)
+ *   - in_blinding = note.blinding
+ *   - public_amount = toFieldElement(-note.amount)  (NEGATIVE = withdrawal direction)
+ *   - output_commitment_i = hash3WithSep(0n, 0n, 0n, 1n) — zero-note commitment
+ *     (the circuit checks outputCommitment unconditionally — not a literal '0')
+ *   - in_path_bits: bit-decomposition of pathIndices (NEW Noir ABI field)
+ *   - input_nullifier: recomputed via the circuit's exact hash chain so the
+ *     public input matches what Noir computes internally
  *
- * ES2017 only: BigInt() calls, never 0n/1n/...617n literals.
+ * D2 scope: ASP allowlist proofs intentionally dropped (sobre_slim has none).
+ * No ASP fields in the witness.
+ *
+ * ES2017 only: BigInt() calls, never 0n/1n/…617n literals.
  * No default export — callers import buildWithdrawInputs by name.
  */
 
-import { BN254_FIELD_MODULUS } from 'viewkey'
 import type { EmployeeNote } from '@/lib/employee-scan'
-
-// ext_data_hash for the withdraw direction is computed via the chain adapter:
-// getChainAdapter().encoding.hashExtData({ recipient, ext_amount: -amount, encrypted_outputs: [] }).
+import { hash1WithSep, hash3WithSep } from '@/lib/zk/poseidon2Pool'
 
 // ---------------------------------------------------------------------------
-// BN254 field helpers
+// BN254 field helpers (ES2017-safe: BigInt() constructor, not literals)
 // ---------------------------------------------------------------------------
 
-const BN254_MOD = BN254_FIELD_MODULUS
+const BN254_MOD = BigInt('21888242871839275222246405745257275088548364400416034343698204186575808495617')
 
 /**
  * Reduce a bigint into the BN254 scalar field.
  * Handles negative values (two's complement BN254 encoding) by adding BN254_MOD.
- * Mirrors the same function in depositTransactionBuilder.ts (lines 324-327).
  */
 function toFieldElement(v: bigint): bigint {
   return ((v % BN254_MOD) + BN254_MOD) % BN254_MOD
+}
+
+/**
+ * Decompose a path-indices bitmask into a length-`levels` bit array.
+ * bit[k] = (BigInt(bitmask) >> BigInt(k)) & 1n, returned as '0' or '1' strings.
+ *
+ * This matches the `in_path_bits` semantics in main.nr's compute_root:
+ *   bit==0 → current node is left child (sibling on right)
+ *   bit==1 → current node is right child (sibling on left)
+ */
+function pathIndicesToBits(bitmask: string, levels: number = 10): string[] {
+  const n = BigInt(bitmask)
+  const bits: string[] = []
+  for (let k = 0; k < levels; k++) {
+    bits.push(((n >> BigInt(k)) & BigInt(1)).toString())
+  }
+  return bits
 }
 
 // ---------------------------------------------------------------------------
@@ -45,11 +64,6 @@ export interface BuildWithdrawArgs {
   note: EmployeeNote
   /** BN254 spending private key (bn254Priv from keyDerivation.ts). */
   bn254Priv: bigint
-  /**
-   * Pre-computed nullifier via proverClient.computeNullifier(bn254Priv, blinding, pathIndices).
-   * Must use the Poseidon2 WASM bridge for the circuit to accept it.
-   */
-  inputNullifier: bigint
   /** Merkle sibling hashes for the note's commitment leaf (from reconstructMerklePathFromEvents). */
   pathElements: string[]
   /** Merkle path direction bitmask string (from reconstructMerklePathFromEvents). */
@@ -58,39 +72,42 @@ export interface BuildWithdrawArgs {
   recipientAddress: string
   /** Live pool Merkle root (decimal string from fetchPoolRoot). */
   poolRoot: string
-  /** ASP membership root (decimal string from fetchASPRoots). */
-  aspMemberRoot: string
-  /** ASP non-membership root (decimal string from fetchASPRoots). */
-  aspNonMemberRoot: string
   /**
-   * Pre-computed ext_data_hash (decimal string from hashExtDataSobre with negative ext_amount).
-   * Call: hashExtDataSobre({ recipient, ext_amount: -note.amount, encrypted_outputs: [] }).bigInt
-   * and pass its .toString() here.
+   * Pre-computed ext_data_hash (decimal string from hashExtData with negative ext_amount).
+   * Call: getChainAdapter().encoding.hashExtData({ recipient, ext_amount: -amount, encrypted_outputs: [] }).bigInt.toString()
    */
   extDataHash: string
-  /**
-   * Commitment of an all-zero output note = Poseidon2(0, 0, 0, domain=1), from the
-   * WASM bridge (computeCommitment(0,0,0)). The circuit verifies
-   * outCommitmentHasher.out === outputCommitment[i] UNCONDITIONALLY
-   * (policyTransaction.circom:187), so the 8 unused change outputs must carry the
-   * real zero-note commitment, NOT a literal 0. Optional only so existing unit
-   * tests still type-check; the live claim (employee-claim.ts) always supplies it.
-   */
-  zeroOutputCommitment?: string
-  /**
-   * Self-consistent ASP membership proof for the EMPLOYEE's spending key, mirroring
-   * the deposit's dummy-input proof. The circuit verifies membership unconditionally
-   * for every input (policyTransaction.circom:127-170), so the withdraw needs a real
-   * proof: leaf = Poseidon2(derivePublicKey(bn254Priv), 0, 1), reconstructed against a
-   * tree that contains it. The pool no longer cross-checks the root on-chain (ASP
-   * obviated), so any internally-consistent root is accepted.
-   */
-  precomputedMembership?: {
-    publicKey: bigint
-    leaf: bigint
-    pathElements: string[]
-    pathIndices: string
-  }
+}
+
+// ---------------------------------------------------------------------------
+// Withdraw witness return type (Noir ABI)
+// ---------------------------------------------------------------------------
+
+export interface WithdrawWitness {
+  // Public (12 flat scalar strings)
+  root: string
+  public_amount: string
+  ext_data_hash: string
+  input_nullifier: string
+  output_commitment_0: string
+  output_commitment_1: string
+  output_commitment_2: string
+  output_commitment_3: string
+  output_commitment_4: string
+  output_commitment_5: string
+  output_commitment_6: string
+  output_commitment_7: string
+  // Private (scalar strings)
+  in_amount: string
+  in_private_key: string
+  in_blinding: string
+  in_path_indices: string
+  // Private (arrays)
+  in_path_elements: string[]
+  in_path_bits: string[]
+  out_amount: string[]
+  out_pub_key: string[]
+  out_blinding: string[]
 }
 
 // ---------------------------------------------------------------------------
@@ -98,85 +115,80 @@ export interface BuildWithdrawArgs {
 // ---------------------------------------------------------------------------
 
 /**
- * Assemble the witness input object for the policy_tx_1_8 prover in withdraw mode.
+ * Assemble the witness input object for the sobre_slim Noir prover in withdraw mode.
  *
- * policy_tx_1_8 reused for withdraw: 1 real input, 8 dummy zero outputs
- * (per RESEARCH Pattern 4). The note being claimed is the real input;
- * no change outputs are produced (full-note claim).
+ * sobre_slim reused for withdraw: 1 real input, 8 zero change outputs.
+ * The note being claimed is the real input; no change outputs are produced (full-note claim).
  *
- * All numeric values are returned as decimal strings (the witness generator
- * expects strings). The membership/non-membership root fields mirror the shape
- * of buildDepositInputs for compatibility with the proverClient worker.
+ * All numeric values are returned as decimal strings (the witness generator expects strings).
+ * No ASP fields — D2 scope, sobre_slim intentionally drops the allowlist proofs.
+ *
+ * input_nullifier is RECOMPUTED here via the circuit's hash chain so the public input
+ * matches what Noir computes internally (the old passed-in value from the WASM worker is
+ * no longer trustworthy — the COMPUTE_* handlers are dead in bb-prover.ts):
+ *   pub_key = hash1WithSep(bn254Priv, 3n)
+ *   in_commitment = hash3WithSep(note.amount, pub_key, note.blinding, 1n)
+ *   sig = hash3WithSep(bn254Priv, in_commitment, BigInt(pathIndices), 4n)
+ *   input_nullifier = hash3WithSep(in_commitment, BigInt(pathIndices), sig, 2n)
  */
-export function buildWithdrawInputs(args: BuildWithdrawArgs): Record<string, unknown> {
+export function buildWithdrawInputs(args: BuildWithdrawArgs): WithdrawWitness {
   const {
     note,
     bn254Priv,
-    inputNullifier,
     pathElements,
     pathIndices,
     poolRoot,
-    aspMemberRoot,
-    aspNonMemberRoot,
     extDataHash,
-    zeroOutputCommitment,
-    precomputedMembership,
   } = args
 
   const zero8 = Array(8).fill('0')
 
-  // publicAmount is NEGATIVE for a withdrawal (pool checks sign for direction).
+  // public_amount is NEGATIVE for a withdrawal (pool checks sign for direction).
   // toFieldElement(-amount) encodes the negative value in BN254 two's complement.
-  const publicAmount = toFieldElement(-note.amount).toString()
+  const public_amount = toFieldElement(-note.amount).toString()
+
+  // Recompute input_nullifier via the circuit's exact hash chain (main.nr:64-74).
+  // This replaces the old WASM worker call (COMPUTE_NULLIFIER handler is dead in bb-prover.ts).
+  const pub_key = hash1WithSep(bn254Priv, BigInt(3))
+  const in_commitment = hash3WithSep(note.amount, pub_key, note.blinding, BigInt(1))
+  const pathIndicesBigInt = BigInt(pathIndices)
+  const sig = hash3WithSep(bn254Priv, in_commitment, pathIndicesBigInt, BigInt(4))
+  const input_nullifier = hash3WithSep(in_commitment, pathIndicesBigInt, sig, BigInt(2)).toString()
+
+  // Zero-note output commitment = hash3WithSep(0n, 0n, 0n, 1n).
+  // The circuit checks outputCommitment unconditionally (main.nr:93) — a literal '0'
+  // would fail the constraint. All 8 change outputs carry this canonical zero commitment.
+  const zeroCommitment = hash3WithSep(BigInt(0), BigInt(0), BigInt(0), BigInt(1)).toString()
+
+  // in_path_bits: bit-decomposition of the path-indices bitmask (NEW Noir ABI field).
+  // main.nr compute_root receives path_bits as [Field;10], not the integer bitmask.
+  const in_path_bits = pathIndicesToBits(pathIndices)
 
   return {
-    // Public inputs
+    // 12 public inputs (flat scalar strings)
     root: poolRoot,
-    publicAmount,
-    extDataHash,
-    inputNullifier: [toFieldElement(inputNullifier).toString()],
-    // 8 unused change outputs, each the commitment of an all-zero note
-    // (Poseidon2(0,0,0,1)). The circuit checks this hash unconditionally, so a
-    // literal 0 would fail the constraint.
-    outputCommitment: Array(8).fill(zeroOutputCommitment ?? '0'),
-    membershipRoots: [[aspMemberRoot]],
-    nonMembershipRoots: [[aspNonMemberRoot]],
-
-    // Private inputs (1 real input, NON-zero inAmount activates Merkle membership check)
-    inAmount: [toFieldElement(note.amount).toString()],
-    inPrivateKey: [toFieldElement(bn254Priv).toString()],
-    inBlinding: [toFieldElement(note.blinding).toString()],
-    inPathIndices: [pathIndices],
-    inPathElements: [pathElements],
-
-    // Self-consistent ASP membership proof for the employee's spending key. The
-    // circuit verifies membership for every input unconditionally; an all-zero
-    // placeholder makes the proof locally invalid. When precomputedMembership is
-    // supplied (claimNote computes it via the WASM bridge), use it; otherwise fall
-    // back to zeros (kept only so callers mid-migration still type-check).
-    membershipProofs: [[
-      precomputedMembership
-        ? {
-            leaf: precomputedMembership.leaf.toString(),
-            blinding: '0',
-            pathElements: precomputedMembership.pathElements,
-            pathIndices: precomputedMembership.pathIndices,
-          }
-        : { leaf: '0', blinding: '0', pathElements: Array(10).fill('0'), pathIndices: '0' },
-    ]],
-    nonMembershipProofs: [[
-      {
-        key: precomputedMembership ? precomputedMembership.publicKey.toString() : '0',
-        siblings: Array(10).fill('0'),
-        oldKey: '0',
-        oldValue: '0',
-        isOld0: '1',
-      },
-    ]],
-
+    public_amount,
+    ext_data_hash: extDataHash,
+    input_nullifier,
+    output_commitment_0: zeroCommitment,
+    output_commitment_1: zeroCommitment,
+    output_commitment_2: zeroCommitment,
+    output_commitment_3: zeroCommitment,
+    output_commitment_4: zeroCommitment,
+    output_commitment_5: zeroCommitment,
+    output_commitment_6: zeroCommitment,
+    output_commitment_7: zeroCommitment,
+    // Private inputs (scalar strings)
+    in_amount: toFieldElement(note.amount).toString(),
+    in_private_key: toFieldElement(bn254Priv).toString(),
+    in_blinding: toFieldElement(note.blinding).toString(),
+    in_path_indices: pathIndices,
+    // Private inputs (arrays)
+    in_path_elements: pathElements,
+    in_path_bits,
     // 8 dummy zero outputs (no change; employee receives the full note amount via ext_amount)
-    outAmount: zero8,
-    outPubkey: zero8,
-    outBlinding: zero8,
+    out_amount: zero8,
+    out_pub_key: zero8,
+    out_blinding: zero8,
   }
 }
