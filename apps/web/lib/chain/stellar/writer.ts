@@ -43,7 +43,13 @@ export function createStellarWriter(config: ChainConfig, wallet: WalletAdapter):
     const source = await server.getAccount(sender)
 
     // 2. Build pool.transact(proof, ext_data, sender). ext_amount POSITIVE.
-    const proofArg = buildProofScVal({ proof: args.proof, ...args.publicInputs })
+    // args.proof = the 14592-byte UltraHonk proof blob; publicInputsBlob = the
+    // 384-byte public-inputs blob (both come from bb 0.87.0 prove() output).
+    const proofArg = buildProofScVal({
+      ...args.publicInputs,
+      proofBytes: args.proof,
+      publicInputsBlob: args.publicInputs.publicInputsBlob,
+    })
     const extDataArg = buildExtDataScVal({
       recipient: sender,
       ext_amount: args.totalBaseUnits,
@@ -80,10 +86,16 @@ export function createStellarWriter(config: ChainConfig, wallet: WalletAdapter):
 
     // 2. Proof argument: pre-built blob from a claim link, structured proof, or a
     //    demo placeholder (the wallet still signs a real tx).
+    // args.proof = the 14592-byte UltraHonk proof blob; publicInputsBlob comes from
+    // publicInputs (the 384-byte blob). Both forwarded into the alphabetical ScMap.
     const proofArg: xdr.ScVal = args.proofXdr
       ? xdr.ScVal.fromXDR(args.proofXdr, 'base64')
       : args.proof && args.publicInputs
-        ? buildProofScVal({ proof: args.proof, ...args.publicInputs })
+        ? buildProofScVal({
+            ...args.publicInputs,
+            proofBytes: args.proof,
+            publicInputsBlob: args.publicInputs.publicInputsBlob,
+          })
         : nativeToScVal(args.commitmentIndex, { type: 'u32' })
 
     // 3. ext_data argument: pre-built blob, or built from recipient + NEGATIVE

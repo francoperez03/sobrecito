@@ -23,5 +23,6 @@
   "bb_version": "0.87.0",
   "vk_hash": "584f1dd7f5d752c2ae5dc3ffbfe96861deb0250484385de6cf791627df74a6fc",
   "noir_pool_e2e_tx": "6a83f9670a1ecc4ffb5de815503b7014c48c278708deed0e2c564b7749f6f2ef",
-  "noir_pool_explorer": "https://stellar.expert/explorer/testnet/tx/6a83f9670a1ecc4ffb5de815503b7014c48c278708deed0e2c564b7749f6f2ef"
+  "noir_pool_explorer": "https://stellar.expert/explorer/testnet/tx/6a83f9670a1ecc4ffb5de815503b7014c48c278708deed0e2c564b7749f6f2ef",
+  "noir_pool_deployment_ledger": 3211979
 }

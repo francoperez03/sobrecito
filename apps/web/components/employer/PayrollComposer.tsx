@@ -411,7 +411,7 @@ export function PayrollComposer({ onSent }: { onSent?: () => void }) {
         dummyBlinding,
       })
 
-      const { proof } = await prove(inputs)
+      const { proof: proofBytes, publicInputs: publicInputsBlob } = await prove(inputs)
 
       // Clear elapsed timer
       if (elapsedTimerRef.current) {
@@ -438,19 +438,24 @@ export function PayrollComposer({ onSent }: { onSent?: () => void }) {
           : undefined
 
       const result = await (testSubmit ?? submitDeposit)({
-        proof,
+        // proof = the 14592-byte UltraHonk proof blob (passed as Proof.proof_bytes on-chain)
+        proof: proofBytes,
         encOutputs: blobs,
         totalBaseUnits, // real USDC moved from employer into the pool
         sender: address,
-        // Semantic public inputs from the Noir ABI witness (ASP-free, plan 09.1-02).
-        // TODO(plan-03): finalize publicInputsBlob/proofBytes to ProofPublicInputs type.
-        // Plan 03 Task 2 rewrites this object once types.ts ProofPublicInputs is updated.
+        // UltraHonk ProofPublicInputs: the two opaque blobs from bb plus the
+        // structured fields the pool validates independently (root, nullifiers,
+        // commitments, public_amount, ext_data_hash).
         publicInputs: {
           root: inputs.root,
           publicAmount: totalBaseUnits,
           extDataHash: extDataHashBytes,
           inputNullifiers: [inputs.input_nullifier],
           outputCommitments: [0,1,2,3,4,5,6,7].map(i => (inputs as Record<string, string>)[`output_commitment_${i}`]),
+          // The 384-byte public-inputs blob from bb (12 × 32-byte BE fields)
+          publicInputsBlob,
+          // The 14592-byte UltraHonk proof blob (same as proof above, carried for encoding)
+          proofBytes,
         },
       })
 

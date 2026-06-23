@@ -117,18 +117,15 @@ export async function claimNote(
     onStep({ phase: 'proving', elapsed })
   }, 1000)
 
-  let proof: Uint8Array
+  let proofBytes: Uint8Array
+  let publicInputsBlob: Uint8Array
   try {
     const result = await prove(witness)
-    proof = result.proof
+    proofBytes = result.proof        // 14592-byte UltraHonk proof blob
+    publicInputsBlob = result.publicInputs  // 384-byte public-inputs blob (12 × 32 BE)
   } finally {
     clearInterval(timer)
   }
-
-  // The on-chain Proof struct's public inputs come from the Noir ABI witness
-  // (ASP-free, plan 09.1-02). The witness has flat snake_case keys.
-  // TODO(plan-03): finalize publicInputsBlob/proofBytes to ProofPublicInputs type.
-  // Plan 03 Task 2 rewrites this object once types.ts ProofPublicInputs is updated.
 
   // Step 4: sign and submit (employee pays their own fee). The recipient bound into
   // ext_data_hash above is passed through so the writer signs with the same address.
@@ -139,13 +136,20 @@ export async function claimNote(
     commitmentIndex: note.index,
     amount: note.amount.toString(),
     recipient,
-    proof,
+    // proof = the 14592-byte UltraHonk proof blob (Proof.proof_bytes on-chain)
+    proof: proofBytes,
+    // UltraHonk ProofPublicInputs: two opaque blobs from bb plus the structured
+    // fields the pool validates independently (root, nullifiers, etc.).
     publicInputs: {
       root: witness.root,
       publicAmount: witness.public_amount,
       extDataHash: extDataHashResult.bytes,
       inputNullifiers: [witness.input_nullifier],
       outputCommitments: [0,1,2,3,4,5,6,7].map(i => (witness as Record<string, string>)[`output_commitment_${i}`]),
+      // The 384-byte public-inputs blob from bb (passed as Proof.public_inputs on-chain)
+      publicInputsBlob,
+      // The 14592-byte UltraHonk proof blob (same as proof, carried for encoding)
+      proofBytes,
     },
   })
 
