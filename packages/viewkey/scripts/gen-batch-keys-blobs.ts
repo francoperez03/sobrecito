@@ -2,7 +2,7 @@
  * gen-batch-keys-blobs.ts — Nivel A, step 1+2.
  *
  * Generates the keys and the 8 dual ECIES blobs for ONE live payroll batch, then
- * persists them so the SAME bytes are hashed (Rust), proven (payroll-proof-gen),
+ * persists them so the SAME bytes are hashed, proven (the sobre_slim browser prover),
  * and submitted (pool.transact). Because encryptNote uses a random ephemeral key +
  * IV, the blobs are non-deterministic: they must be generated once and frozen.
  *

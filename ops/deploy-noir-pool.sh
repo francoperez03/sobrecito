@@ -46,7 +46,7 @@ USDC_SAC="CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA"
 
 # Pool config: max deposit effectively unlimited. The real per-tx constraint is
 # the 8-note denomination budget ({1,10,100} USDC × ≤8 notes ⇒ ≤800 USDC/tx,
-# enforced off-chain by the denomination builder + the policy_tx_1_8 circuit).
+# enforced off-chain by the denomination builder + the sobre_slim circuit).
 # USDC has 7 decimals on Stellar; the pool stores raw i128/U256 values.
 MAX_DEPOSIT="10000000000000"  # 1,000,000 USDC — high enough to never bind; note budget is the real cap
 TREE_LEVELS="10"

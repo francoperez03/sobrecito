@@ -12,7 +12,7 @@ import type { EncryptedBlob } from "../types.js";
  *   [4B employee_len BE][employee_ct][4B auditor_len BE][auditor_ct]
  */
 
-/** Number of output notes per payroll batch (nOuts of policy_tx_1_8). */
+/** Number of output notes per payroll batch (nOuts of the sobre_slim circuit). */
 export const N_OUTS = 8;
 
 const LEN_PREFIX_BYTES = 4;
