@@ -147,9 +147,11 @@ export function KeygenCard() {
               ) : (
                 <Key size={14} aria-hidden />
               )}
-              {privCopied
-                ? 'Private key copied — regenerate to copy again'
-                : 'Copy private key'}
+              {privArmed
+                ? 'Copy private key'
+                : privCopied
+                  ? 'Private key copied — regenerate to copy again'
+                  : 'Regenerate to copy your view-key'}
             </button>
             <p className="text-xs text-ink-muted">
               Never displayed. Copy it once to store it safely; it is never saved
