@@ -16,7 +16,7 @@ export function SealedState() {
       </div>
 
       <h3 className="mt-5 text-h3 font-[900] tracking-[-0.01em]">
-        The batch is sealed
+        The payroll is sealed
       </h3>
       <p className="mt-2 max-w-[34ch] text-ink-muted leading-relaxed">
         The public sees only the total. Your view-key reveals what each person was

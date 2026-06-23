@@ -2,11 +2,9 @@
 
 import { useState } from 'react'
 import { Copy, Check, Key } from '@phosphor-icons/react'
-import { motion, AnimatePresence, useReducedMotion } from 'motion/react'
-import { deriveEmployeeKeys, parseEmployeeKey } from '@/lib/zk/keyDerivation'
+import { deriveEmployeeKeys } from '@/lib/zk/keyDerivation'
 import { saveEntry } from '@/lib/employeeRoster'
 import { markStep } from '@/lib/progressStore'
-import { EASE_OUT } from '@/lib/motion'
 
 /** 32-byte Uint8Array as a 64-char lowercase hex string. */
 function bytesToHex(bytes: Uint8Array): string {
@@ -21,67 +19,52 @@ function bigintToHex(v: bigint): string {
 }
 
 /**
- * In-browser key generator for the employee (06.3-04 deviation: onboarding gap).
+ * In-browser key generator for the employee (first-run onboarding).
  *
- * One secret, one copy: the SEED is the only thing to back up. The public key
- * derives from the seed and can be recovered any time by pasting the seed again.
+ * One secret, one copy: the ACCESS KEY (seed) is the only thing to back up. The
+ * payment address (public key) derives from it and shows in the dashboard any time
+ * the employee enters with their access key — so there is no "recover" path here.
  *
- *   1. The SEED is the private key. Copy it here and paste it deliberately into
- *      the private-key field to scan and claim. It is NOT auto-filled and is
- *      never written to browser storage.
- *   2. The PUBLIC key (x25519Pub || bn254Pub, 128 hex) goes to the employer, who
- *      deposits the salary note against it. The bn254 half keys the commitment;
- *      the x25519 half is what the note is encrypted to for discovery.
+ *   1. The ACCESS KEY is the private key. Copy it here and paste it deliberately
+ *      into the access-key field to view payments and cash out. It is NOT
+ *      auto-filled and is never written to browser storage.
+ *   2. The PAYMENT ADDRESS (x25519Pub || bn254Pub, 128 hex) goes to the employer,
+ *      who deposits the salary against it. The bn254 half keys the commitment; the
+ *      x25519 half is what the note is encrypted to for discovery.
  *
  * Privacy model: pure client-side, generated with the OS CSPRNG. Generation is
  * deterministic from the random seed via the same HKDF + Poseidon2 the circuit
- * uses, so the public key shown here is exactly the one the deposit must target.
+ * uses, so the payment address shown here is exactly the one the deposit targets.
  */
 export function KeyGenerator() {
-  // --- Generate section ---
   const [seedHex, setSeedHex] = useState<string | null>(null)
   const [pubHex, setPubHex] = useState<string | null>(null)
   const [seedCopied, setSeedCopied] = useState(false)
   const [pubCopied, setPubCopied] = useState(false)
   const [busy, setBusy] = useState(false)
 
-  // --- Recover section ---
-  const [recoverInput, setRecoverInput] = useState('')
-  const [recoveredPub, setRecoveredPub] = useState<string | null>(null)
-  const [recoverError, setRecoverError] = useState<string | null>(null)
-  const [recoverCopied, setRecoverCopied] = useState(false)
-  const [recoverBusy, setRecoverBusy] = useState(false)
-  const [recoverOpen, setRecoverOpen] = useState(false)
+  // The name gates creation: a key without an owner has no one to share its
+  // address with. On create we save {name → payment address} to the per-device
+  // roster so the employer can autofill the recipient (saveEntry stores the
+  // PUBLIC key only — never the secret).
+  const [name, setName] = useState('')
 
-  // --- Save to roster section ---
-  const [alias, setAlias] = useState('')
-  const [saved, setSaved] = useState(false)
-
-  // Reduced-motion preference
-  const reduce = useReducedMotion()
-
-  // The "active" public key: the recovered one takes priority if available,
-  // otherwise the generated one.
-  const activePub = recoveredPub ?? pubHex
+  const canCreate = name.trim().length > 0 && !busy
 
   async function handleGenerate() {
+    if (!canCreate) return
     setBusy(true)
     try {
       const seed = new Uint8Array(32)
       crypto.getRandomValues(seed)
       const hex = bytesToHex(seed)
       const { bn254Pub, x25519Pub } = await deriveEmployeeKeys(seed)
+      const pub = bytesToHex(x25519Pub) + bigintToHex(bn254Pub)
       setSeedHex(hex)
-      setPubHex(bytesToHex(x25519Pub) + bigintToHex(bn254Pub))
+      setPubHex(pub)
       setSeedCopied(false)
       setPubCopied(false)
-      // Reset recover section when a new key is generated
-      setRecoveredPub(null)
-      setRecoverInput('')
-      setRecoverError(null)
-      setRecoverCopied(false)
-      setSaved(false)
-      setAlias('')
+      saveEntry(name.trim(), pub)
       markStep('generate')
     } finally {
       setBusy(false)
@@ -100,156 +83,83 @@ export function KeyGenerator() {
     setPubCopied(true)
   }
 
-  async function handleRecoverInputChange(value: string) {
-    setRecoverInput(value)
-    setRecoverError(null)
-    setRecoveredPub(null)
-    setRecoverCopied(false)
-    setSaved(false)
-    if (!value.trim()) return
-    setRecoverBusy(true)
-    try {
-      const seed = parseEmployeeKey(value)
-      const { bn254Pub, x25519Pub } = await deriveEmployeeKeys(seed)
-      setRecoveredPub(bytesToHex(x25519Pub) + bigintToHex(bn254Pub))
-    } catch {
-      setRecoverError('Invalid seed — expected 64 hex chars or base64.')
-    } finally {
-      setRecoverBusy(false)
-    }
-  }
-
-  async function handleCopyRecovered() {
-    if (!recoveredPub) return
-    await navigator.clipboard.writeText(recoveredPub)
-    setRecoverCopied(true)
-  }
-
-  function handleSave() {
-    if (!activePub || !alias.trim()) return
-    saveEntry(alias.trim(), activePub)
-    setSaved(true)
-  }
-
-  // Unified copy handler: copies the active public key regardless of path
-  async function handleCopyActivePub() {
-    if (!activePub) return
-    if (recoveredPub) {
-      await handleCopyRecovered()
-    } else {
-      await handleCopyPub()
-    }
-  }
-
-  // Copied state for the unified copy button
-  const activePubCopied = recoveredPub ? recoverCopied : pubCopied
-
   return (
     <div className="flex flex-col gap-4">
-      {/* ZONA B.1 — Fila de acciones en una línea */}
-      <div className="flex flex-wrap items-center gap-2">
+      {/* Name → Create: the name gates creation and labels the saved key. */}
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+        <input
+          type="text"
+          placeholder="Name your key (e.g. Ana)"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && canCreate) handleGenerate()
+          }}
+          data-testid="keygen-alias-input"
+          className="flex-1 min-w-0 bg-bg text-ink text-sm rounded-full h-[44px] px-5 ring-1 ring-hairline focus:outline-none focus:ring-2 focus:ring-accent transition-all placeholder:text-ink-muted"
+        />
         <button
           type="button"
           onClick={handleGenerate}
-          disabled={busy}
+          disabled={!canCreate}
           data-testid="keygen-generate"
           className={[
-            'inline-flex items-center gap-2 bg-surface text-ink font-[700] text-sm px-5 h-[44px] rounded-full w-fit',
+            'inline-flex items-center justify-center gap-2 shrink-0 bg-surface text-ink font-[700] text-sm px-5 h-[44px] rounded-full',
             'ring-1 ring-white/30 hover:bg-white/5 hover:ring-white/50 active:scale-[0.98] transition-all',
             'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
             'focus-visible:ring-offset-2 focus-visible:ring-offset-bg',
+            'disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-surface disabled:hover:ring-white/30',
             busy ? 'opacity-80 animate-pulse cursor-wait' : '',
           ].join(' ')}
         >
           <Key size={16} weight="bold" aria-hidden />
-          {pubHex ? 'Regenerate key' : 'Generate a new key'}
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setRecoverOpen((o) => !o)}
-          aria-expanded={recoverOpen}
-          className="inline-flex items-center gap-2 px-4 h-[44px] rounded-full text-sm font-[700] text-ink-muted hover:text-ink hover:bg-white/5 ring-1 ring-hairline transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-        >
-          I have a seed
+          {pubHex ? 'Create a new key' : 'Create my key'}
         </button>
       </div>
 
       <p className="text-xs text-ink-muted">
-        Your seed is the only secret to back up — your public key derives from it.
+        {pubHex
+          ? 'Back up your access key now: it’s the only way back in. Creating a new key replaces this one.'
+          : 'Name your key to create it. Your access key is the only secret to back up; your payment address derives from it.'}
       </p>
 
-      {/* ZONA B.2 — Input de recuperación desplegable */}
-      <AnimatePresence initial={false}>
-        {recoverOpen && (
-          <motion.div
-            key="recover-input"
-            initial={reduce ? false : { opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            exit={reduce ? { opacity: 0 } : { opacity: 0, height: 0 }}
-            transition={{ duration: 0.22, ease: EASE_OUT }}
-            style={{ overflow: 'hidden' }}
-          >
-            <div className="flex flex-col gap-2 pt-1">
-              <input
-                type="text"
-                placeholder="Paste your seed (64 hex or base64)"
-                value={recoverInput}
-                onChange={(e) => handleRecoverInputChange(e.target.value)}
-                data-testid="keygen-recover-seed-input"
-                className={[
-                  'font-mono text-sm bg-transparent border-b outline-none py-1 w-full',
-                  recoverError
-                    ? 'border-accent-warm/70 text-accent-warm focus:border-accent-warm'
-                    : 'border-white/10 text-ink-muted focus:border-accent',
-                ].join(' ')}
-              />
-              {recoverBusy && (
-                <p className="text-xs text-ink-muted animate-pulse">Deriving…</p>
-              )}
-              {recoverError && (
-                <p className="text-xs text-accent-warm">{recoverError}</p>
-              )}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* ZONA B.3 — Pozo de resultado unificado */}
-      {activePub && (
+      {/* Result well — payment address (to share) + access key (to back up) */}
+      {pubHex && (
         <div className="flex flex-col gap-3 rounded-2xl bg-white/[0.02] ring-1 ring-hairline p-4">
-          {/* Sub-bloque PUBLIC KEY */}
+          {/* Payment address (public key) */}
           <div className="flex flex-col gap-1.5">
-            <span className="text-[11px] text-ink-muted">Public key</span>
+            <span className="text-[11px] text-ink-muted">Payment address</span>
             <div className="flex items-stretch gap-2">
               <code
                 data-testid="keygen-pubkey"
                 className="font-mono text-xs text-accent-soft break-all bg-bg rounded-2xl px-3 py-2.5 ring-1 ring-hairline flex-1"
               >
-                {activePub}
+                {pubHex}
               </code>
               <button
                 type="button"
-                onClick={handleCopyActivePub}
-                aria-label={activePubCopied ? 'Public key copied' : 'Copy public key'}
+                onClick={handleCopyPub}
+                aria-label={pubCopied ? 'Payment address copied' : 'Copy payment address'}
                 data-testid="keygen-copy-pub"
                 className="shrink-0 inline-flex items-center justify-center w-[40px] rounded-2xl ring-1 ring-hairline text-ink-muted hover:text-ink hover:bg-white/5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               >
-                {activePubCopied ? (
+                {pubCopied ? (
                   <Check size={16} weight="bold" aria-hidden />
                 ) : (
                   <Copy size={16} aria-hidden />
                 )}
               </button>
             </div>
-            <span className="text-[11px] text-ink-muted">for your employer</span>
+            <span className="text-[11px] text-ink-muted">
+              Share with your employer to get paid.
+            </span>
           </div>
 
-          {/* Sub-bloque PRIVATE KEY (seed) — solo en camino generar */}
-          {seedHex && pubHex && !recoveredPub && (
+          {/* Access key (seed) — the only secret to back up */}
+          {seedHex && (
             <div className="flex flex-col gap-1.5">
-              <span className="text-[11px] text-ink-muted">Private key (seed)</span>
-              {/* Valor sr-only para tests y herramientas asistivas */}
+              <span className="text-[11px] text-ink-muted">Access key (secret)</span>
+              {/* sr-only value for tests and assistive tools */}
               <span data-testid="keygen-seed" className="sr-only">
                 {seedHex}
               </span>
@@ -269,49 +179,17 @@ export function KeyGenerator() {
                 ) : (
                   <Key size={16} weight="bold" aria-hidden />
                 )}
-                {seedCopied ? 'Private key copied' : 'Copy private key'}
+                {seedCopied ? 'Access key copied' : 'Copy access key'}
               </button>
               <span className="text-[11px] text-ink-muted">back up · never stored</span>
             </div>
           )}
-        </div>
-      )}
 
-      {/* ZONA C — Save on this device en una sola fila */}
-      {activePub && (
-        <div className="flex flex-col gap-1.5">
-          <div className="flex items-center gap-2">
-            <input
-              type="text"
-              placeholder="Alias / name"
-              value={alias}
-              onChange={(e) => { setAlias(e.target.value); setSaved(false) }}
-              data-testid="keygen-alias-input"
-              className="text-sm bg-transparent border-b border-white/10 focus:border-accent outline-none py-1 flex-1 text-ink min-w-0"
-            />
-            <button
-              type="button"
-              onClick={handleSave}
-              disabled={!alias.trim()}
-              data-testid="keygen-save-roster"
-              className={[
-                'inline-flex items-center gap-1.5 px-4 h-[36px] rounded-full text-sm font-[700] transition-all',
-                'ring-1 ring-hairline text-ink hover:bg-white/5 active:scale-[0.98]',
-                'disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent',
-                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
-              ].join(' ')}
-            >
-              {saved ? (
-                <>
-                  <Check size={14} weight="bold" aria-hidden />
-                  Saved
-                </>
-              ) : (
-                'Save'
-              )}
-            </button>
-          </div>
-          <p className="text-[11px] text-ink-muted">Public key only — never the seed.</p>
+          {/* Auto-saved confirmation: name → payment address (public key only). */}
+          <p className="flex items-center gap-1.5 text-[11px] text-ink-muted">
+            <Check size={13} weight="bold" aria-hidden className="text-accent-soft" />
+            Saved as “{name.trim()}” on this device — payment address only, never the secret.
+          </p>
         </div>
       )}
     </div>

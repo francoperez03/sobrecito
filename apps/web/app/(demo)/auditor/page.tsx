@@ -79,11 +79,11 @@ function StatusChip({ state }: { state: ConsoleState }) {
     { label: string; tone: ChipTone; icon: ReactNode }
   > = {
     idle: { label: 'Sealed', tone: 'muted', icon: <Seal size={13} weight="fill" /> },
-    loading: { label: 'Reading the ledger', tone: 'accent', icon: <Eye size={13} /> },
-    done: { label: 'Reconstructed', tone: 'accent', icon: <Eye size={13} weight="fill" /> },
-    empty: { label: 'Valid key · no notes', tone: 'muted', icon: <Seal size={13} /> },
+    loading: { label: 'Unsealing', tone: 'accent', icon: <Eye size={13} /> },
+    done: { label: 'Revealed', tone: 'accent', icon: <Eye size={13} weight="fill" /> },
+    empty: { label: 'Valid key · nothing sealed', tone: 'muted', icon: <Seal size={13} /> },
     invalid: { label: 'Invalid key', tone: 'warn', icon: <Warning size={13} weight="fill" /> },
-    error: { label: 'Reconstruct failed', tone: 'warn', icon: <Warning size={13} weight="fill" /> },
+    error: { label: 'Couldn’t reveal', tone: 'warn', icon: <Warning size={13} weight="fill" /> },
   }
   const { label, tone, icon } = map[state]
   const toneClass =
@@ -196,7 +196,7 @@ export default function AuditorPage() {
               <StatusChip state={state} />
             </div>
             <p className="mt-3 text-lead text-ink-muted max-w-[52ch]">
-              Hold the one key that turns a publicly sealed batch into the ledger
+              Hold the one key that turns a publicly sealed payroll into the ledger
               you are entitled to read.
             </p>
           </header>
@@ -304,7 +304,7 @@ export default function AuditorPage() {
                   className="mt-0.5 shrink-0 text-accent-warm"
                 />
                 <span>
-                  Couldn&apos;t reconstruct the batch (network or pool error). Try
+                  Couldn&apos;t reveal the payroll (network or pool error). Try
                   again.
                 </span>
               </p>
@@ -314,8 +314,8 @@ export default function AuditorPage() {
           {state === 'empty' && (
             <DoubleBezel radius="2rem" className="px-6 py-6">
               <p className="text-ink-muted leading-relaxed" data-testid="auditor-empty">
-                This view-key is valid, but no payroll notes are encrypted to it. In
-                this demo the sample batch is sealed to a fixed key, so a freshly
+                This view-key is valid, but no payroll is encrypted to it. In this
+                demo the sample payroll is sealed to a fixed key, so a freshly
                 generated key won&apos;t decrypt it.
               </p>
             </DoubleBezel>

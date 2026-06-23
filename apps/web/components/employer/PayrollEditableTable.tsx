@@ -98,7 +98,7 @@ export function PayrollEditableTable({ rows, onChange }: PayrollEditableTablePro
       {/* Table header */}
       <div className="grid grid-cols-[auto_6fr_1fr_3fr_auto] gap-4 px-2 pb-2 border-b border-white/5">
         <span className="text-xs text-ink-muted uppercase tracking-widest">#</span>
-        <span className="text-xs text-ink-muted uppercase tracking-widest">Public key</span>
+        <span className="text-xs text-ink-muted uppercase tracking-widest">Payment address</span>
         <span className="text-xs text-ink-muted uppercase tracking-widest flex flex-col">
           Amount
           <span className="normal-case tracking-normal text-[10px] text-ink-muted/60">(min. 1 USDC)</span>

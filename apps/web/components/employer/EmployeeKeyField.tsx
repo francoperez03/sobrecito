@@ -201,8 +201,8 @@ export function EmployeeKeyField({
           spellCheck={false}
           placeholder={
             hasRoster
-              ? 'Paste public key or search saved employees'
-              : 'Paste employee public key (128-hex)'
+              ? 'Paste a payment address or search saved employees'
+              : "Paste the employee's payment address"
           }
           value={value}
           onChange={(e) => {
@@ -254,7 +254,7 @@ export function EmployeeKeyField({
 
       {showError && !matchedEntry && (
         <span className="text-xs text-accent-warm">
-          Not a valid key. Paste a 128-hex public key or pick a saved employee.
+          Not a valid payment address. Paste it again, or pick a saved employee.
         </span>
       )}
 
@@ -282,7 +282,7 @@ export function EmployeeKeyField({
               >
                 {matches.length === 0 ? (
                   <p className="px-3 py-2.5 text-xs text-ink-muted">
-                    No saved employee matches “{value.trim()}”. Keep typing to paste a key.
+                    No saved employee matches “{value.trim()}”. Keep typing to paste an address.
                   </p>
                 ) : (
                   matches.map((entry, i) => {

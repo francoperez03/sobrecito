@@ -14,7 +14,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
-import { ShieldCheck, Check } from '@phosphor-icons/react'
+import { ShieldCheck, Check, CaretDown } from '@phosphor-icons/react'
 import { keyFromBase64 } from 'viewkey'
 import { Reveal } from '@/components/motion/Reveal'
 import { markStep } from '@/lib/progressStore'
@@ -168,6 +168,10 @@ export function PayrollComposer({ onSent }: { onSent?: () => void }) {
   // default; when off, deposits fall back to the deployments.json auditor key.
   const [auditEnabled, setAuditEnabled] = useState(false)
   const [auditorKey, setAuditorKey] = useState('')
+
+  // "How privacy works" explainer is collapsed by default — the mechanism
+  // (denominations, 8-note budget) is available but doesn't overwhelm the form.
+  const [showHow, setShowHow] = useState(false)
 
   // Autofill the auditor public key from a previous auditor session in this
   // browser (public key only — see auditorKeyStore). The employer can still
@@ -573,6 +577,21 @@ export function PayrollComposer({ onSent }: { onSent?: () => void }) {
   const isWorking = composerState === 'proving' || composerState === 'submitting'
   const isDone = composerState === 'done'
 
+  // Sticky footer summary: when the batch is ready, a "Pay N people · T USDC"
+  // line; otherwise the single most relevant blocking reason (so a disabled CTA
+  // is never silent about why).
+  const recipientCount = decomposeInput.length
+  const peopleWord = recipientCount === 1 ? 'person' : 'people'
+  let footerHint: string
+  if (isWorking) footerHint = 'Generating the proof and sending…'
+  else if (isDone) footerHint = 'Sent. Refreshing the record…'
+  else if (recipientCount === 0 || notes === null) footerHint = 'Add at least one recipient to pay'
+  else if (belowMin) footerHint = 'Each amount must be a whole number, 1 USDC or more'
+  else if (overflow) footerHint = 'Too many notes for one private batch'
+  else if (insufficientFunds) footerHint = `Batch total is more than your ${usdcBalance ?? '0'} USDC balance`
+  else if (!auditReady) footerHint = "Add the auditor's key, or turn the auditor off"
+  else footerHint = `Pay ${recipientCount} ${peopleWord} · ${formatUsdc(totalRequestedBase)} USDC`
+
   // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
@@ -595,25 +614,58 @@ export function PayrollComposer({ onSent }: { onSent?: () => void }) {
           connected — an unconnected employer sees only the Connect CTA. */}
       {address && (
         <>
-      {/* Note budget — between Connect and the table, so the 8-note cap is
-          always visible while building the batch, including the empty 0/8 state. */}
-      <Reveal delay={0.04}>
-        <NoteBudgetMeter usedNotes={usedNotes} />
-      </Reveal>
-
-      {/* Editable payroll table */}
+      {/* Editable payroll table — the recipients */}
       <Reveal delay={0.05}>
         <PayrollEditableTable rows={rows} onChange={setRows} />
       </Reveal>
 
-      {/* How it works — what the notes are, the budget, and the reassurance */}
+      {/* Note budget — feedback on the table's contents, so it sits BELOW the
+          table and only appears once there's something to measure (no abstract
+          empty 0/8 state up front). */}
+      {usedNotes > 0 && (
+        <Reveal delay={0.04}>
+          <NoteBudgetMeter usedNotes={usedNotes} />
+        </Reveal>
+      )}
+
+      {/* Reassurance — one line, with the mechanism behind a disclosure so the
+          form isn't front-loaded with denomination/budget jargon. */}
       <Reveal delay={0.08}>
-        <p className="text-sm text-ink-muted leading-relaxed max-w-2xl">
-          Each salary is split into standard <span className="text-ink">1, 10 and 100 USDC</span> notes,
-          so equal amounts look identical on-chain and no one can tell who earns what. A batch holds up to{' '}
-          <span className="text-ink">8 notes</span>, so keep the breakdown within that budget (the meter
-          below tracks it). Your team claims all their notes in one step, so the split costs them nothing.
-        </p>
+        <div className="max-w-2xl flex flex-col gap-2">
+          <p className="text-sm text-ink-muted leading-relaxed">
+            Equal salaries look identical on-chain, so no one can tell who earns what.
+          </p>
+          <button
+            type="button"
+            onClick={() => setShowHow((v) => !v)}
+            aria-expanded={showHow}
+            className="inline-flex items-center gap-1.5 self-start text-sm text-ink-muted hover:text-ink transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-md"
+          >
+            <CaretDown
+              size={14}
+              weight="bold"
+              aria-hidden
+              className={`transition-transform ${showHow ? 'rotate-180' : ''}`}
+            />
+            How privacy works
+          </button>
+          <AnimatePresence initial={false}>
+            {showHow && (
+              <motion.p
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                transition={{ duration: 0.25, ease: [0.32, 0.72, 0, 1] }}
+                className="overflow-hidden text-sm text-ink-muted leading-relaxed"
+              >
+                Each salary is split into standard{' '}
+                <span className="text-ink">1, 10 and 100 USDC</span> notes. A batch holds
+                up to <span className="text-ink">8 notes</span> (the meter tracks it). Your
+                team claims all their notes in one step, so the split costs them nothing.
+              </motion.p>
+            )}
+          </AnimatePresence>
+        </div>
       </Reveal>
 
       {/* Anonymity — needs real recipients (valid public keys). */}
@@ -624,9 +676,14 @@ export function PayrollComposer({ onSent }: { onSent?: () => void }) {
       )}
 
       {/* Compliance toggle — opt in to give an auditor selective disclosure.
-          Checking it reveals a field to paste the auditor's public key. */}
+          Checking it reveals a field to paste the auditor's public key. Grouped
+          under an "Options" rule so this optional step reads below the required
+          recipients, not at equal weight. */}
       <Reveal delay={0.18}>
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-3 pt-6 border-t border-hairline">
+          <span className="text-xs uppercase tracking-widest text-ink-muted/60">
+            Options
+          </span>
           <button
             type="button"
             role="checkbox"
@@ -704,35 +761,36 @@ export function PayrollComposer({ onSent }: { onSent?: () => void }) {
         </div>
       </Reveal>
 
-      {/* Submit button */}
+      {/* Sticky send bar — always reachable while the form scrolls, with a live
+          summary (or the blocking reason) so the CTA is never far away or silent. */}
       <Reveal delay={0.2}>
-        <div className="flex flex-col gap-3">
-          <button
-            type="button"
-            data-testid="submit-payroll"
-            onClick={handleSubmit}
-            disabled={!canSubmit || isWorking || isDone}
-            className="bg-accent-fill text-white font-[900] text-base px-8 h-[52px] rounded-full hover:opacity-90 active:scale-[0.98] transition-all self-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg disabled:opacity-40"
-          >
-            {isWorking ? 'Processing…' : isDone ? 'Payroll sent' : composerState === 'error' ? 'Try again' : 'Send payroll'}
-          </button>
-
-          {overflow && (
-            <p className="text-xs text-accent-warm">
-              These amounts are too large for a single private batch. Reconfigure them to fit one batch.
-            </p>
-          )}
-
-          {insufficientFunds && (
-            <p className="text-xs text-accent-warm" data-testid="insufficient-funds">
-              The batch total ({formatUsdc(totalRequestedBase)} USDC) is more than your wallet balance
-              ({usdcBalance ?? '0'} USDC). Fund this account with USDC or lower the amounts.
-            </p>
-          )}
-
+        <div className="sticky bottom-4 z-10">
+          <div className="flex items-center gap-3 rounded-full bg-surface/90 backdrop-blur ring-1 ring-hairline-strong pl-5 pr-1.5 py-1.5 shadow-[0_14px_44px_rgba(0,0,0,0.5)]">
+            <span
+              className={`flex-1 min-w-0 truncate text-sm ${
+                canSubmit && !isWorking && !isDone
+                  ? 'text-ink'
+                  : insufficientFunds || overflow || belowMin
+                    ? 'text-accent-warm'
+                    : 'text-ink-muted'
+              }`}
+              data-testid="submit-summary"
+            >
+              {footerHint}
+            </span>
+            <button
+              type="button"
+              data-testid="submit-payroll"
+              onClick={handleSubmit}
+              disabled={!canSubmit || isWorking || isDone}
+              className="shrink-0 bg-accent-fill text-white font-[900] text-base px-7 h-[48px] rounded-full hover:opacity-90 active:scale-[0.98] transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg disabled:opacity-40"
+            >
+              {isWorking ? 'Processing…' : isDone ? 'Payroll sent' : composerState === 'error' ? 'Try again' : 'Send payroll'}
+            </button>
+          </div>
 
           {composerState === 'error' && errorMsg && (
-            <p className="text-sm text-ink-muted">
+            <p className="mt-2 px-2 text-sm text-ink-muted">
               {formatErrorMessage(errorMsg)}
             </p>
           )}

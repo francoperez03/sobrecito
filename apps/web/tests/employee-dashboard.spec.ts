@@ -390,9 +390,9 @@ test.describe('Employee dashboard', () => {
     await page.goto('/employee')
 
     await page
-      .getByLabel(/private employee key/i)
+      .getByLabel(/access key/i)
       .fill(EMPLOYEE_TEST_SEED_HEX)
-    await page.getByRole('button', { name: 'Scan pool' }).click()
+    await page.getByRole('button', { name: 'View my salary' }).click()
 
     // Three NoteCards with the fixture ledger numbers.
     await expect(page.getByText(/Ledger 3110500/)).toBeVisible({ timeout: 15000 })
@@ -410,9 +410,9 @@ test.describe('Employee dashboard', () => {
     await page.goto('/employee')
 
     await page
-      .getByLabel(/private employee key/i)
+      .getByLabel(/access key/i)
       .fill(EMPLOYEE_TEST_SEED_HEX)
-    await page.getByRole('button', { name: 'Scan pool' }).click()
+    await page.getByRole('button', { name: 'View my salary' }).click()
 
     await expect(page.getByTestId('summary-claimable')).toBeVisible({ timeout: 15000 })
     await expect(page.getByTestId('summary-counter')).toBeVisible()
@@ -428,9 +428,9 @@ test.describe('Employee dashboard', () => {
     await page.goto('/employee')
 
     await page
-      .getByLabel(/private employee key/i)
+      .getByLabel(/access key/i)
       .fill(EMPLOYEE_TEST_SEED_HEX)
-    await page.getByRole('button', { name: 'Scan pool' }).click()
+    await page.getByRole('button', { name: 'View my salary' }).click()
 
     // Wait for notes + CTA.
     await expect(page.getByTestId('claim-cta').first()).toBeVisible({ timeout: 15000 })
@@ -462,9 +462,9 @@ test.describe('Employee dashboard', () => {
     await page.goto('/employee')
 
     await page
-      .getByLabel(/private employee key/i)
+      .getByLabel(/access key/i)
       .fill(EMPLOYEE_TEST_SEED_HEX)
-    await page.getByRole('button', { name: 'Scan pool' }).click()
+    await page.getByRole('button', { name: 'View my salary' }).click()
 
     await expect(page.getByTestId('claim-cta').first()).toBeVisible({ timeout: 15000 })
     await page.getByTestId('claim-cta').first().click()
@@ -482,33 +482,33 @@ test.describe('Employee dashboard', () => {
     await page.goto('/employee')
 
     await page
-      .getByLabel(/private employee key/i)
+      .getByLabel(/access key/i)
       .fill(EMPLOYEE_TEST_SEED_HEX)
-    await page.getByRole('button', { name: 'Scan pool' }).click()
+    await page.getByRole('button', { name: 'View my salary' }).click()
 
     await expect(page.getByTestId('employee-empty')).toBeVisible({ timeout: 15000 })
 
     // Sub-test B: invalid key -> amber ring.
     await page.goto('/employee')
     await page
-      .getByLabel(/private employee key/i)
+      .getByLabel(/access key/i)
       .fill('not-a-valid-key')
-    await page.getByRole('button', { name: 'Scan pool' }).click()
+    await page.getByRole('button', { name: 'View my salary' }).click()
     await expect(
-      page.getByLabel(/private employee key/i),
+      page.getByLabel(/access key/i),
     ).toHaveClass(/ring-accent-warm/, { timeout: 5000 })
 
-    // Sub-test C: already-claimed (isSpent=true) -> Claimed chip, no CTA.
+    // Sub-test C: already-claimed (isSpent=true) -> Cashed out chip, no CTA.
     await page.unrouteAll()
     await mockRpcEmployee(page, FIXTURE_EVENTS_EMPLOYEE, true)
     await injectProverStub(page)
     await page.goto('/employee')
     await page
-      .getByLabel(/private employee key/i)
+      .getByLabel(/access key/i)
       .fill(EMPLOYEE_TEST_SEED_HEX)
-    await page.getByRole('button', { name: 'Scan pool' }).click()
+    await page.getByRole('button', { name: 'View my salary' }).click()
 
-    await expect(page.getByText('Claimed').first()).toBeVisible({ timeout: 15000 })
+    await expect(page.getByTestId('receipt-link')).toBeVisible({ timeout: 15000 })
     await expect(page.getByTestId('claim-cta')).toHaveCount(0)
   })
 
@@ -519,9 +519,9 @@ test.describe('Employee dashboard', () => {
     await page.goto('/employee')
 
     await page
-      .getByLabel(/private employee key/i)
+      .getByLabel(/access key/i)
       .fill(EMPLOYEE_TEST_SEED_HEX)
-    await page.getByRole('button', { name: 'Scan pool' }).click()
+    await page.getByRole('button', { name: 'View my salary' }).click()
 
     // Amber disclosure chip (data-testid="claim-disclosure") visible.
     await expect(page.getByTestId('claim-disclosure').first()).toBeVisible({ timeout: 15000 })
@@ -564,7 +564,7 @@ test.describe('Employee dashboard', () => {
     expect(seedText).not.toBe('0'.repeat(64))
 
     // The key input is NOT auto-filled — it stays empty after generating.
-    await expect(page.getByLabel(/private employee key/i)).toHaveValue('')
+    await expect(page.getByLabel(/access key/i)).toHaveValue('')
 
     // Copy controls are present: public key chip button + prominent private button.
     await expect(page.getByTestId('keygen-copy-seed')).toBeVisible()
@@ -577,7 +577,7 @@ test.describe('Employee dashboard', () => {
     await injectProverStub(page)
     await page.goto('/employee')
 
-    const field = page.getByLabel(/private employee key/i)
+    const field = page.getByLabel(/access key/i)
     await field.fill(EMPLOYEE_TEST_SEED_HEX)
 
     // Masked by default (type=password) and the value is still set under the mask.

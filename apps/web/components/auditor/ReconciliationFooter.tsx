@@ -1,8 +1,9 @@
 'use client'
 
 import { motion } from 'motion/react'
+import { Check, Warning } from '@phosphor-icons/react'
 import { DoubleBezel } from '@/components/ui/DoubleBezel'
-import { formatUsdc } from '@/lib/rpc'
+import { formatUsdc, explorerContractUrl, readDeployments } from '@/lib/rpc'
 
 const EASE_BRAND = [0.32, 0.72, 0, 1] as const
 
@@ -16,40 +17,71 @@ interface ReconciliationFooterProps {
 }
 
 /**
- * Reconciliation footer (UX-03, A3 soundness).
+ * Reconciliation footer (UX-03, A3 soundness) — the auditor's moment of value:
+ * the decrypted detail reconciles against the public on-chain total.
  *
- * Mirrors the `Centerpiece.tsx` predicate footer. Shows `sum(decrypted amounts)`
- * against the on-chain total T and a Match / Mismatch verdict. The predicate
- * pulses in last (delay 0.5s) per the UI-SPEC auditor choreography.
+ * Presented as a clean reconciliation statement (two figures + a verdict) rather
+ * than an equation, with the on-chain total linked to the pool contract so the
+ * auditor can confirm the public figure independently. The verdict pulses in last
+ * (delay 0.5s) per the UI-SPEC auditor choreography.
  */
 export function ReconciliationFooter({
   sumDecrypted,
   total,
   match,
 }: ReconciliationFooterProps) {
+  const poolContractId = readDeployments().poolContractId
+
   return (
     <DoubleBezel radius="2rem" className="px-6 py-5">
       <motion.div
-        className="border-t border-white/5 pt-3 flex flex-col gap-1"
+        className="flex flex-col gap-3"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.4, ease: EASE_BRAND, delay: 0.5 }}
       >
-        <p className="font-mono text-sm text-ink-muted">
-          sum(decrypted amounts) = {formatUsdc(sumDecrypted)} USDC
-        </p>
-        <p className="font-mono text-sm text-ink-muted">
-          on-chain total T = {formatUsdc(total)} USDC
-        </p>
-        <p
-          className={`font-mono text-sm mt-1 ${
-            match ? 'text-accent-soft' : 'text-ink-muted'
-          }`}
-        >
-          {match
-            ? '✓ Totals match — batch is sound.'
-            : 'Totals do not match. The decrypted amounts differ from the on-chain total.'}
-        </p>
+        {/* Two figures, right-aligned tabular numbers for an account-statement feel. */}
+        <div className="flex flex-col gap-2">
+          <div className="flex items-baseline justify-between gap-4">
+            <span className="text-sm text-ink-muted">Decrypted detail</span>
+            <span className="font-mono text-sm text-ink tabular-nums">
+              {formatUsdc(sumDecrypted)} USDC
+            </span>
+          </div>
+          <div className="flex items-baseline justify-between gap-4">
+            <span className="flex items-center gap-2 text-sm text-ink-muted">
+              On-chain total
+              {poolContractId && (
+                <a
+                  href={explorerContractUrl(poolContractId)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-mono text-[11px] text-ink-muted/70 hover:text-accent-soft transition-colors"
+                >
+                  contract ↗
+                </a>
+              )}
+            </span>
+            <span className="font-mono text-sm text-ink tabular-nums">
+              {formatUsdc(total)} USDC
+            </span>
+          </div>
+        </div>
+
+        {/* Verdict — pulses in last per the auditor choreography. */}
+        <div className="border-t border-white/5 pt-3">
+          {match ? (
+            <p className="flex items-center gap-2 text-sm text-accent-soft">
+              <Check size={15} weight="bold" aria-hidden />
+              Reconciled — every amount accounts for the total.
+            </p>
+          ) : (
+            <p className="flex items-center gap-2 text-sm text-accent-warm">
+              <Warning size={15} weight="fill" aria-hidden />
+              The detail doesn&apos;t add up to the on-chain total.
+            </p>
+          )}
+        </div>
       </motion.div>
     </DoubleBezel>
   )

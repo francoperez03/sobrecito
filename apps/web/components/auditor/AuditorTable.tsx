@@ -96,9 +96,9 @@ function AuditorRow({
         )}
       </div>
 
-      {/* Status column — committed → ✓ proven on reconstruct. */}
+      {/* Status column — sealed → ✓ verified on reveal. */}
       <span className="text-xs text-ink-muted self-center">
-        {reconstructed ? '✓ proven' : 'committed'}
+        {reconstructed ? '✓ verified' : 'sealed'}
       </span>
     </div>
   )

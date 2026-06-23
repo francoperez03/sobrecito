@@ -31,8 +31,8 @@ export function ViewKeyInput({
     <div className="flex flex-col gap-3">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-stretch">
         <input
-          aria-label="View-key (X25519 private key, base64)"
-          placeholder="Paste view-key (X25519 private key, base64)"
+          aria-label="View-key"
+          placeholder="Paste your view-key"
           value={value}
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={(e) => {
@@ -61,7 +61,7 @@ export function ViewKeyInput({
             processing ? 'opacity-80 animate-pulse cursor-wait' : '',
           ].join(' ')}
         >
-          {processing ? 'Reconstructing…' : 'Reconstruct batch'}
+          {processing ? 'Revealing…' : 'Reveal detail'}
         </button>
       </div>
 

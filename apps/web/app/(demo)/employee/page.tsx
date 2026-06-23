@@ -15,6 +15,7 @@ import { DoubleBezel } from '@/components/ui/DoubleBezel'
 import { EmployeeKeyInput } from '@/components/employee/EmployeeKeyInput'
 import { KeyGenerator } from '@/components/employee/KeyGenerator'
 import { DashboardSummary } from '@/components/employee/DashboardSummary'
+import { PaymentAddressCard } from '@/components/employee/PaymentAddressCard'
 import { EmployeeNotesTable } from '@/components/employee/EmployeeNotesTable'
 import { ClaimStepper, type ClaimStep } from '@/components/employee/ClaimStepper'
 import { parseEmployeeKey, deriveEmployeeKeys } from '@/lib/zk/keyDerivation'
@@ -48,6 +49,18 @@ interface EmployeeNoteWithStatus extends EmployeeNote {
 
 const EASE_BRAND = [0.32, 0.72, 0, 1] as const
 
+/** 32-byte Uint8Array as a 64-char lowercase hex string. */
+function bytesToHex(bytes: Uint8Array): string {
+  return Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
+}
+
+/** BN254 field element (bigint) as a 64-char zero-padded lowercase hex string. */
+function bigintToHex(v: bigint): string {
+  return v.toString(16).padStart(64, '0')
+}
+
 type ChipTone = 'muted' | 'accent' | 'warn'
 
 function StatusChip({ state }: { state: DashboardState }) {
@@ -55,12 +68,12 @@ function StatusChip({ state }: { state: DashboardState }) {
   // (the input ring + the panel below already carry the corrective signal), so
   // the header never shouts a red "Invalid key" over the whole page.
   const map: Record<DashboardState, { label: string; tone: ChipTone; icon: ReactNode }> = {
-    idle:     { label: 'Sealed',        tone: 'muted',  icon: <Seal size={13} weight="fill" /> },
-    scanning: { label: 'Scanning pool', tone: 'accent', icon: <Eye size={13} /> },
-    done:     { label: 'Notes found',   tone: 'accent', icon: <Eye size={13} weight="fill" /> },
-    empty:    { label: 'No notes',      tone: 'muted',  icon: <Seal size={13} /> },
-    invalid:  { label: 'Check key',     tone: 'muted',  icon: <KeyReturn size={13} /> },
-    error:    { label: 'Retry',         tone: 'muted',  icon: <ArrowsClockwise size={13} /> },
+    idle:     { label: 'Locked',         tone: 'muted',  icon: <Seal size={13} weight="fill" /> },
+    scanning: { label: 'Checking',       tone: 'accent', icon: <Eye size={13} /> },
+    done:     { label: 'Payments found', tone: 'accent', icon: <Eye size={13} weight="fill" /> },
+    empty:    { label: 'Nothing yet',    tone: 'muted',  icon: <Seal size={13} /> },
+    invalid:  { label: 'Check key',      tone: 'muted',  icon: <KeyReturn size={13} /> },
+    error:    { label: 'Retry',          tone: 'muted',  icon: <ArrowsClockwise size={13} /> },
   }
   const { label, tone, icon } = map[state]
   const toneClass =
@@ -150,6 +163,9 @@ export default function EmployeePage() {
   const [claimingIndex, setClaimingIndex] = useState<number | null>(null)
   const [claimStep, setClaimStep] = useState<ClaimStep>({ phase: 'idle' })
   const [bn254PrivKey, setBn254PrivKey] = useState<bigint | null>(null)
+  // The employee's public key as a shareable payment address (x25519Pub || bn254Pub,
+  // 128 hex). Derived from the seed during scan; shown as a standing account detail.
+  const [paymentAddress, setPaymentAddress] = useState<string | null>(null)
 
   async function handleScan() {
     setState('scanning')
@@ -166,8 +182,9 @@ export default function EmployeePage() {
 
     // Step 2: scan with a known-valid key (browser-only; proverClient is called inside).
     try {
-      const { bn254Priv, x25519Priv } = await deriveEmployeeKeys(seed)
+      const { bn254Priv, bn254Pub, x25519Priv, x25519Pub } = await deriveEmployeeKeys(seed)
       setBn254PrivKey(bn254Priv)
+      setPaymentAddress(bytesToHex(x25519Pub) + bigintToHex(bn254Pub))
 
       const events = getChainAdapter().events
       // Scan the pool ONCE; reuse the raw events for both note discovery and the
@@ -273,13 +290,13 @@ export default function EmployeePage() {
           <header className="mb-8">
             <div className="flex items-center justify-between gap-4">
               <h2 className="text-h2 font-[900] tracking-[-0.01em] leading-[1.15]">
-                Employee dashboard
+                Your salary
               </h2>
               <StatusChip state={state} />
             </div>
             <p className="mt-3 text-lead text-ink-muted max-w-[52ch]">
-              Paste your employee key to scan the pool and claim your salary. No key
-              yet? Generate one below.
+              Paste your access key to see your payments and cash out. No key yet?
+              Create one below.
             </p>
           </header>
         </Reveal>
@@ -310,7 +327,7 @@ export default function EmployeePage() {
 
           {state === 'scanning' && (
             <DoubleBezel radius="2rem" className="px-6 py-6">
-              <div className="flex flex-col gap-3" aria-label="Scanning pool">
+              <div className="flex flex-col gap-3" aria-label="Checking your salary">
                 {[0, 1, 2, 3].map((i) => (
                   <div
                     key={i}
@@ -329,7 +346,7 @@ export default function EmployeePage() {
                 tone="warm"
                 icon={<KeyReturn size={20} weight="bold" aria-hidden />}
                 title="That key didn't parse"
-                body="An employee key is a 64-character hex string (or the base64 key from Generate one). Check for a missing or extra character and paste it again."
+                body="Your access key is a 64-character hex string (or the base64 key from Create my key). Check for a missing or extra character and paste it again."
               />
             </DoubleBezel>
           )}
@@ -340,8 +357,8 @@ export default function EmployeePage() {
                 testId="employee-error"
                 tone="warm"
                 icon={<WifiSlash size={20} weight="bold" aria-hidden />}
-                title="Couldn't reach the pool"
-                body="A network or pool error interrupted the scan. Your key never left the browser. Click Scan pool to try again."
+                title="Couldn't reach the network"
+                body="A network error interrupted the check. Your key never left the browser. Click View my salary to try again."
               />
             </DoubleBezel>
           )}
@@ -352,8 +369,8 @@ export default function EmployeePage() {
                 testId="employee-empty"
                 tone="calm"
                 icon={<MagnifyingGlass size={20} weight="bold" aria-hidden />}
-                title="Key is valid, nothing sealed to it yet"
-                body="No notes in the pool decrypt under this key. If your employer just ran payroll, wait for the deposit to confirm on-chain, then scan again."
+                title="Nothing here yet"
+                body="No payments are sealed to this key yet. If your employer just ran payroll, wait for it to confirm on-chain, then check again."
               />
             </DoubleBezel>
           )}
@@ -363,6 +380,12 @@ export default function EmployeePage() {
               <Reveal delay={0}>
                 <DashboardSummary notes={notes} />
               </Reveal>
+
+              {paymentAddress && (
+                <Reveal delay={0.04}>
+                  <PaymentAddressCard address={paymentAddress} />
+                </Reveal>
+              )}
 
               {/* ClaimStepper: shown when a claim is in progress */}
               {claimStep.phase !== 'idle' && (

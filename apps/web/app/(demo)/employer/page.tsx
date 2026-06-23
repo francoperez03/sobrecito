@@ -1,19 +1,17 @@
 'use client'
 
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
-import { CaretDown, CaretLeft, CaretRight } from '@phosphor-icons/react'
+import { Check } from '@phosphor-icons/react'
 import { type ScannedEvent } from 'viewkey'
 import { Reveal } from '@/components/motion/Reveal'
-import {
-  PayrollTable,
-  type PayrollRow,
-} from '@/components/dashboard/PayrollTable'
 import {
   readPoolUsdcBalance,
   formatUsdc,
   explorerTxUrl,
+  explorerContractUrl,
   fetchBatchExtAmount,
+  readDeployments,
 } from '@/lib/rpc'
 import { getChainAdapter } from '@/lib/chain'
 import { PayrollComposer } from '@/components/employer/PayrollComposer'
@@ -22,10 +20,11 @@ import { DoubleBezel } from '@/components/ui/DoubleBezel'
 /** Brand easing curve (matches ProvingStepper / ClaimStepper). */
 const EASE_BRAND = [0.32, 0.72, 0, 1] as const
 
-// The total T shown here is the REAL on-chain USDC balance of the pool (read via
-// a read-only SAC `balance` simulation), not a demo constant. It is the public
-// predicate value; per-note amounts live only in encrypted_outputs and are NEVER
-// decrypted on this page (A1, T-06-09).
+// The proven total shown here is the REAL on-chain USDC balance of the pool (read
+// via a read-only SAC `balance` simulation), not a demo constant. It is the public
+// predicate value; per-run amounts (ext_amount) are public, but the per-employee
+// split lives only in encrypted_outputs and is NEVER decrypted on this page
+// (A1, T-06-09).
 
 type LoadState =
   | { phase: 'loading' }
@@ -33,7 +32,7 @@ type LoadState =
   | { phase: 'empty' }
   | { phase: 'ready'; events: ScannedEvent[]; totalBase: bigint }
 
-/** A batch is a group of ScannedEvents that share the same txHash. */
+/** A pay run is a group of ScannedEvents that share the same txHash. */
 interface Batch {
   txHash: string
   ledger: number
@@ -41,12 +40,16 @@ interface Batch {
 }
 
 /**
- * Employer dashboard (`/employer`, UX-02, D-07/D-08).
+ * Employer console (`/employer`, UX-02, D-07/D-08).
  *
- * Read-only window into the live pool. Scans `NewCommitmentEvent`s via RPC and
- * renders payroll status WITHOUT ever exposing an individual amount — the
- * employer view matches what the public sees (status + sealed note). This is the
- * UX embodiment of A1 ("sealed for the public").
+ * Two-column work surface on wide screens: the composer (run payroll) owns the
+ * main area, and a sticky rail on the right is the read-only payroll record. As
+ * the employer sends a batch, the rail refreshes in place (`onSent` → `scan`),
+ * so paying flows straight into a sealed, proven record.
+ *
+ * The record never exposes an individual employee's amount — the employer view
+ * matches what the public sees (proven total + per-run totals, the split sealed).
+ * This is the UX embodiment of A1 ("sealed for the public").
  *
  * Pitfall 2: the viewkey import must be client-side, so this is a Client
  * Component. L6: always scan from `deploymentLedger`, never 0.
@@ -55,9 +58,9 @@ export default function EmployerPage() {
   const [state, setState] = useState<LoadState>({ phase: 'loading' })
   const mountedRef = useRef(true)
 
-  // Scan the live pool. `showLoading` flips the page to the loading state on the
-  // initial mount; a post-send refresh (showLoading=false) updates the batches
-  // and pool total in place, with no loading flash.
+  // Scan the live pool. `showLoading` flips the rail to the loading state on the
+  // initial mount; a post-send refresh (showLoading=false) updates the record in
+  // place, with no loading flash.
   const scan = useCallback(async (showLoading: boolean) => {
     if (showLoading) setState({ phase: 'loading' })
     try {
@@ -68,7 +71,7 @@ export default function EmployerPage() {
         return
       }
       // Real total = live pool USDC balance. Fall back to 0n if the read fails
-      // so the page still renders the committed batch.
+      // so the rail still renders the committed runs.
       let totalBase = BigInt(0)
       try {
         totalBase = await readPoolUsdcBalance()
@@ -92,256 +95,195 @@ export default function EmployerPage() {
 
   return (
     <main className="min-h-dvh">
-      {/* ------------------------------------------------------------------ */}
-      {/* Composer section — send a new payroll batch (Wave 3, plan 06.2-06) */}
-      {/* Rendered ABOVE the read-only dashboard so the employer can submit  */}
-      {/* before seeing prior batch data.                                    */}
-      {/* ------------------------------------------------------------------ */}
-      <section className="py-24 px-4 max-w-5xl mx-auto border-b border-white/5">
-        <Reveal delay={0}>
-          <div className="mb-10">
-            <h2 className="text-h2 font-[900] tracking-[-0.01em] leading-[1.15]">
-              Send payroll
-            </h2>
-            <p className="mt-3 text-lead text-ink-muted">
-              Load the salaries, generate the ZK proof in your browser, and send in one step.
-            </p>
+      <section className="py-24 px-4 max-w-6xl mx-auto">
+        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_340px] gap-12 lg:gap-16 items-start">
+          {/* ---------------------------------------------------------------- */}
+          {/* Main column — run payroll (compose + prove + send)               */}
+          {/* ---------------------------------------------------------------- */}
+          <div>
+            <Reveal delay={0}>
+              <div className="mb-10">
+                <h2 className="text-h2 font-[900] tracking-[-0.01em] leading-[1.15]">
+                  Run payroll
+                </h2>
+                <p className="mt-3 text-lead text-ink-muted">
+                  Load the salaries, generate the proof in your browser, and pay in one step.
+                </p>
+              </div>
+            </Reveal>
+            <Reveal delay={0.1}>
+              <PayrollComposer onSent={() => void scan(false)} />
+            </Reveal>
           </div>
-        </Reveal>
-        <Reveal delay={0.1}>
-          <PayrollComposer onSent={() => void scan(false)} />
-        </Reveal>
-      </section>
 
-      {/* ------------------------------------------------------------------ */}
-      {/* On-chain record — A1 public lens into the sealed pool              */}
-      {/* ------------------------------------------------------------------ */}
-      <section className="py-24 px-4 max-w-5xl mx-auto">
-        {/* Section heading */}
-        <Reveal delay={0}>
-          <div className="mb-10">
-            <h2
-              className="text-h2 font-[900] tracking-[-0.01em] leading-[1.15]"
-              role="heading"
-            >
-              Payroll status
-            </h2>
-            <p className="mt-3 text-lead text-ink-muted">
-              Real USDC moved into the pool. Anyone can verify the total; who receives what stays sealed.
-            </p>
-          </div>
-        </Reveal>
+          {/* ---------------------------------------------------------------- */}
+          {/* Sticky rail — payroll record (A1 sealed lens into the pool)      */}
+          {/* ---------------------------------------------------------------- */}
+          <aside className="lg:sticky lg:top-24">
+            <Reveal delay={0.15}>
+              <h3
+                className="text-h3 font-[600] tracking-[-0.01em] leading-[1.15] mb-4"
+                role="heading"
+              >
+                Payroll record
+              </h3>
+            </Reveal>
 
-        {/* Loading exits (fade down) before the loaded block enters (fade up). */}
-        <AnimatePresence mode="wait">
-          {state.phase === 'loading' && (
-            <motion.div
-              key="loading"
-              initial={{ opacity: 0, y: 28 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 28 }}
-              transition={{ duration: 0.5, ease: EASE_BRAND }}
-            >
-              <LoadingBatches />
-            </motion.div>
-          )}
+            <Reveal delay={0.2}>
+              {/* Loading exits (fade down) before the loaded block enters (fade up). */}
+              <AnimatePresence mode="wait">
+                {state.phase === 'loading' && (
+                  <motion.div
+                    key="loading"
+                    initial={{ opacity: 0, y: 16 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 16 }}
+                    transition={{ duration: 0.4, ease: EASE_BRAND }}
+                  >
+                    <LoadingRecord />
+                  </motion.div>
+                )}
 
-          {state.phase === 'error' && (
-            <motion.div
-              key="error"
-              initial={{ opacity: 0, y: 28 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 28 }}
-              transition={{ duration: 0.5, ease: EASE_BRAND }}
-            >
-              <ErrorState />
-            </motion.div>
-          )}
+                {state.phase === 'error' && (
+                  <motion.div
+                    key="error"
+                    initial={{ opacity: 0, y: 16 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 16 }}
+                    transition={{ duration: 0.4, ease: EASE_BRAND }}
+                  >
+                    <ErrorState />
+                  </motion.div>
+                )}
 
-          {state.phase === 'empty' && (
-            <motion.div
-              key="empty"
-              initial={{ opacity: 0, y: 28 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 28 }}
-              transition={{ duration: 0.5, ease: EASE_BRAND }}
-            >
-              <EmptyState />
-            </motion.div>
-          )}
+                {state.phase === 'empty' && (
+                  <motion.div
+                    key="empty"
+                    initial={{ opacity: 0, y: 16 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 16 }}
+                    transition={{ duration: 0.4, ease: EASE_BRAND }}
+                  >
+                    <EmptyState />
+                  </motion.div>
+                )}
 
-          {state.phase === 'ready' && (
-            <motion.div
-              key="ready"
-              initial={{ opacity: 0, y: 28 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5, ease: EASE_BRAND }}
-            >
-              <ReadyView events={state.events} totalBase={state.totalBase} />
-            </motion.div>
-          )}
-        </AnimatePresence>
+                {state.phase === 'ready' && (
+                  <motion.div
+                    key="ready"
+                    initial={{ opacity: 0, y: 16 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.4, ease: EASE_BRAND }}
+                  >
+                    <RailRecord events={state.events} totalBase={state.totalBase} />
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </Reveal>
+          </aside>
+        </div>
       </section>
     </main>
   )
 }
 
 // ---------------------------------------------------------------------------
-// Ready view — hero total + batch timeline + sealed-notes table + footer
+// Rail record — proven-total hero + per-run list
 // ---------------------------------------------------------------------------
 
-const BATCHES_PER_PAGE = 10
+function RailRecord({ events, totalBase }: { events: ScannedEvent[]; totalBase: bigint }) {
+  const runs = useMemo(() => groupByBatch(events), [events])
+  // The pool contract id — the public anchor the proven total lives in. Linked to
+  // Stellar Expert so anyone can inspect the on-chain pool directly.
+  const poolContractId = readDeployments().poolContractId
 
-function ReadyView({ events, totalBase }: { events: ScannedEvent[]; totalBase: bigint }) {
-  const batches = useMemo(() => groupByBatch(events), [events])
-
-  // Per-batch funded amount: sealed in the commitment events, so read each batch's
-  // deposit ext_amount from its transaction (txHash → base units; null = unknown).
+  // Per-run funded amount: the deposit ext_amount (public, proven). Read each
+  // run's deposit amount from its transaction (txHash → base units; null = unknown).
   const [amounts, setAmounts] = useState<Map<string, bigint | null>>(new Map())
-  const [openTx, setOpenTx] = useState<string | null>(null)
-  const [batchPage, setBatchPage] = useState(0)
 
   useEffect(() => {
     let cancelled = false
     void (async () => {
       const entries = await Promise.all(
-        batches.map(async (b) => [b.txHash, await fetchBatchExtAmount(b.txHash)] as const),
+        runs.map(async (b) => [b.txHash, await fetchBatchExtAmount(b.txHash)] as const),
       )
       if (!cancelled) setAmounts(new Map(entries))
     })()
     return () => {
       cancelled = true
     }
-  }, [batches])
-
-  // Clamp batchPage when the batch count changes (e.g. after a new payroll lands).
-  const batchPageCount = Math.max(1, Math.ceil(batches.length / BATCHES_PER_PAGE))
-  const currentBatchPage = Math.min(batchPage, batchPageCount - 1)
-  const visibleBatches = batches.slice(
-    currentBatchPage * BATCHES_PER_PAGE,
-    currentBatchPage * BATCHES_PER_PAGE + BATCHES_PER_PAGE,
-  )
+  }, [runs])
 
   return (
-    <>
+    <div className="flex flex-col gap-4">
       {/* Proven-total hero */}
-      <Reveal delay={0.1}>
-        <div className="mb-8">
-          <DoubleBezel radius="2rem" className="overflow-hidden">
-            <div className="px-6 py-6">
-              <p className="font-mono text-sm text-accent-soft">
-                {formatUsdc(totalBase)} USDC funded · total proven on-chain ✓
-              </p>
-              <p className="mt-2 text-xs text-ink-muted/60">
-                The pool balance is the public predicate; per-note amounts are sealed.
-              </p>
-            </div>
-          </DoubleBezel>
+      <DoubleBezel radius="1.5rem" className="px-5 py-5">
+        <p className="text-xs text-ink-muted uppercase tracking-widest">Proven total</p>
+        <p className="mt-1.5 font-mono text-2xl text-ink leading-tight">
+          {formatUsdc(totalBase)} USDC
+        </p>
+        <p className="mt-2 inline-flex items-center gap-1.5 text-xs text-accent-soft">
+          <Check size={13} weight="bold" aria-hidden />
+          Proven on-chain
+        </p>
+        <p className="mt-3 text-[11px] text-ink-muted/70 leading-relaxed">
+          Anyone can verify this total. Who got what stays sealed.
+        </p>
+        {poolContractId && (
+          <a
+            href={explorerContractUrl(poolContractId)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-3 inline-flex items-center gap-1 font-mono text-[11px] text-ink-muted hover:text-accent-soft transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded"
+          >
+            View pool contract on Stellar Expert ↗
+          </a>
+        )}
+      </DoubleBezel>
+
+      {/* Per-run list — capped height + internal scroll so the sticky rail always
+          fits the viewport (no pager, no virtualization: payroll runs are tens). */}
+      <DoubleBezel radius="1.5rem" className="overflow-hidden">
+        <div className="flex items-center justify-between gap-2 px-5 py-3 text-xs uppercase tracking-widest text-ink-muted/60 border-b border-white/5">
+          <span>Pay runs</span>
+          <span className="tabular-nums text-ink-muted/40">{runs.length}</span>
         </div>
-      </Reveal>
 
-      {/* Batches — one collapsible table; each row expands to its sealed notes */}
-      <Reveal delay={0.15}>
-        <div className="mb-10">
-          <h3 className="text-h3 font-[600] tracking-[-0.01em] leading-[1.15] mb-4">
-            Batches
-          </h3>
-          <DoubleBezel radius="2rem" className="overflow-hidden">
-            {/* Column header */}
-            <div className="flex items-center gap-4 px-6 py-3 text-xs uppercase tracking-widest text-ink-muted/60 border-b border-white/5">
-              <span className="flex-1">Amount</span>
-              <span className="w-16 text-right">Notes</span>
-              <span className="w-44 text-right">Tx</span>
-              <span className="w-5" aria-hidden />
-            </div>
-
-            <div className="divide-y divide-white/5">
-              {visibleBatches.map((batch) => {
-                const amount = amounts.get(batch.txHash)
-                const isOpen = openTx === batch.txHash
-                return (
-                  <Fragment key={batch.txHash || batch.ledger}>
-                    <button
-                      type="button"
-                      onClick={() => setOpenTx(isOpen ? null : batch.txHash)}
-                      aria-expanded={isOpen}
-                      className="w-full flex items-center gap-4 px-6 py-4 text-left hover:bg-surface/40 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset"
-                    >
-                      <span className="flex-1 font-mono text-sm text-accent-soft">
-                        {amount != null ? `${formatUsdc(amount)} USDC` : '—'}
-                      </span>
-                      <span className="w-16 text-right font-mono text-xs text-ink-muted">
-                        {batch.events.length}
-                      </span>
-                      {batch.txHash ? (
-                        <a
-                          href={explorerTxUrl(batch.txHash)}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          onClick={(e) => e.stopPropagation()}
-                          className="w-44 text-right font-mono text-xs text-ink-muted hover:text-accent-soft transition-colors"
-                        >
-                          {`${batch.txHash.slice(0, 8)}…${batch.txHash.slice(-6)} ↗`}
-                        </a>
-                      ) : (
-                        <span className="w-44 text-right font-mono text-xs text-ink-muted/40">—</span>
-                      )}
-                      <CaretDown
-                        size={14}
-                        weight="bold"
-                        aria-hidden
-                        className={`w-5 shrink-0 text-ink-muted transition-transform ${isOpen ? 'rotate-180' : ''}`}
-                      />
-                    </button>
-
-                    {isOpen && (
-                      <div className="px-6 pb-5 pt-1 bg-surface/20">
-                        <p className="text-xs text-ink-muted/60 mb-2">
-                          {batch.events.length} sealed notes · amounts sealed · ledger {batch.ledger}
-                        </p>
-                        <PayrollTable rows={toRows(batch.events)} />
-                      </div>
-                    )}
-                  </Fragment>
-                )
-              })}
-            </div>
-
-            {/* Batch pager — shown only when there are more than BATCHES_PER_PAGE batches */}
-            {batchPageCount > 1 && (
-              <div className="flex items-center justify-between gap-4 px-6 py-3 border-t border-white/5">
-                <span className="font-mono text-xs text-ink-muted tabular-nums">
-                  {currentBatchPage * BATCHES_PER_PAGE + 1}–{Math.min((currentBatchPage + 1) * BATCHES_PER_PAGE, batches.length)} of {batches.length}
-                </span>
-                <div className="flex items-center gap-1">
-                  <button
-                    type="button"
-                    aria-label="Previous batch page"
-                    disabled={currentBatchPage === 0}
-                    onClick={() => setBatchPage(currentBatchPage - 1)}
-                    className="inline-flex items-center justify-center size-8 rounded-full text-ink-muted transition-colors hover:text-ink hover:bg-white/5 disabled:opacity-30 disabled:pointer-events-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                  >
-                    <CaretLeft size={15} weight="bold" />
-                  </button>
-                  <span className="font-mono text-xs text-ink-muted tabular-nums px-1.5">
-                    {currentBatchPage + 1} / {batchPageCount}
+        <div className="scrollbar-subtle max-h-[20rem] overflow-y-auto overscroll-contain divide-y divide-white/5">
+          {runs.map((run) => {
+            const amount = amounts.get(run.txHash)
+            return (
+              <div
+                key={run.txHash || run.ledger}
+                className="flex items-center justify-between gap-3 px-5 py-3.5"
+              >
+                <div className="flex flex-col gap-0.5 min-w-0">
+                  <span className="font-mono text-sm text-accent-soft">
+                    {amount != null ? `${formatUsdc(amount)} USDC` : '—'}
                   </span>
-                  <button
-                    type="button"
-                    aria-label="Next batch page"
-                    disabled={currentBatchPage >= batchPageCount - 1}
-                    onClick={() => setBatchPage(currentBatchPage + 1)}
-                    className="inline-flex items-center justify-center size-8 rounded-full text-ink-muted transition-colors hover:text-ink hover:bg-white/5 disabled:opacity-30 disabled:pointer-events-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                  >
-                    <CaretRight size={15} weight="bold" />
-                  </button>
+                  <span className="text-[11px] text-ink-muted/60 inline-flex items-center gap-1">
+                    <Check size={10} weight="bold" aria-hidden className="text-accent-soft/70" />
+                    Proven on-chain
+                  </span>
                 </div>
+                {run.txHash ? (
+                  <a
+                    href={explorerTxUrl(run.txHash)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="shrink-0 font-mono text-[11px] text-ink-muted hover:text-accent-soft transition-colors"
+                  >
+                    {`${run.txHash.slice(0, 6)}… ↗`}
+                  </a>
+                ) : (
+                  <span className="shrink-0 font-mono text-[11px] text-ink-muted/40">—</span>
+                )}
               </div>
-            )}
-          </DoubleBezel>
+            )
+          })}
         </div>
-      </Reveal>
-    </>
+      </DoubleBezel>
+    </div>
   )
 }
 
@@ -350,8 +292,8 @@ function ReadyView({ events, totalBase }: { events: ScannedEvent[]; totalBase: b
 // ---------------------------------------------------------------------------
 
 /**
- * Group scanned events by batch (txHash), newest ledger first.
- * Events with an empty txHash are grouped together as a fallback batch.
+ * Group scanned events by pay run (txHash), newest ledger first.
+ * Events with an empty txHash are grouped together as a fallback run.
  */
 function groupByBatch(events: ScannedEvent[]): Batch[] {
   const map = new Map<string, Batch>()
@@ -367,69 +309,49 @@ function groupByBatch(events: ScannedEvent[]): Batch[] {
     }
   }
 
-  // Sort batches newest first
+  // Sort runs newest first
   return Array.from(map.values()).sort((a, b) => b.ledger - a.ledger)
 }
 
-/**
- * Map scanned commitment events to sealed-note payroll rows (no amounts, no identity).
- * Events sorted by index ascending within a batch.
- */
-function toRows(events: ScannedEvent[]): PayrollRow[] {
-  return events
-    .slice()
-    .sort((a, b) => a.index - b.index)
-    .map((event) => ({
-      index: event.index + 1,
-      // Display the commitment as a decimal string; truncation handled in PayrollTable.
-      commitmentHex: event.commitment.toString(),
-      date: String(event.ledger),
-      explorerUrl: event.txHash ? explorerTxUrl(event.txHash) : undefined,
-    }))
-}
-
 // ---------------------------------------------------------------------------
-// Loading / error / empty states
+// Loading / error / empty states (rail-sized)
 // ---------------------------------------------------------------------------
 
-function LoadingBatches() {
+function LoadingRecord() {
   return (
-    <div
-      className="flex items-center justify-center py-28"
-      aria-busy="true"
-      aria-label="Loading batches"
-    >
-      <motion.p
-        className="text-lead font-mono text-ink-muted text-center"
-        animate={{ opacity: [0.5, 1, 0.5] }}
-        transition={{ duration: 1.6, repeat: Infinity, ease: 'easeInOut' }}
-      >
-        Loading batches
-      </motion.p>
-    </div>
+    <DoubleBezel radius="1.5rem" className="px-5 py-6">
+      <div className="flex flex-col gap-3" aria-busy="true" aria-label="Loading payroll record">
+        {[0, 1, 2].map((i) => (
+          <div
+            key={i}
+            className="h-4 rounded bg-ink/10 animate-pulse"
+            style={{ width: `${82 - i * 14}%` }}
+          />
+        ))}
+      </div>
+    </DoubleBezel>
   )
 }
 
 function EmptyState() {
   return (
-    <div className="py-12">
-      <h2 className="text-h2 font-[900] tracking-[-0.01em] leading-[1.15]">
-        No batch on-chain yet.
-      </h2>
-      <p className="mt-3 text-lead text-ink-muted">
-        Run <span className="font-mono">sobre pay nomina.csv</span> to submit the
-        first payroll batch.
+    <DoubleBezel radius="1.5rem" className="px-5 py-6">
+      <h4 className="text-base font-[700] tracking-[-0.01em] text-ink">
+        No payroll yet
+      </h4>
+      <p className="mt-2 text-sm text-ink-muted leading-relaxed">
+        Run your first payroll and it&apos;ll appear here, sealed and proven.
       </p>
-    </div>
+    </DoubleBezel>
   )
 }
 
 function ErrorState() {
   return (
-    <div className="py-12">
-      <p className="text-lead text-ink-muted">
-        Could not reach the pool. Check your RPC connection and try again.
+    <DoubleBezel radius="1.5rem" className="px-5 py-6">
+      <p className="text-sm text-ink-muted leading-relaxed">
+        Could not reach the network. Check your connection and try again.
       </p>
-    </div>
+    </DoubleBezel>
   )
 }

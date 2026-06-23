@@ -50,22 +50,22 @@ test.describe('Employer dashboard', () => {
   })
 
   // 6-EMP-empty: RPC mocked to 0 events → empty-state copy is shown.
-  test('shows empty-state copy when no batch is on-chain', async ({ page }) => {
+  test('shows empty-state copy when no payroll is on-chain', async ({ page }) => {
     await mockRpc(page, [])
     await page.goto('/employer')
-    await expect(page.getByText('No batch on-chain yet.')).toBeVisible()
+    await expect(page.getByText('No payroll yet')).toBeVisible()
   })
 
-  // 6-EMP-render: the heading + table render. The subhead carries the
-  // public-lens framing (real USDC, sealed split).
-  test('renders the payroll heading and public-lens subhead', async ({ page }) => {
+  // 6-EMP-render: the record rail heading renders. The empty-state copy carries
+  // the public-lens framing (sealed + proven).
+  test('renders the payroll record heading and sealed framing', async ({ page }) => {
     await mockRpc(page, [])
     await page.goto('/employer')
     await expect(
-      page.getByRole('heading', { name: 'Payroll status' }),
+      page.getByRole('heading', { name: 'Payroll record' }),
     ).toBeVisible()
-    // Heading subhead carries the public-lens framing.
-    await expect(page.getByText('who receives what stays sealed')).toBeVisible()
+    // The empty record explains the sealed-and-proven model.
+    await expect(page.getByText('sealed and proven')).toBeVisible()
   })
 
   // UX-02 A1 (T-06-09): no individual amount node anywhere on /employer, even
@@ -102,11 +102,10 @@ test.describe('Employer dashboard', () => {
     await mockRpc(page, events)
     await page.goto('/employer')
 
-    // The populated batch renders the sealed-notes table (proves we are
-    // exercising the data path, not silently falling back to empty/error state).
-    // Notes render as sealed — no "Employee #N" label (dropped: A1, per-note
-    // identity must not be implied). The "Sealed note" column header is present.
-    await expect(page.getByText('Sealed note')).toBeVisible()
+    // The populated record renders the ready-state rail (proves we are exercising
+    // the data path, not silently falling back to empty/error state). The proven
+    // total is the public predicate; per-employee amounts never render here.
+    await expect(page.getByText('Proven total')).toBeVisible()
 
     // No amount-bar reveal elements (that pattern lives only in the auditor
     // table). The employer dashboard has zero.

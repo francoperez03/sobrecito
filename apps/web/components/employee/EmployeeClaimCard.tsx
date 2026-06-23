@@ -46,7 +46,7 @@ export function EmployeeClaimCard({ noteMeta }: EmployeeClaimCardProps) {
       setTxHash(result.hash)
       setState('claimed')
     } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : 'Could not claim. Try again.')
+      setErrorMsg(err instanceof Error ? err.message : 'Could not cash out. Try again.')
       setState('error')
     }
   }
@@ -57,7 +57,7 @@ export function EmployeeClaimCard({ noteMeta }: EmployeeClaimCardProps) {
         {/* Heading — H2, weight 900. Becomes "Salary claimed." on success. */}
         <div>
           <h2 className="text-h2 font-[900] tracking-[-0.01em] leading-[1.15]">
-            {claimed ? 'Salary claimed.' : 'Your salary is waiting.'}
+            {claimed ? 'Cashed out.' : 'Your salary is waiting.'}
           </h2>
           {claimed && txHash && (
             <p className="mt-3 text-lead text-ink-muted">
@@ -100,7 +100,7 @@ export function EmployeeClaimCard({ noteMeta }: EmployeeClaimCardProps) {
             {/* Amber warning chip — fires BEFORE the CTA (UI-SPEC Surface 4). The
                 only amber on the page: the exposure signal (A1 / T-06-16). */}
             <div className="bg-accent-warm/10 text-accent-warm text-xs px-3 py-2 rounded-full self-start">
-              Once claimed, this amount is visible on-chain.
+              Once you cash out, this amount becomes visible on-chain.
             </div>
 
             <button
@@ -109,7 +109,7 @@ export function EmployeeClaimCard({ noteMeta }: EmployeeClaimCardProps) {
               disabled={claiming}
               className="bg-accent-fill text-white font-[900] text-base px-6 h-[52px] rounded-full hover:opacity-90 active:scale-[0.98] transition-all self-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg disabled:opacity-70"
             >
-              {claiming ? 'Claiming…' : 'Claim salary'}
+              {claiming ? 'Cashing out…' : 'Cash out'}
             </button>
 
             {state === 'error' && errorMsg && (
