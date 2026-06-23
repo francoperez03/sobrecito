@@ -41,38 +41,57 @@ only thing that reopens the detail.
    period, and nothing outside it.
 
 Under the hood, the batch is a single shielded transaction. The employer shields
-USDC for the total `T`, and a Groth16 proof (`policy_tx_1_8`, one employer input
-to eight employee notes) splits it into private notes while proving conservation
-`sumIns + publicAmount === sumOuts`. The public predicate `sum(payments) = T` is
-verified on-chain; individual amounts stay encrypted to the auditor's view-key.
-Commitments use Poseidon2, aligned between circuit and contract. A claim spends a
-note via a withdraw proof (Merkle membership + nullifier), so a salary can be
-proven once and never double-spent.
+USDC for the total `T`, and an UltraHonk proof (Noir circuit `sobre_slim`, one
+employer input to eight employee notes) splits it into private notes while
+proving conservation `sumIns + publicAmount === sumOuts`. The public predicate
+`sum(payments) = T` is verified on-chain by an UltraHonk verifier contract;
+individual amounts stay encrypted to the auditor's view-key. Commitments use
+Poseidon2, aligned between circuit and contract. A claim spends a note via a
+withdraw proof (Merkle membership + nullifier), so a salary can be proven once
+and never double-spent.
+
+UltraHonk has no per-circuit trusted setup: there is no proving-key ceremony to
+trust. The on-chain verifier holds an immutable verification key (VK) set once at
+deploy time, and the proof is produced by `bb 0.87.0`.
 
 ## Try it
 
-Run the web app and open the three tabs (`/employer`, `/employee`, `/auditor`).
-Proving runs entirely in the browser; signing uses Freighter on Stellar testnet.
-The in-app progress panel walks you through the five steps in order.
+Prerequisites: Node 20.9+, pnpm, the [Freighter](https://www.freighter.app/)
+wallet on Stellar **testnet** with a funded account. Then:
+
+```bash
+pnpm install
+pnpm --filter viewkey build   # build the viewkey package (uncommitted output)
+pnpm dev                       # Next.js on http://localhost:3000
+```
+
+Open the three tabs (`/employer`, `/employee`, `/auditor`). Proving runs entirely
+in the browser (UltraHonk via `bb.js`); signing uses Freighter on testnet. The
+in-app progress panel walks you through the five steps in order.
 
 ## Monorepo layout
 
 ```
 sobrecito/
+├── circuits/
+│   └── sobre_slim/     # Noir circuit (1 employer input -> 8 employee notes)
 ├── apps/
 │   └── web/            # Next.js landing + employer / employee / auditor dashboards
 ├── packages/
-│   ├── zk/             # Cargo workspace: circom circuits + Soroban contracts
-│   │   ├── circuits/   #   policy_tx_1_8 (1 employer input -> 8 employee notes)
-│   │   ├── contracts/  #   pool, circom-groth16-verifier, asp-*, soroban-utils
-│   │   ├── poseidon2/  #   hash aligned circuit <-> contract
-│   │   └── testdata/   #   verification + proving keys (PoC trusted setup)
-│   ├── viewkey/        # auditor view-key + batch reconstruction, employee scan
-│   └── cli/            # `sobre pay` command (WIP)
+│   ├── zk/             # Cargo workspace: Soroban contracts
+│   │   ├── contracts/  #   pool (UltraHonk edition), soroban-utils, poseidon2-tester
+│   │   └── testdata/   #   real UltraHonk proof fixture (sobre_slim_real.*)
+│   └── viewkey/        # auditor view-key + batch reconstruction, employee scan
 └── ops/
-    ├── scripts/        # build-verifier-with-vk.sh, deploy.sh
-    └── deployments/    # on-chain addresses per network
+    ├── deploy-noir-pool.sh   # deploy UltraHonk verifier + noir_pool to testnet
+    ├── scripts/              # submit-real-batch.sh, gen-real-deposit-blobs.mjs
+    └── deployments/          # on-chain addresses per network (deployments.json)
 ```
+
+The UltraHonk verifier contract lives in the external, **unaudited**
+[`rs-soroban-ultrahonk`](https://github.com/yugocabrio/rs-soroban-ultrahonk)
+repo (vendored as a sibling of `sobrecito/` in this monorepo). The deployed pool
+delegates verification to it by address.
 
 ## Commands
 
@@ -86,14 +105,17 @@ pnpm web:test                  # Playwright end-to-end tests
 pnpm --filter web test:unit    # Vitest unit tests
 
 # ZK / contracts
-pnpm zk:setup         # trusted setup (PoC): generate proving + verification key
-pnpm zk:test          # Rust tests (soroban-utils + pool + circuits)
-pnpm zk:test:pool     # pool contract tests (verifier VK embedded)
-pnpm verifier:build   # build the Soroban verifier with the circuit's VK baked in
+pnpm circuit:build    # compile the Noir circuit (nargo)
+pnpm zk:test          # Rust tests (soroban-utils + pool, incl. real-proof e2e)
+pnpm zk:test:pool     # pool contract tests only
 pnpm pool:build       # build the pool contract to wasm
 pnpm contracts:build  # build all contracts (optimized wasm)
-pnpm deploy:testnet   # deploy pool + verifier + ASP to Stellar testnet
+pnpm deploy:testnet   # deploy UltraHonk verifier + noir_pool to Stellar testnet
 ```
+
+> `pnpm zk:test` includes `transact_with_real_ultrahonk_proof`, which verifies a
+> genuine `bb 0.87.0` proof on-chain through the real verifier. It needs the
+> sibling `rs-soroban-ultrahonk/` repo present (path dev-dependency).
 
 > The `viewkey` package ships its build output uncommitted. After a fresh
 > checkout, run `pnpm --filter viewkey build` (or `pnpm -r build`) before the web
@@ -101,9 +123,10 @@ pnpm deploy:testnet   # deploy pool + verifier + ASP to Stellar testnet
 
 ## Stack
 
-Circom + Groth16, Soroban (Rust, `wasm32v1-none`), Stellar testnet, Freighter for
-signing, Next.js + Tailwind for the frontend with in-browser WASM proving.
-Toolchain: Rust 1.92.0, Node 20.9+, pnpm.
+Noir + UltraHonk (`bb 0.87.0`), Soroban (Rust, `wasm32v1-none`), Stellar testnet,
+Freighter for signing, Next.js + Tailwind for the frontend with in-browser
+UltraHonk proving (`bb.js`). Toolchain: Rust 1.92.0, nargo 1.0.0-beta.9, Node
+20.9+, pnpm.
 
 ## License
 
