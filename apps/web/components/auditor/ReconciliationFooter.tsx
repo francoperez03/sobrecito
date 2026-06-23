@@ -10,7 +10,8 @@ const EASE_BRAND = [0.32, 0.72, 0, 1] as const
 interface ReconciliationFooterProps {
   /** Sum of the decrypted per-note amounts (USDC base units). */
   sumDecrypted: bigint
-  /** Real on-chain total T = the pool's live USDC balance. */
+  /** On-chain total T = Σ of the public per-batch deposit amounts (ext_amount)
+   *  the ZK proof attests. Withdrawal-invariant (NOT the live pool balance). */
   total: bigint
   /** Whether sum(decrypted) reconciles to T. */
   match: boolean
