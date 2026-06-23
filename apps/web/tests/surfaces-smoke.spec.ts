@@ -14,7 +14,7 @@ import { test, expect } from '@playwright/test'
  * Mount-time anchors (pinned against page sources — Phase 09.1 plans 01-03):
  *   /employer: data-testid="payroll-composer"   (PayrollComposer.tsx:581, unconditional)
  *   /employee: data-testid="employee-key-reveal" (EmployeeKeyInput.tsx:70, unconditional)
- *   /auditor : placeholder "Paste view-key"     (ViewKeyInput.tsx:35, no data-testid)
+ *   /auditor : placeholder "Paste your view-key" (ViewKeyInput.tsx:35, no data-testid)
  *
  * These smoke tests do NOT require Freighter, a live pool, or any wallet
  * connection. They only verify that the route compiles and mounts cleanly
@@ -56,6 +56,6 @@ test.describe('Surface smoke — no HTTP 500', () => {
     // Mount-time anchor: ViewKeyInput.tsx has no data-testid; use placeholder text
     // (ViewKeyInput.tsx:35, rendered unconditionally on mount).
     // Do NOT use auditor-empty/auditor-invalid/auditor-error — those are state-conditional.
-    await expect(page.getByPlaceholder(/Paste view-key/)).toBeVisible({ timeout: 15000 })
+    await expect(page.getByPlaceholder(/Paste your view-key/)).toBeVisible({ timeout: 15000 })
   })
 })
