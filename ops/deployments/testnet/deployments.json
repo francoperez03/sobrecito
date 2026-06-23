@@ -19,10 +19,12 @@
   ],
   "auditorPubkeyHex": "6225caf587c25face0eb5358d4a5a64b1ae8f1342adb32be610d4e3450a26b4d",
   "ultrahonk_verifier": "CCIMHTM466A2V36MP3JJOV22C6CPPG3OBXM634Q77OAMBYDZJORRCFPO",
-  "noir_pool": "CCZKS7KDE6Y7W2WGACJ5OASZR5SRJUW44OS3PD7BDQ2KSQDLW2IDQSXK",
+  "noir_pool": "CBAXUHXMFOGVVHK3WSWNUV7XK3Z2A7FM7J66YOFE7WUSL5F57EKAUPHJ",
   "bb_version": "0.87.0",
   "vk_hash": "584f1dd7f5d752c2ae5dc3ffbfe96861deb0250484385de6cf791627df74a6fc",
-  "noir_pool_e2e_tx": "6a83f9670a1ecc4ffb5de815503b7014c48c278708deed0e2c564b7749f6f2ef",
-  "noir_pool_explorer": "https://stellar.expert/explorer/testnet/tx/6a83f9670a1ecc4ffb5de815503b7014c48c278708deed0e2c564b7749f6f2ef",
-  "noir_pool_deployment_ledger": 3211979
+  "noir_pool_max_deposit": "10000000000000",
+  "noir_pool_deploy_tx": "9597488b3d9a433650ee6d7af40f1b573e32edeed5d7372431592c24aedc3be0",
+  "noir_pool_explorer": "https://stellar.expert/explorer/testnet/tx/9597488b3d9a433650ee6d7af40f1b573e32edeed5d7372431592c24aedc3be0",
+  "noir_pool_deployment_ledger": 3234896,
+  "noir_pool_prev_capped_1usdc": "CCZKS7KDE6Y7W2WGACJ5OASZR5SRJUW44OS3PD7BDQ2KSQDLW2IDQSXK"
 }
