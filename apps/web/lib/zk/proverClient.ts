@@ -229,20 +229,21 @@ export async function computeCommitment(
   pubkey: bigint,
   blinding: bigint,
 ): Promise<bigint> {
-  if (typeof window === 'undefined') {
-    throw new Error('proverClient.computeCommitment: browser-only')
-  }
-  // Delegamos al worker para cálculo Poseidon2 (mantenido para compatibilidad)
-  const result = await sendMessage('COMPUTE_COMMITMENT', {
-    amountDec: amount.toString(10),
-    publicKeyDec: pubkey.toString(10),
-    blindingDec: blinding.toString(10),
-  })
-  return BigInt(result.commitmentDec as string)
+  // Pure JS via the pool-aligned Poseidon2. The bb.js worker has NO COMPUTE_*
+  // handlers after the sobre_slim/D2 migration (bb-prover.ts: INIT_PROVER/PROVE/
+  // VERIFY only), so this reproduces the circuit's commitment in JS:
+  //   commitment = hash3WithSep(amount, pubkey, blinding, 1)   (main.nr)
+  const { hash3WithSep } = await import('./poseidon2Pool')
+  return hash3WithSep(amount, pubkey, blinding, BigInt(1))
 }
 
 /**
- * Calcula el nullifier Poseidon2 via el worker. Mantenido para compatibilidad.
+ * Calcula el nullifier Poseidon2 en JS puro, reproduciendo la cadena exacta del
+ * circuito (main.nr:64-74), idéntica a withdrawTransactionBuilder:
+ *   pub_key       = hash1WithSep(privKey, 3)
+ *   in_commitment = hash3WithSep(amount, pub_key, blinding, 1)
+ *   sig           = hash3WithSep(privKey, in_commitment, pathIndices, 4)
+ *   nullifier     = hash3WithSep(in_commitment, pathIndices, sig, 2)
  */
 export async function computeNullifier(
   privKey: bigint,
@@ -250,29 +251,20 @@ export async function computeNullifier(
   pathIndices: bigint = BigInt(0),
   amount: bigint = BigInt(0),
 ): Promise<bigint> {
-  if (typeof window === 'undefined') {
-    throw new Error('proverClient.computeNullifier: browser-only')
-  }
-  const result = await sendMessage('COMPUTE_NULLIFIER', {
-    privateKeyDec: privKey.toString(10),
-    blindingDec: blinding.toString(10),
-    pathIndicesDec: pathIndices.toString(10),
-    amountDec: amount.toString(10),
-  })
-  return BigInt(result.nullifierDec as string)
+  const { hash1WithSep, hash3WithSep } = await import('./poseidon2Pool')
+  const pubKey = hash1WithSep(privKey, BigInt(3))
+  const commitment = hash3WithSep(amount, pubKey, blinding, BigInt(1))
+  const sig = hash3WithSep(privKey, commitment, pathIndices, BigInt(4))
+  return hash3WithSep(commitment, pathIndices, sig, BigInt(2))
 }
 
 /**
- * Deriva la clave pública BN254 via el worker. Mantenido para compatibilidad.
+ * Deriva la clave pública BN254 en JS puro: pub_key = hash1WithSep(privKey, 3)
+ * (domain 0x03, el Keypair() del circuito). Sin worker, usable en Node/SSR.
  */
 export async function derivePublicKey(privKey: bigint): Promise<bigint> {
-  if (typeof window === 'undefined') throw new Error('proverClient.derivePublicKey: browser-only')
-  const privBytes = bigintToFieldBytesLE(privKey)
-  const result = await sendMessage('DERIVE_PUBLIC_KEY', {
-    privateKey: Array.from(privBytes),
-    asHex: false,
-  })
-  return fieldBytesLEToBigint(new Uint8Array(result.publicKey as number[]))
+  const { hash1WithSep } = await import('./poseidon2Pool')
+  return hash1WithSep(privKey, BigInt(3))
 }
 
 /**
