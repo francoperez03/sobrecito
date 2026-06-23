@@ -143,12 +143,15 @@ function nullifierEventFilter(poolContractId: string) {
  */
 export async function scanSpentNullifiers(
   opts: ScanOptions,
-): Promise<Set<string>> {
+): Promise<Map<string, string>> {
   const server = new Server(opts.rpcUrl, {
     allowHttp: opts.rpcUrl.startsWith("http://"),
   });
 
-  const spent = new Set<string>();
+  // nullifier (decimal string) -> txHash of the NewNullifierEvent that burned it.
+  // A Map (not a Set) so callers can both test membership (.has) AND recover the
+  // claim tx hash for notes spent in a PRIOR session, not just the current one.
+  const spent = new Map<string, string>();
   let cursor: string | undefined;
 
   for (;;) {
@@ -172,7 +175,7 @@ export async function scanSpentNullifiers(
     for (const event of page.events) {
       const nullifier = parseNullifierEvent(event);
       if (nullifier !== null) {
-        spent.add(nullifier.toString());
+        spent.set(nullifier.toString(), event.txHash);
       }
     }
 

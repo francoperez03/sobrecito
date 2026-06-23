@@ -202,8 +202,8 @@ export interface ScanRange {
 export interface ChainEventScanner {
   /** Scan NewCommitmentEvent over a ledger range (defaults to deploymentLedger). */
   scanCommitments(range?: ScanRange): Promise<ScannedEvent[]>
-  /** Scan NewNullifierEvent and return the set of spent nullifiers (decimals). */
-  scanSpentNullifiers(range?: ScanRange): Promise<Set<string>>
+  /** Scan NewNullifierEvent: map each spent nullifier (decimal) → its claim txHash. */
+  scanSpentNullifiers(range?: ScanRange): Promise<Map<string, string>>
 }
 
 /** Chain-specific binary encoding the domain needs for witness/proof building. */

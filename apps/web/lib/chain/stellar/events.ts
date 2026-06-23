@@ -25,7 +25,7 @@ export function createStellarEventScanner(config: ChainConfig): ChainEventScanne
     scanCommitments(range?: ScanRange): Promise<ScannedEvent[]> {
       return scanCommitmentEvents(scanOpts(range))
     },
-    scanSpentNullifiers(range?: ScanRange): Promise<Set<string>> {
+    scanSpentNullifiers(range?: ScanRange): Promise<Map<string, string>> {
       return scanSpentNullifiers(scanOpts(range))
     },
   }
