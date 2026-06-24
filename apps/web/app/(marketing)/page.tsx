@@ -35,15 +35,19 @@ export default function Landing() {
             </h2>
           </Reveal>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-10 items-start">
-            <Reveal delay={0.05} className="flex flex-col">
+          {/* Grid defaults to align-items: stretch, so on lg both cells take the
+              tallest height; each Reveal/card fills it (h-full) and an inner flex-1
+              spacer anchors the footer — equal-height columns regardless of header
+              (toggle vs chip) or caption-wrap differences. */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-10">
+            <Reveal delay={0.05} className="flex flex-col h-full">
               <p className="mb-4 font-mono text-xs uppercase tracking-[0.2em] text-accent-warm">
                 Without Sobrecito · a salary on-chain today
               </p>
               <NamedSalaryAnchor />
             </Reveal>
 
-            <Reveal delay={0.1} className="flex flex-col">
+            <Reveal delay={0.1} className="flex flex-col h-full">
               <p className="mb-4 font-mono text-xs uppercase tracking-[0.2em] text-accent-soft">
                 With Sobrecito
               </p>

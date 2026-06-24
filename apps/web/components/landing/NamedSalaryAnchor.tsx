@@ -16,8 +16,12 @@ import { DEMO_ROWS } from '@/lib/demo-data'
  */
 export function NamedSalaryAnchor() {
   return (
-    <div className="w-full max-w-3xl mx-auto">
-      <DoubleBezel radius="2rem" className="overflow-hidden">
+    <div className="w-full max-w-3xl mx-auto flex-1 min-h-0 flex flex-col">
+      <DoubleBezel
+        radius="2rem"
+        outerClassName="flex-1 flex flex-col"
+        className="flex-1 flex flex-col overflow-hidden"
+      >
         {/* Header row — mirrors the Centerpiece header height (label + a static
             "public" chip where the WITH side has its Public/Auditor toggle). */}
         <div className="flex items-center justify-between px-6 pt-5 pb-3">
@@ -30,21 +34,22 @@ export function NamedSalaryAnchor() {
           </span>
         </div>
 
-        {/* Table header — same grid as Centerpiece. */}
+        {/* Table header — same grid as Centerpiece. Today the chain exposes the
+            recipient ACCOUNT address, so this column is "Account", not "Employee". */}
         <div className="grid grid-cols-[1fr_1fr_auto] gap-4 px-6 pb-2 border-b border-hairline">
-          <span className="text-xs text-ink-muted uppercase tracking-widest">Employee</span>
+          <span className="text-xs text-ink-muted uppercase tracking-widest">Account</span>
           <span className="text-xs text-ink-muted uppercase tracking-widest">Amount</span>
           <span className="text-xs text-ink-muted uppercase tracking-widest">Status</span>
         </div>
 
-        {/* Rows — fully exposed: pubkey + amount readable by anyone. */}
+        {/* Rows — fully exposed: account address + amount readable by anyone. */}
         <div className="px-6 py-2">
           {DEMO_ROWS.map((row) => (
             <div
-              key={row.employee}
+              key={row.address}
               className="grid grid-cols-[1fr_1fr_auto] gap-4 py-3 border-b border-hairline last:border-0"
             >
-              <span className="font-mono text-sm text-ink self-center">{row.employee}</span>
+              <span className="font-mono text-sm text-ink self-center">{row.address}</span>
               <span className="font-mono text-sm text-accent-warm tabular-nums self-center">
                 {row.amount}
               </span>
@@ -52,6 +57,10 @@ export function NamedSalaryAnchor() {
             </div>
           ))}
         </div>
+
+        {/* Spacer — absorbs any height difference so the footer anchors to the
+            bottom and the card matches the WITH column exactly. */}
+        <div className="flex-1" />
 
         {/* Footer — mirrors the Centerpiece predicate footer (line + sub-caption). */}
         <div className="px-6 pb-5 pt-3 border-t border-hairline">

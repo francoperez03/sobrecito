@@ -17,8 +17,12 @@ export function Centerpiece() {
 
   return (
     <MotionConfig reducedMotion="user">
-      <div data-testid="centerpiece" className="w-full max-w-3xl mx-auto">
-        <DoubleBezel radius="2rem" className="overflow-hidden">
+      <div data-testid="centerpiece" className="w-full max-w-3xl mx-auto flex-1 min-h-0 flex flex-col">
+        <DoubleBezel
+          radius="2rem"
+          outerClassName="flex-1 flex flex-col"
+          className="flex-1 flex flex-col overflow-hidden"
+        >
           {/* Header row */}
           <div className="flex items-center justify-between px-6 pt-5 pb-3">
             <p className="font-mono text-xs uppercase tracking-[0.18em] text-ink-muted">
@@ -45,6 +49,9 @@ export function Centerpiece() {
               />
             ))}
           </div>
+
+          {/* Spacer — absorbs any height difference so both columns match exactly. */}
+          <div className="flex-1" />
 
           {/* Predicate footer */}
           <div className="px-6 pb-5 pt-3 border-t border-hairline">
