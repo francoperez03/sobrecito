@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, type ReactNode } from 'react'
+import { useState, useEffect, type ReactNode } from 'react'
 import { motion } from 'motion/react'
 import {
   Seal,
@@ -28,6 +28,7 @@ import { getChainAdapter } from '@/lib/chain'
 import { computeNullifier } from '@/lib/zk/proverClient'
 import { claimNote } from '@/lib/employee-claim'
 import { markStep } from '@/lib/progressStore'
+import { loadRoster } from '@/lib/employeeRoster'
 import { type ScannedEvent } from 'viewkey'
 
 // ---------------------------------------------------------------------------
@@ -167,6 +168,16 @@ export default function EmployeePage() {
   // 128 hex). Derived from the seed during scan; shown as a standing account detail.
   const [paymentAddress, setPaymentAddress] = useState<string | null>(null)
 
+  // Onboarding lead. First run (no key created on this device) leads with key
+  // creation; a returning device leads with the paste + "View my salary" path.
+  // Read the roster after mount so SSR and the first client render agree
+  // (loadRoster() is [] on the server). 'create' is the SSR default — the most
+  // common first impression and the true first action of the flow.
+  const [onboardMode, setOnboardMode] = useState<'create' | 'returning'>('create')
+  useEffect(() => {
+    if (loadRoster().length > 0) setOnboardMode('returning')
+  }, [])
+
   async function handleScan() {
     setState('scanning')
     setNotes([])
@@ -302,29 +313,58 @@ export default function EmployeePage() {
               <StatusChip state={state} />
             </div>
             <p className="mt-3 text-lead text-ink-muted max-w-[52ch]">
-              Paste your access key to see your payments and cash out. No key yet?
-              Create one below.
+              {onboardMode === 'create'
+                ? 'Create your key to get paid: it is generated here and never leaves your browser.'
+                : 'Paste your access key to see your payments and cash out.'}
             </p>
           </header>
         </Reveal>
 
-        {/* Primary action: key input + scan CTA, with the in-browser key generator below. */}
+        {/* Onboarding card. The lead action follows the user's state: a first-run
+            device leads with key creation (the true first action); a returning
+            device leads with the paste + "View my salary" path. Each state shows a
+            single primary CTA; the other path drops to a subordinate link. */}
         <Reveal delay={0.05}>
           <DoubleBezel radius="2rem" className="p-5 sm:p-6">
-            <EmployeeKeyInput
-              value={key}
-              onChange={(v) => {
-                setKey(v)
-                if (state === 'invalid' || state === 'empty' || state === 'error')
-                  setState('idle')
-              }}
-              onScan={handleScan}
-              processing={processing}
-              invalid={invalid}
-            />
-            <div className="mt-5 pt-5 border-t border-hairline">
-              <KeyGenerator />
-            </div>
+            {onboardMode === 'create' ? (
+              <>
+                <KeyGenerator variant="primary" autoFocusName />
+                <div className="mt-5 pt-5 border-t border-hairline">
+                  <button
+                    type="button"
+                    onClick={() => setOnboardMode('returning')}
+                    data-testid="employee-switch-returning"
+                    className="text-sm text-accent-soft hover:text-ink transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-full"
+                  >
+                    Already have a key? Paste it →
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <EmployeeKeyInput
+                  value={key}
+                  onChange={(v) => {
+                    setKey(v)
+                    if (state === 'invalid' || state === 'empty' || state === 'error')
+                      setState('idle')
+                  }}
+                  onScan={handleScan}
+                  processing={processing}
+                  invalid={invalid}
+                />
+                <div className="mt-5 pt-5 border-t border-hairline">
+                  <button
+                    type="button"
+                    onClick={() => setOnboardMode('create')}
+                    data-testid="employee-switch-create"
+                    className="text-sm text-accent-soft hover:text-ink transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-full"
+                  >
+                    Need a new key? Create one →
+                  </button>
+                </div>
+              </>
+            )}
           </DoubleBezel>
         </Reveal>
 

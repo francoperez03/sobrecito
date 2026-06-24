@@ -36,7 +36,25 @@ function bigintToHex(v: bigint): string {
  * deterministic from the random seed via the same HKDF + Poseidon2 the circuit
  * uses, so the payment address shown here is exactly the one the deposit targets.
  */
-export function KeyGenerator() {
+interface KeyGeneratorProps {
+  /**
+   * `primary` makes creation the hero action (first-run): h-52 inputs and an
+   * accent-fill CTA matching "View my salary". `secondary` (default) keeps the
+   * compact, subordinate styling used when the paste path leads.
+   */
+  variant?: 'primary' | 'secondary'
+  /** Autofocus the name field — used when this is the screen's first action. */
+  autoFocusName?: boolean
+  /** Called once a key has been generated (so the page can react to first run). */
+  onCreated?: () => void
+}
+
+export function KeyGenerator({
+  variant = 'secondary',
+  autoFocusName = false,
+  onCreated,
+}: KeyGeneratorProps = {}) {
+  const primary = variant === 'primary'
   const [seedHex, setSeedHex] = useState<string | null>(null)
   const [pubHex, setPubHex] = useState<string | null>(null)
   const [seedCopied, setSeedCopied] = useState(false)
@@ -66,6 +84,7 @@ export function KeyGenerator() {
       setPubCopied(false)
       saveEntry(name.trim(), pub)
       markStep('generate')
+      onCreated?.()
     } finally {
       setBusy(false)
     }
@@ -95,20 +114,28 @@ export function KeyGenerator() {
           onKeyDown={(e) => {
             if (e.key === 'Enter' && canCreate) handleGenerate()
           }}
+          autoFocus={autoFocusName}
           data-testid="keygen-alias-input"
-          className="flex-1 min-w-0 bg-bg text-ink text-sm rounded-full h-[44px] px-5 ring-1 ring-hairline focus:outline-none focus:ring-2 focus:ring-accent transition-all placeholder:text-ink-muted"
+          className={[
+            'flex-1 min-w-0 bg-bg text-ink rounded-full px-5 ring-1 ring-hairline',
+            'focus:outline-none focus:ring-2 focus:ring-accent transition-all placeholder:text-ink-muted',
+            primary ? 'text-base h-[52px]' : 'text-sm h-[44px]',
+          ].join(' ')}
         />
         <button
           type="button"
           onClick={handleGenerate}
           disabled={!canCreate}
+          title={!canCreate && !busy ? 'Enter a name first' : undefined}
           data-testid="keygen-generate"
           className={[
-            'inline-flex items-center justify-center gap-2 shrink-0 bg-surface text-ink font-[700] text-sm px-5 h-[44px] rounded-full',
-            'ring-1 ring-white/30 hover:bg-white/5 hover:ring-white/50 active:scale-[0.98] transition-all',
+            'inline-flex items-center justify-center gap-2 shrink-0 rounded-full transition-all active:scale-[0.98]',
             'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
             'focus-visible:ring-offset-2 focus-visible:ring-offset-bg',
-            'disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-surface disabled:hover:ring-white/30',
+            'disabled:cursor-not-allowed',
+            primary
+              ? 'bg-accent-fill text-white font-[900] text-base px-7 h-[52px] hover:opacity-90 disabled:opacity-60 disabled:hover:opacity-60'
+              : 'bg-surface text-ink font-[700] text-sm px-5 h-[44px] ring-1 ring-white/30 hover:bg-white/5 hover:ring-white/50 disabled:opacity-60 disabled:hover:bg-surface disabled:hover:ring-white/30',
             busy ? 'opacity-80 animate-pulse cursor-wait' : '',
           ].join(' ')}
         >
@@ -117,7 +144,7 @@ export function KeyGenerator() {
         </button>
       </div>
 
-      <p className="text-xs text-ink-muted">
+      <p className={[primary ? 'text-sm' : 'text-xs', 'text-ink-muted'].join(' ')}>
         {pubHex
           ? 'Back up your access key now: it’s the only way back in. Creating a new key replaces this one.'
           : 'Name your key to create it. Your access key is the only secret to back up; your payment address derives from it.'}
