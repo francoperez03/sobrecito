@@ -1,7 +1,7 @@
 'use client'
 
 import type { ReactNode } from 'react'
-import { ChartBar, UserCircle, Key, Eye, type Icon } from '@phosphor-icons/react'
+import { ChartBar, UserCircle, type Icon } from '@phosphor-icons/react'
 import { motion, MotionConfig } from 'motion/react'
 import { RevealGroup } from '@/components/motion/Reveal'
 import { revealItem } from '@/lib/motion'
@@ -9,7 +9,6 @@ import { IconBadge } from '@/components/ui/IconBadge'
 import { Eyebrow } from '@/components/ui/Eyebrow'
 import { DoubleBezel } from '@/components/ui/DoubleBezel'
 import { RoleView, type RowState } from './RoleView'
-import { PREDICATE_TOTAL } from '@/lib/demo-data'
 
 const R: RowState = 'revealed'
 const S: RowState = 'sealed'
@@ -49,37 +48,6 @@ const levels: {
     ownIndex: 0,
     viewLabel: 'Employee view: only their own amount visible, every colleague sealed.',
   },
-  {
-    index: '03',
-    label: 'Auditor',
-    copy: 'Auditor reconstructs detail via view-key.',
-    sub: "A view-key scoped to one period rebuilds every amount they're entitled to, nothing outside it.",
-    icon: Key,
-    accent: true,
-    rows: [R, R, R, R],
-    footer: (
-      <p className="font-mono text-[0.625rem] uppercase tracking-[0.12em] text-ink-muted">
-        reconstructed via view-key
-      </p>
-    ),
-    viewLabel: 'Auditor view: all amounts reconstructed via a scoped view-key.',
-  },
-  {
-    index: '04',
-    label: 'Public',
-    copy: 'They see the total, proven.',
-    sub: 'One number on-chain: the batch adds up. No individual amounts, ever.',
-    icon: Eye,
-    accent: false,
-    rows: [S, S, S, S],
-    redactNames: true,
-    footer: (
-      <p className="font-mono text-sm text-accent-soft tabular-nums leading-[1.4]">
-        sum = {PREDICATE_TOTAL} ✓ verified on-chain
-      </p>
-    ),
-    viewLabel: 'Public view: all amounts sealed, only the proven total shown.',
-  },
 ]
 
 export function ThreeLevels() {
@@ -91,10 +59,11 @@ export function ThreeLevels() {
           <motion.div variants={revealItem} className="lg:sticky lg:top-28 self-start">
             <Eyebrow>The model</Eyebrow>
             <h2 className="mt-4 font-display font-light text-ink text-h2 leading-[1.1] tracking-[-0.02em] text-balance">
-              One payroll. Every role sees only its share.
+              Inside the org, each role sees only its share.
             </h2>
             <p className="mt-5 font-sans text-lead text-ink-muted leading-[1.6] text-pretty max-w-[40ch]">
-              Private by default, auditable on demand.
+              The public sees the proven total, the auditor reconstructs the rest. Within the
+              team, the seal still holds: each role sees only what it needs.
             </p>
           </motion.div>
 

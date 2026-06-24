@@ -16,9 +16,10 @@ test.describe('Landing page smoke tests', () => {
   })
 
   test('three levels renders', async ({ page }) => {
+    // The Model now owns the INTERNAL org views (Employer + Employee); Public and
+    // Auditor live in the comparison toggle above (no duplication).
     await expect(page.getByText('You see the breakdown.')).toBeVisible()
-    await expect(page.getByText('They see the total, proven.')).toBeVisible()
-    await expect(page.getByText('Auditor reconstructs detail via view-key.')).toBeVisible()
+    await expect(page.getByText('Each employee sees only their own pay.')).toBeVisible()
   })
 
   test('trust model section renders', async ({ page }) => {
