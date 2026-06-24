@@ -37,17 +37,3 @@ export const DEMO_ROWS: DemoRow[] = [
 export const PREDICATE_TOTAL = '10,000 USDC'
 
 export const PREDICATE_LABEL = 'sum(payments) = 10,000 USDC · verified on-chain'
-
-export interface NamedSalaryReceipt {
-  accountHash: string
-  amount: string
-  timestamp: string
-  source: string
-}
-
-export const NAMED_SALARY_RECEIPT: NamedSalaryReceipt = {
-  accountHash: 'GABC…X4F9',
-  amount: '8,000 USDC',
-  timestamp: '2024-03-15T14:22:07Z',
-  source: 'Example on-chain transaction — public, permanent, and readable by anyone.',
-}

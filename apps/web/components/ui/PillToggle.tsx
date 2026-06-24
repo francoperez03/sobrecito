@@ -2,6 +2,7 @@
 
 import { useRef } from 'react'
 import { motion } from 'motion/react'
+import { Eye, Key, type Icon } from '@phosphor-icons/react'
 
 type TabValue = 'public' | 'auditor'
 
@@ -10,9 +11,9 @@ interface PillToggleProps {
   onChange: (value: TabValue) => void
 }
 
-const TABS: { value: TabValue; label: string }[] = [
-  { value: 'public', label: 'Public' },
-  { value: 'auditor', label: 'Auditor' },
+const TABS: { value: TabValue; label: string; Icon: Icon }[] = [
+  { value: 'public', label: 'Public', Icon: Eye },
+  { value: 'auditor', label: 'Auditor', Icon: Key },
 ]
 
 export function PillToggle({ value, onChange }: PillToggleProps) {
@@ -56,10 +57,13 @@ export function PillToggle({ value, onChange }: PillToggleProps) {
       // Playwright's getByRole('tablist').focus() works in tests.
       tabIndex={-1}
       onFocus={handleTablistFocus}
-      className="relative flex gap-1 rounded-full bg-surface p-1 w-fit"
+      // Dark, bordered track so the lighter active pill reads as a real segmented
+      // control (the old bg-bg pill on bg-surface had near-zero contrast).
+      className="relative flex gap-1 rounded-full bg-bg ring-1 ring-white/10 p-1 w-fit"
     >
       {TABS.map((tab, i) => {
         const isActive = value === tab.value
+        const TabIcon = tab.Icon
         return (
           <button
             key={tab.value}
@@ -70,7 +74,7 @@ export function PillToggle({ value, onChange }: PillToggleProps) {
             onClick={() => onChange(tab.value)}
             onKeyDown={(e) => handleKeyDown(e, i)}
             className={[
-              'relative z-10 min-h-[48px] px-5 rounded-full text-sm font-medium transition-colors duration-200',
+              'relative z-10 inline-flex items-center gap-1.5 min-h-[44px] px-4 rounded-full text-sm font-medium transition-colors duration-200',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg',
               isActive ? 'text-ink' : 'text-ink-muted hover:text-ink',
             ].join(' ')}
@@ -78,10 +82,16 @@ export function PillToggle({ value, onChange }: PillToggleProps) {
             {isActive && (
               <motion.span
                 layoutId="pill-toggle-indicator"
-                className="absolute inset-0 rounded-full bg-bg shadow-[inset_0_1px_1px_rgba(255,255,255,0.08)]"
+                className="absolute inset-0 rounded-full bg-surface ring-1 ring-white/15 shadow-[inset_0_1px_1px_rgba(255,255,255,0.10)]"
                 transition={{ duration: 0.25, ease: [0.32, 0.72, 0, 1] }}
               />
             )}
+            <TabIcon
+              size={14}
+              weight={isActive ? 'fill' : 'regular'}
+              className="relative z-10 shrink-0"
+              aria-hidden
+            />
             <span className="relative z-10">{tab.label}</span>
           </button>
         )
