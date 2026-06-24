@@ -20,9 +20,12 @@ export default function Landing() {
 
       <ProblemSection />
 
-      {/* The proof, problem-first (PAS): the exposed salary today, then Sobrecito sealing it */}
+      {/* The proof, problem-first (PAS): the exposed salary today vs Sobrecito sealing
+          it — side by side on wide screens (less scroll, direct contrast), stacked on
+          mobile. Tops aligned (items-start): the short receipt sits next to the taller
+          sealed table, the asymmetry reads as "one line exposed vs a whole sealed run". */}
       <section className="pt-6 md:pt-8 pb-24 md:pb-32 px-5 md:px-8">
-        <div className="max-w-3xl mx-auto flex flex-col gap-14">
+        <div className="max-w-6xl mx-auto flex flex-col gap-12">
           <Reveal className="text-center">
             <p className="font-mono text-xs uppercase tracking-[0.2em] text-ink-muted">
               What everyone else can see
@@ -32,19 +35,21 @@ export default function Landing() {
             </h2>
           </Reveal>
 
-          <Reveal delay={0.05}>
-            <p className="mb-4 font-mono text-xs uppercase tracking-[0.2em] text-accent-warm">
-              Without Sobrecito · a salary on-chain today
-            </p>
-            <NamedSalaryAnchor />
-          </Reveal>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-10 items-start">
+            <Reveal delay={0.05} className="flex flex-col">
+              <p className="mb-4 font-mono text-xs uppercase tracking-[0.2em] text-accent-warm">
+                Without Sobrecito · a salary on-chain today
+              </p>
+              <NamedSalaryAnchor />
+            </Reveal>
 
-          <Reveal delay={0.05}>
-            <p className="mb-4 font-mono text-xs uppercase tracking-[0.2em] text-accent-soft">
-              With Sobrecito
-            </p>
-            <Centerpiece />
-          </Reveal>
+            <Reveal delay={0.1} className="flex flex-col">
+              <p className="mb-4 font-mono text-xs uppercase tracking-[0.2em] text-accent-soft">
+                With Sobrecito
+              </p>
+              <Centerpiece />
+            </Reveal>
+          </div>
         </div>
       </section>
 

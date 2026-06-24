@@ -1,5 +1,9 @@
 export interface DemoRow {
+  /** Employee identity AS IT EXISTS ON-CHAIN: a truncated X25519 pubkey, not a
+   *  human name. Names are employer-local aliases and never touch the ledger, so
+   *  the auditor reconstructs amounts keyed by pubkey (faithful to the real flow). */
   employee: string
+  /** USDC amount (the chain's unit), sealed in public view, revealed to the auditor. */
   amount: string
   status: {
     public: 'committed'
@@ -9,30 +13,30 @@ export interface DemoRow {
 
 export const DEMO_ROWS: DemoRow[] = [
   {
-    employee: 'Alice M.',
-    amount: '$34,200',
+    employee: 'kQIO…XZW0',
+    amount: '2,850 USDC',
     status: { public: 'committed', auditor: '✓ proven' },
   },
   {
-    employee: 'Carlos R.',
-    amount: '$28,750',
+    employee: 'p9aF…7Lm2',
+    amount: '1,920 USDC',
     status: { public: 'committed', auditor: '✓ proven' },
   },
   {
-    employee: 'Priya S.',
-    amount: '$41,100',
+    employee: 'zT4c…Qd81',
+    amount: '3,400 USDC',
     status: { public: 'committed', auditor: '✓ proven' },
   },
   {
-    employee: 'James T.',
-    amount: '$38,450',
+    employee: 'rN8h…Kv5e',
+    amount: '1,830 USDC',
     status: { public: 'committed', auditor: '✓ proven' },
   },
 ]
 
-export const PREDICATE_TOTAL = '$142,500'
+export const PREDICATE_TOTAL = '10,000 USDC'
 
-export const PREDICATE_LABEL = 'sum(payments) = $142,500 · verified on-chain'
+export const PREDICATE_LABEL = 'sum(payments) = 10,000 USDC · verified on-chain'
 
 export interface NamedSalaryReceipt {
   accountHash: string
@@ -43,7 +47,7 @@ export interface NamedSalaryReceipt {
 
 export const NAMED_SALARY_RECEIPT: NamedSalaryReceipt = {
   accountHash: 'GABC…X4F9',
-  amount: '$96,000',
+  amount: '8,000 USDC',
   timestamp: '2024-03-15T14:22:07Z',
   source: 'Example on-chain transaction — public, permanent, and readable by anyone.',
 }

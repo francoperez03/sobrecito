@@ -15,21 +15,21 @@ test.describe('Centerpiece toggle interaction', () => {
   test('default load shows public view with amount bars, no numeric amounts', async ({ page }) => {
     // Amount bars should be visible in public state
     await expect(centerpiece(page).locator('[data-testid="amount-bar"]').first()).toBeVisible()
-    // Numeric amounts like "$34,200" should NOT be visible in the Centerpiece
-    await expect(centerpiece(page).getByText('$34,200')).not.toBeVisible()
+    // Numeric amounts like "2,850 USDC" should NOT be visible in the Centerpiece
+    await expect(centerpiece(page).getByText('2,850 USDC')).not.toBeVisible()
   })
 
   test('click Auditor tab reveals amounts', async ({ page }) => {
     await page.getByRole('tab', { name: 'Auditor' }).click()
-    await expect(centerpiece(page).getByText('$34,200')).toBeVisible()
+    await expect(centerpiece(page).getByText('2,850 USDC')).toBeVisible()
   })
 
   test('click Public tab hides amounts again', async ({ page }) => {
     await page.getByRole('tab', { name: 'Auditor' }).click()
-    await expect(centerpiece(page).getByText('$34,200')).toBeVisible()
+    await expect(centerpiece(page).getByText('2,850 USDC')).toBeVisible()
 
     await page.getByRole('tab', { name: 'Public' }).click()
-    await expect(centerpiece(page).getByText('$34,200')).not.toBeVisible()
+    await expect(centerpiece(page).getByText('2,850 USDC')).not.toBeVisible()
   })
 
   test('keyboard: Tab + Enter switches to Auditor view and reveals amounts', async ({ page }) => {
@@ -38,12 +38,12 @@ test.describe('Centerpiece toggle interaction', () => {
     // Navigate to Auditor tab using arrow key
     await page.keyboard.press('ArrowRight')
     await page.keyboard.press('Enter')
-    await expect(centerpiece(page).getByText('$34,200')).toBeVisible()
+    await expect(centerpiece(page).getByText('2,850 USDC')).toBeVisible()
   })
 
   test('reduced-motion: toggling still reveals amounts (functions without animation)', async ({ page }) => {
     // This test runs in the reduced-motion project variant
     await page.getByRole('tab', { name: 'Auditor' }).click()
-    await expect(centerpiece(page).getByText('$34,200')).toBeVisible()
+    await expect(centerpiece(page).getByText('2,850 USDC')).toBeVisible()
   })
 })

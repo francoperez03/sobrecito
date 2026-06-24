@@ -51,9 +51,13 @@ export function Centerpiece() {
             <p className="font-mono text-sm text-accent-soft tabular-nums">
               {PREDICATE_LABEL} ✓
             </p>
-            {isAuditor && (
+            {isAuditor ? (
               <p className="mt-1 text-xs text-ink-muted">
-                Auditor reconstructed via view-key
+                Reconstructed from the view-key — amounts keyed by employee pubkey, never a name.
+              </p>
+            ) : (
+              <p className="mt-1 text-xs text-ink-muted">
+                Amounts and headcount stay sealed: padding hides who got paid, and how many.
               </p>
             )}
           </div>
@@ -77,7 +81,7 @@ function TableRow({
       {/* Employee column */}
       <span className="self-center">
         {revealed ? (
-          <span className="text-sm text-ink">{row.employee}</span>
+          <span className="font-mono text-sm text-ink">{row.employee}</span>
         ) : (
           <span className="inline-flex items-center gap-1.5 text-ink-muted">
             <LockSimple size={13} weight="bold" />
