@@ -1,11 +1,11 @@
 'use client'
 
+import Link from 'next/link'
 import { motion } from 'motion/react'
 import { ArrowRight, GithubLogo } from '@phosphor-icons/react'
 import { EASE_OUT } from '@/lib/motion'
 
 const GITHUB_REPO_URL = 'https://github.com/francoperez03/sobrecito'
-const DEMO_VIDEO_URL = '#demo'
 
 // Hero entrance: eyebrow → H1 → subhead → CTAs, staggered.
 // H1 and the subhead <p> stay adjacent siblings (the a11y test reads
@@ -56,15 +56,15 @@ export function Hero() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.7, ease: EASE_OUT, delay: 0.4 }}
         >
-          <a
-            href={DEMO_VIDEO_URL}
+          <Link
+            href="/receive"
             className="group flex items-center gap-2 pl-6 pr-2 h-[52px] bg-accent-fill text-white font-sans font-medium text-base rounded-full transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:bg-accent active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
           >
-            Watch the demo
+            Go to App
             <span className="flex items-center justify-center w-9 h-9 rounded-full bg-white/15 transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:translate-x-0.5">
               <ArrowRight size={16} weight="bold" />
             </span>
-          </a>
+          </Link>
 
           <a
             href={GITHUB_REPO_URL}
