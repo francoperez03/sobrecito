@@ -30,6 +30,7 @@ import { claimNote } from '@/lib/employee-claim'
 import { markStep } from '@/lib/progressStore'
 import { loadRoster } from '@/lib/employeeRoster'
 import { useWallet } from '@/lib/walletStore'
+import { WalletBalance } from '@/components/wallet/WalletBalance'
 import { type ScannedEvent } from 'viewkey'
 
 // ---------------------------------------------------------------------------
@@ -324,6 +325,16 @@ export default function EmployeePage() {
           </header>
         </Reveal>
 
+        {/* Wallet USDC balance, between the intro and the access-key card. Shows
+            only when a wallet is linked (connect lives in the top-right chip). */}
+        {walletAddress && (
+          <Reveal delay={0.03}>
+            <div className="mb-8">
+              <WalletBalance />
+            </div>
+          </Reveal>
+        )}
+
         {/* Onboarding card. The lead action follows the user's state: a first-run
             device leads with key creation (the true first action); a returning
             device leads with the paste + "View my salary" path. Each state shows a
@@ -364,7 +375,7 @@ export default function EmployeePage() {
                     data-testid="employee-switch-create"
                     className="text-sm text-accent-soft hover:text-ink transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-full"
                   >
-                    Need a new key? Create one →
+                    Need an access key? Create one →
                   </button>
                 </div>
               </>

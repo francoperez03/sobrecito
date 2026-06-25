@@ -239,7 +239,7 @@ export default function AuditorPage() {
                 onClick={() => setShowKeygen((v) => !v)}
                 aria-expanded={showKeygen}
                 aria-controls="keygen-drawer"
-                className="inline-flex items-center gap-1.5 text-sm text-ink-muted hover:text-ink transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-md"
+                className="inline-flex items-center gap-1.5 text-sm text-accent-soft hover:text-ink transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-md"
               >
                 <CaretDown
                   size={14}
@@ -247,7 +247,7 @@ export default function AuditorPage() {
                   aria-hidden
                   className={`transition-transform ${showKeygen ? 'rotate-180' : ''}`}
                 />
-                No view-key yet? Generate one
+                Need a view-key? Generate one
               </button>
 
               {showKeygen && (

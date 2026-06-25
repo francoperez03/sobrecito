@@ -18,8 +18,8 @@ import { ShieldCheck, Check, CaretDown } from '@phosphor-icons/react'
 import { keyFromBase64 } from 'viewkey'
 import { Reveal } from '@/components/motion/Reveal'
 import { markStep } from '@/lib/progressStore'
-import { ConnectFreighter } from './ConnectFreighter'
-import { useWallet, connectWallet, disconnectWallet } from '@/lib/walletStore'
+import { useWallet, refreshBalance } from '@/lib/walletStore'
+import { WalletBalance } from '@/components/wallet/WalletBalance'
 import { PayrollEditableTable, type EditableRow } from './PayrollEditableTable'
 import { NoteBudgetMeter } from './NoteBudgetMeter'
 import { AnonymityMeter } from './AnonymityMeter'
@@ -44,7 +44,7 @@ import {
 } from '@/lib/zk/proverClient'
 import { submitDeposit } from '@/lib/employer-deposit'
 import { loadAuditorPublicKey } from '@/lib/auditorKeyStore'
-import { readDeployments, fetchPoolRoot, fetchUsdcBalance, formatUsdc } from '@/lib/rpc'
+import { readDeployments, fetchPoolRoot, formatUsdc } from '@/lib/rpc'
 
 // ---------------------------------------------------------------------------
 // State machine type
@@ -146,12 +146,8 @@ export function PayrollComposer({ onSent }: { onSent?: () => void }) {
   // Wallet connection is shared app-wide (lib/walletStore): the global navbar
   // chip and this form drive ONE source of truth. We mirror the shared address
   // into a local `address` (read by submit/gating/balance below) via an effect.
-  const { address: walletAddress, connecting, error: connectError } = useWallet()
+  const { address: walletAddress, usdcBalance, usdcBalanceBase } = useWallet()
   const [address, setAddress] = useState<string | null>(null)
-  const [usdcBalance, setUsdcBalance] = useState<string | null>(null)
-  // Raw USDC balance in base units (7 decimals) — kept alongside the formatted
-  // string so the batch total can be checked against it before submit.
-  const [usdcBalanceBase, setUsdcBalanceBase] = useState<bigint | null>(null)
   const [txHash, setTxHash] = useState<string | null>(null)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [stepState, setStepState] = useState<StepState>({ phase: 'idle' })
@@ -176,22 +172,19 @@ export function PayrollComposer({ onSent }: { onSent?: () => void }) {
     if (stored) setAuditorKey(stored)
   }, [])
 
-  // Mirror the shared wallet address into local state: connecting (here or via
-  // the global navbar chip) arms the composer and refreshes the USDC balance;
-  // disconnecting returns the form to its locked state.
+  // Mirror the shared wallet address into local state: connecting (via the global
+  // navbar chip) arms the composer; disconnecting returns it to the locked state.
+  // The USDC balance is read straight from the store (loaded there on connect).
   useEffect(() => {
     if (walletAddress && walletAddress !== address) {
       setAddress(walletAddress)
       setComposerState('composing')
-      void refreshUsdcBalance(walletAddress)
     } else if (!walletAddress && address) {
       setAddress(null)
-      setUsdcBalance(null)
-      setUsdcBalanceBase(null)
       setComposerState('idle')
     }
-    // address/refreshUsdcBalance intentionally excluded — this reacts to the
-    // shared address changing, not to local mirror updates.
+    // `address` intentionally excluded — this reacts to the shared address
+    // changing, not to local mirror updates.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [walletAddress])
 
@@ -309,34 +302,9 @@ export function PayrollComposer({ onSent }: { onSent?: () => void }) {
   // handleConnect
   // ---------------------------------------------------------------------------
 
-  async function refreshUsdcBalance(addr: string) {
-    setUsdcBalance(null)
-    setUsdcBalanceBase(null)
-    try {
-      const base = await fetchUsdcBalance(addr)
-      setUsdcBalance(formatUsdc(base))
-      setUsdcBalanceBase(base)
-    } catch {
-      setUsdcBalance(null)
-      setUsdcBalanceBase(null)
-    }
-  }
-
-  // Connect drives the shared store; the mirror effect above picks up the new
-  // address, refreshes the balance, and arms the composer.
-  function handleConnect() {
-    void connectWallet()
-  }
-
-  // Disconnect clears the dapp's connection state (Freighter has no programmatic
-  // revoke). Clears the shared store + local balance and returns to idle.
-  function handleDisconnect() {
-    disconnectWallet()
-    setAddress(null)
-    setUsdcBalance(null)
-    setUsdcBalanceBase(null)
-    setComposerState('idle')
-  }
+  // Connect/disconnect + balance loading live in the shared store, driven by the
+  // global navbar chip. The mirror effect above arms the composer when the shared
+  // address appears; balance is read straight from the store.
 
   // ---------------------------------------------------------------------------
   // handleSubmit — the freeze-once path (Pitfall 2 mitigated)
@@ -479,7 +447,7 @@ export function PayrollComposer({ onSent }: { onSent?: () => void }) {
       markStep('pay')
       isSubmittingRef.current = false
       // Balance dropped by the batch total — refresh so the employer sees it.
-      void refreshUsdcBalance(address)
+      void refreshBalance()
 
       // Hold the "Payroll sent" receipt for a couple seconds, then return to a
       // blank batch: clear the address/amount fields and re-arm the composer
@@ -543,34 +511,16 @@ export function PayrollComposer({ onSent }: { onSent?: () => void }) {
 
   return (
     <div className="flex flex-col gap-8" data-testid="payroll-composer">
-      {/* Wallet. Connecting lives in the global navbar chip (top-right), out of
-          the flow. Here we show the connected chip (with balance) once linked, or
-          a "Connect to continue" gate that also drives the shared store. */}
+      {/* Wallet. Connect/disconnect live in the global navbar chip (top-right),
+          out of the flow. Here we show only the USDC balance once linked, or a
+          gate pointing to that chip. */}
       <Reveal delay={0}>
         {address ? (
-          <ConnectFreighter
-            address={address}
-            connecting={false}
-            error={null}
-            onConnect={handleConnect}
-            onDisconnect={handleDisconnect}
-            usdcBalance={usdcBalance}
-          />
+          <WalletBalance />
         ) : (
-          <div className="flex flex-col gap-3 self-start">
-            <p className="text-sm text-ink-muted">
-              Connect your wallet to continue, here or from the top-right.
-            </p>
-            <button
-              type="button"
-              onClick={handleConnect}
-              disabled={connecting}
-              className="self-start bg-accent-fill text-white font-[900] text-base px-6 h-[52px] rounded-full hover:opacity-90 active:scale-[0.98] transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg disabled:opacity-70"
-            >
-              {connecting ? 'Connecting…' : 'Connect Freighter'}
-            </button>
-            {connectError && <p className="text-xs text-accent-warm">{connectError}</p>}
-          </div>
+          <p className="text-sm text-ink-muted self-start">
+            Connect your wallet from the top-right to continue.
+          </p>
         )}
       </Reveal>
 
