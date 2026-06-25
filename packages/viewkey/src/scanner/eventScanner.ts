@@ -51,6 +51,34 @@ export interface ScannedEvent {
 const NEW_COMMITMENT_TOPIC = "new_commitment_event";
 
 /**
+ * Soroban RPC event retention: the node keeps only a bounded window of recent
+ * events (~120_960 ledgers, ≈7 days on testnet) and REJECTS any `startLedger`
+ * older than that window. A fixed scan start (the pool's deployment ledger)
+ * therefore falls out of retention as the chain advances and the scan fails
+ * outright (T-05-13). We clamp the start to `tip - RETENTION_SAFETY` so it always
+ * lands inside the window. Safety margin below the true floor (~120_960) leaves
+ * ~20_960 ledgers (~1 day) of slack against clock skew between the latest-ledger
+ * read and the getEvents call.
+ *
+ * Trade-off: deposits older than ~RETENTION_SAFETY ledgers (~6 days) become
+ * unreachable via RPC. That is an inherent RPC limitation — recovering older
+ * history needs an archival/indexer source, not a wider startLedger.
+ */
+const RETENTION_SAFETY = 100_000;
+
+/**
+ * Clamp a requested start ledger into the RPC's event-retention window:
+ * `max(requested, tip - RETENTION_SAFETY)`. Costs one `getLatestLedger` call.
+ */
+async function clampStartLedger(
+  server: Server,
+  requested: number,
+): Promise<number> {
+  const { sequence: tip } = await server.getLatestLedger();
+  return Math.max(requested, tip - RETENTION_SAFETY);
+}
+
+/**
  * Scan `NewCommitmentEvent`s emitted by the pool over `[fromLedger, toLedger]`.
  *
  * Paginates through the RPC cursor until the range is exhausted, parses each
@@ -62,6 +90,8 @@ export async function scanCommitmentEvents(
   const server = new Server(opts.rpcUrl, {
     allowHttp: opts.rpcUrl.startsWith("http://"),
   });
+
+  const fromLedger = await clampStartLedger(server, opts.fromLedger);
 
   const results: ScannedEvent[] = [];
   let cursor: string | undefined;
@@ -76,7 +106,7 @@ export async function scanCommitmentEvents(
         }
       : {
           filters: [eventFilter(opts.poolContractId)],
-          startLedger: opts.fromLedger,
+          startLedger: fromLedger,
           ...(opts.toLedger !== undefined ? { endLedger: opts.toLedger } : {}),
           limit: 100,
         };
@@ -94,7 +124,13 @@ export async function scanCommitmentEvents(
       }
     }
 
-    if (page.events.length === 0 || !page.cursor) {
+    // Termination (T-05-14): the RPC scans a bounded ledger window per call and
+    // returns EMPTY pages (with a still-advancing cursor) for windows that hold
+    // no pool events. Breaking on `events.length === 0` stops the scan inside the
+    // first quiet gap, missing every later deposit. Keep paging while the cursor
+    // advances; the stream is exhausted when there is no cursor or it stalls
+    // (the RPC re-emits the same cursor once it reaches the latest ledger).
+    if (!page.cursor || page.cursor === cursor) {
       break;
     }
     cursor = page.cursor;
@@ -151,6 +187,8 @@ export async function scanSpentNullifiers(
   // nullifier (decimal string) -> txHash of the NewNullifierEvent that burned it.
   // A Map (not a Set) so callers can both test membership (.has) AND recover the
   // claim tx hash for notes spent in a PRIOR session, not just the current one.
+  const fromLedger = await clampStartLedger(server, opts.fromLedger);
+
   const spent = new Map<string, string>();
   let cursor: string | undefined;
 
@@ -163,7 +201,7 @@ export async function scanSpentNullifiers(
         }
       : {
           filters: [nullifierEventFilter(opts.poolContractId)],
-          startLedger: opts.fromLedger,
+          startLedger: fromLedger,
           ...(opts.toLedger !== undefined ? { endLedger: opts.toLedger } : {}),
           limit: 100,
         };
@@ -179,7 +217,10 @@ export async function scanSpentNullifiers(
       }
     }
 
-    if (page.events.length === 0 || !page.cursor) {
+    // Same windowed-pagination termination as scanCommitmentEvents: empty pages
+    // with an advancing cursor are quiet ledger windows, not end-of-stream. Stop
+    // only when the cursor is absent or stalls (RPC re-emits it at the tip).
+    if (!page.cursor || page.cursor === cursor) {
       break;
     }
     cursor = page.cursor;
