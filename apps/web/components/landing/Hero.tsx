@@ -12,8 +12,12 @@ const DEMO_VIDEO_URL = '#demo'
 // h1.nextElementSibling to wait for the entrance to settle).
 
 export function Hero() {
+  // -mt/pt by the navbar height (pt-6 + h-12 = 72px): the section bleeds up behind
+  // the transparent floating nav so the electric glow reaches the very top instead
+  // of being clipped at the section edge (a hard horizontal seam). pt restores the
+  // content to its original offset.
   return (
-    <section className="relative overflow-hidden border-b border-hairline">
+    <section className="relative overflow-hidden border-b border-hairline -mt-[72px] pt-[72px]">
       {/* Electric glow — the one warm-to-cool identity note on the black canvas. */}
       <div
         aria-hidden

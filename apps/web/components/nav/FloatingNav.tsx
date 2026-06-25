@@ -1,96 +1,47 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { motion, AnimatePresence } from 'motion/react'
-import { CaretDown, GithubLogo } from '@phosphor-icons/react'
+import { GithubLogo } from '@phosphor-icons/react'
 
 const GITHUB_REPO_URL = 'https://github.com/francoperez03/sobrecito'
 const EASE_BRAND = [0.32, 0.72, 0, 1] as const
-// Dynamic-Island spring for the role-pill morph.
+// Spring for the sliding role pill (segmented control highlight).
 const ISLAND_SPRING = { type: 'spring', stiffness: 440, damping: 32, mass: 0.7 } as const
-// "Near the top" is intentionally insensitive: it spans the whole hero. Within
-// that range a role switch keeps the island morph. Only once the reader is past
-// the hero does navigating client-side reset the scroll far enough that the
-// `layout` spring measures a phantom delta ("wait, then snap"); past that point
-// we mask the span with a quick fade out/in. Falls back to a viewport height
-// when there is no hero (e.g. the role tabs).
-function nearTopThreshold(): number {
-  if (typeof window === 'undefined') return Number.POSITIVE_INFINITY
-  const hero = document.querySelector('main section')
-  return hero instanceof HTMLElement ? hero.offsetHeight : window.innerHeight
-}
 
 // Animated Next.js Link: role switches navigate client-side (no full reload),
-// so the persistent navbar stays mounted and its island spring morphs across
-// the route change instead of remounting on a hard navigation.
+// so the persistent navbar stays mounted and the pill slides across the route
+// change instead of remounting on a hard navigation.
 const MotionLink = motion.create(Link)
 
-/** Map the current route to the role being "played", or null on the root/marketing page. */
-function roleFromPath(pathname: string): string | null {
-  if (pathname.startsWith('/employer')) return 'Employer'
-  if (pathname.startsWith('/employee')) return 'Employee'
-  if (pathname.startsWith('/auditor')) return 'Auditor'
-  return null
-}
-
-// The three demo surfaces. "Play as" lets a visitor step into each role.
-// Employee leads (the salary-claim story) before Employer.
+// The three demo surfaces, shown as a segmented control. The sliding pill
+// highlights the active one and fades out on the root/marketing page.
 // Employee points straight at the stable-key dashboard. The old per-token route
 // (/employee/[token]) was retired in 06.3 and only redirects here, so linking it
 // produced a long token URL that bounced to /employee — link /employee directly.
-const PLAY_AS = [
-  { label: 'Employee', href: '/employee' },
-  { label: 'Employer', href: '/employer' },
-  { label: 'Auditor', href: '/auditor' },
+const ROLES = [
+  { label: 'Pay', href: '/employer' },
+  { label: 'Receive', href: '/employee' },
+  { label: 'Audit', href: '/auditor' },
 ]
+
+/** The href of the role being "played", or null on the root/marketing page. */
+function activeHrefFromPath(pathname: string): string | null {
+  return ROLES.find((r) => pathname.startsWith(r.href))?.href ?? null
+}
 
 export function FloatingNav() {
   const [menuOpen, setMenuOpen] = useState(false)
-  const [playOpen, setPlayOpen] = useState(false)
-  const [navHidden, setNavHidden] = useState(false)
-  const playRef = useRef<HTMLDivElement>(null)
   const pathname = usePathname() ?? '/'
-  const activeRole = roleFromPath(pathname)
+  const activeHref = activeHrefFromPath(pathname)
 
-  // Role switch from a scrolled position: fade the pill out before the route
-  // commits so the scroll-reset + layout-spring jump happens while it is hidden,
-  // then fade back in once the new route has settled. Near the top there is no
-  // jump, so we leave the morph untouched.
+  // A role tab was tapped: close the mobile overlay. Navigation is client-side,
+  // so the navbar stays mounted and the pill slides via its shared layoutId.
   function handleRoleNav() {
-    setPlayOpen(false)
     setMenuOpen(false)
-    if (typeof window !== 'undefined' && window.scrollY > nearTopThreshold()) {
-      setNavHidden(true)
-    }
   }
-
-  useEffect(() => {
-    if (!navHidden) return
-    // New route is committed; let the layout spring settle, then reveal.
-    const t = setTimeout(() => setNavHidden(false), 420)
-    return () => clearTimeout(t)
-  }, [pathname, navHidden])
-
-  // Close the Play-as dropdown on outside click or Escape.
-  useEffect(() => {
-    if (!playOpen) return
-    function onPointerDown(e: PointerEvent) {
-      if (playRef.current && !playRef.current.contains(e.target as Node)) {
-        setPlayOpen(false)
-      }
-    }
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') setPlayOpen(false)
-    }
-    document.addEventListener('pointerdown', onPointerDown)
-    document.addEventListener('keydown', onKeyDown)
-    return () => {
-      document.removeEventListener('pointerdown', onPointerDown)
-      document.removeEventListener('keydown', onKeyDown)
-    }
-  }, [playOpen])
 
   return (
     <>
@@ -98,19 +49,8 @@ export function FloatingNav() {
           interactive, so its empty strip must not swallow clicks on content
           beneath it (e.g. the top-left progress launcher). */}
       <nav className="flex justify-center pt-6 px-4 sticky top-0 z-50 pointer-events-none">
-        {/* The pill itself is layout-animated so its total width (and the
-            re-centering inside the nav) springs smoothly when the role grows
-            in/out, instead of snapping while only the button morphs. */}
-        <motion.div
-          layout
-          animate={{ opacity: navHidden ? 0 : 1 }}
-          transition={{
-            layout: ISLAND_SPRING,
-            opacity: { duration: navHidden ? 0.1 : 0.3, ease: EASE_BRAND },
-          }}
-          className="flex items-center gap-4 h-12 pl-5 pr-2 bg-surface/80 ring-1 ring-hairline rounded-full backdrop-blur-md pointer-events-auto"
-        >
-          {/* Wordmark — tapping the root shrinks the island back to its natural state */}
+        <div className="flex items-center gap-4 h-12 pl-5 pr-2 bg-surface/80 ring-1 ring-hairline rounded-full backdrop-blur-md pointer-events-auto">
+          {/* Wordmark — tapping it returns to the root, where the role pill fades out */}
           <Link
             href="/"
             className="font-display font-light text-ink tracking-[-0.02em] text-lg rounded transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
@@ -120,90 +60,40 @@ export function FloatingNav() {
 
           <div className="flex-1" />
 
-          {/* Desktop: Play as dropdown */}
-          <div ref={playRef} className="hidden md:block relative">
-            <motion.button
-              layout
-              transition={ISLAND_SPRING}
-              type="button"
-              aria-haspopup="menu"
-              aria-expanded={playOpen}
-              aria-label={activeRole ? `Playing as ${activeRole}` : 'Play as'}
-              onClick={() => setPlayOpen((prev) => !prev)}
-              className="flex items-center gap-1.5 pl-4 pr-3 h-[44px] bg-accent-fill text-white font-sans font-[900] text-sm rounded-full hover:opacity-90 active:scale-[0.98]"
-            >
-              <motion.span layout="position" className="whitespace-nowrap">
-                Play as
-              </motion.span>
-
-              {/* Dynamic-island: the active role grows in as continuous text so it
-                  reads "Play as Employer"; pops back out at the root. */}
-              <AnimatePresence initial mode="popLayout">
-                {activeRole && (
-                  <motion.span
-                    key={activeRole}
-                    layout="position"
-                    initial={{ opacity: 0, scale: 0.4 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.4 }}
-                    transition={ISLAND_SPRING}
-                    className="whitespace-nowrap origin-left"
-                  >
-                    {activeRole}
-                  </motion.span>
-                )}
-              </AnimatePresence>
-
-              <motion.span
-                layout="position"
-                animate={{ rotate: playOpen ? 180 : 0 }}
-                transition={{ duration: 0.3, ease: EASE_BRAND }}
-                className="flex"
-              >
-                <CaretDown size={16} weight="bold" />
-              </motion.span>
-            </motion.button>
-
-            <AnimatePresence>
-              {playOpen && (
-                <motion.div
-                  role="menu"
-                  className="absolute right-0 top-[calc(100%+8px)] min-w-[176px] p-1.5 bg-surface ring-1 ring-white/8 rounded-2xl backdrop-blur-sm shadow-xl shadow-black/40 origin-top-right"
-                  initial={{ opacity: 0, y: -8, scale: 0.96 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: -8, scale: 0.96 }}
-                  transition={{ duration: 0.2, ease: EASE_BRAND }}
+          {/* Desktop: role segmented control. A single pill (shared layoutId)
+              slides between tabs as the route changes, and fades out on the
+              root/marketing page where no tab is active. */}
+          <div className="hidden md:flex items-center gap-1" role="tablist" aria-label="Play as">
+            {ROLES.map(({ label, href }) => {
+              const isActive = href === activeHref
+              return (
+                <MotionLink
+                  key={label}
+                  href={href}
+                  role="tab"
+                  aria-selected={isActive}
+                  aria-current={isActive ? 'page' : undefined}
+                  onClick={handleRoleNav}
+                  className={`relative flex items-center justify-center px-4 h-[36px] rounded-full font-sans font-[900] text-sm transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface ${
+                    isActive ? 'text-white' : 'text-ink-muted hover:text-ink'
+                  }`}
                 >
-                  {PLAY_AS.map(({ label, href }, i) => {
-                    const isActive = label === activeRole
-                    return (
-                      <MotionLink
-                        key={label}
-                        href={href}
-                        role="menuitem"
-                        aria-current={isActive ? 'page' : undefined}
-                        className={`flex items-center justify-between px-3.5 h-[40px] rounded-xl font-sans font-[700] text-sm transition-colors ${
-                          isActive
-                            ? 'text-accent-soft bg-accent/10'
-                            : 'text-ink-muted hover:text-ink hover:bg-white/5'
-                        }`}
-                        initial={{ opacity: 0, x: -6 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{
-                          duration: 0.22,
-                          ease: EASE_BRAND,
-                          delay: 0.03 + i * 0.05,
-                        }}
-                        onClick={handleRoleNav}
-                      >
-                        {label}
-                        {isActive && <span className="size-1.5 rounded-full bg-accent-soft" aria-hidden />}
-                      </MotionLink>
-                    )
-                  })}
-                </motion.div>
-              )}
-            </AnimatePresence>
+                  <AnimatePresence>
+                    {isActive && (
+                      <motion.span
+                        layoutId="nav-role-pill"
+                        className="absolute inset-0 -z-0 bg-accent-fill rounded-full"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ layout: ISLAND_SPRING, opacity: { duration: 0.35, ease: EASE_BRAND } }}
+                      />
+                    )}
+                  </AnimatePresence>
+                  <span className="relative z-10 whitespace-nowrap">{label}</span>
+                </MotionLink>
+              )
+            })}
           </div>
           {/* Desktop: View on GitHub ghost link */}
           <a
@@ -243,7 +133,7 @@ export function FloatingNav() {
               transition={{ duration: 0.3, ease: EASE_BRAND }}
             />
           </button>
-        </motion.div>
+        </div>
       </nav>
 
       {/* Mobile full-screen overlay menu */}
@@ -256,16 +146,7 @@ export function FloatingNav() {
             exit={{ opacity: 0 }}
             transition={{ duration: 0.25, ease: EASE_BRAND }}
           >
-            <motion.span
-              className="text-xs uppercase tracking-[0.2em] text-ink-muted/60"
-              initial={{ opacity: 0, y: 24 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 16 }}
-              transition={{ duration: 0.3, ease: EASE_BRAND, delay: 0.05 }}
-            >
-              Play as
-            </motion.span>
-            {PLAY_AS.map(({ label, href }, i) => (
+            {ROLES.map(({ label, href }, i) => (
               <MotionLink
                 key={label}
                 href={href}
@@ -291,7 +172,7 @@ export function FloatingNav() {
               initial={{ opacity: 0, y: 24 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 16 }}
-              transition={{ duration: 0.3, ease: EASE_BRAND, delay: 0.1 + PLAY_AS.length * 0.08 }}
+              transition={{ duration: 0.3, ease: EASE_BRAND, delay: 0.1 + ROLES.length * 0.08 }}
               onClick={() => setMenuOpen(false)}
             >
               View on GitHub
