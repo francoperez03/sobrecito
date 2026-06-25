@@ -23,7 +23,7 @@ import { test, expect } from '@playwright/test'
 
 test.describe('Surface smoke — no HTTP 500', () => {
   test('/employer renders without HTTP 500 or error overlay', async ({ page }) => {
-    const resp = await page.goto('/employer')
+    const resp = await page.goto('/pay')
     expect(resp?.status()).toBeLessThan(500)
 
     await expect(page.locator('text=Unhandled Runtime Error')).toHaveCount(0)
@@ -35,7 +35,7 @@ test.describe('Surface smoke — no HTTP 500', () => {
   })
 
   test('/employee renders without HTTP 500 or error overlay', async ({ page }) => {
-    const resp = await page.goto('/employee')
+    const resp = await page.goto('/receive')
     expect(resp?.status()).toBeLessThan(500)
 
     await expect(page.locator('text=Unhandled Runtime Error')).toHaveCount(0)
@@ -47,7 +47,7 @@ test.describe('Surface smoke — no HTTP 500', () => {
   })
 
   test('/auditor renders without HTTP 500 or error overlay', async ({ page }) => {
-    const resp = await page.goto('/auditor')
+    const resp = await page.goto('/audit')
     expect(resp?.status()).toBeLessThan(500)
 
     await expect(page.locator('text=Unhandled Runtime Error')).toHaveCount(0)

@@ -23,7 +23,7 @@ function makeToken(): string {
 }
 
 async function gotoClaim(page: Page) {
-  await page.goto(`/employee/${makeToken()}`)
+  await page.goto(`/receive/${makeToken()}`)
 }
 
 test.describe('Employee claim', () => {
@@ -69,7 +69,7 @@ test.describe('Employee claim', () => {
   })
 
   test('an invalid token shows the not-valid state', async ({ page }) => {
-    await page.goto('/employee/not-a-real-token')
+    await page.goto('/receive/not-a-real-token')
     await expect(
       page.getByRole('heading', { name: 'This claim link is not valid.' }),
     ).toBeVisible()

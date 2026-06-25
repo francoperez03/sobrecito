@@ -2,6 +2,7 @@
 
 import { MotionConfig } from 'motion/react'
 import { FloatingNav } from '@/components/nav/FloatingNav'
+import { WalletConnect } from '@/components/nav/WalletConnect'
 import { DemoProgressPanel } from '@/components/progress/DemoProgressPanel'
 import { Footer } from '@/components/landing/Footer'
 
@@ -14,6 +15,7 @@ export function SiteChrome({ children }: { children: React.ReactNode }) {
     <MotionConfig reducedMotion="user">
       <div className="min-h-dvh bg-bg text-ink font-sans">
         <FloatingNav />
+        <WalletConnect />
         <DemoProgressPanel />
         {children}
         <Footer />

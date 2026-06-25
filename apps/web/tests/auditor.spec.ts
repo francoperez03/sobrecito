@@ -100,7 +100,7 @@ const TWO_BATCH_EVENTS = [
 
 test.describe('Auditor console', () => {
   test('page loads', async ({ page }) => {
-    await page.goto('/auditor')
+    await page.goto('/audit')
     // The (demo) layout wraps the route in FloatingNav + MotionConfig.
     await expect(page.locator('body')).toBeVisible()
   })
@@ -108,7 +108,7 @@ test.describe('Auditor console', () => {
   test('renders the view-key textarea and Reconstruct batch button', async ({
     page,
   }) => {
-    await page.goto('/auditor')
+    await page.goto('/audit')
     await expect(
       page.getByRole('textbox', {
         name: 'View-key',
@@ -130,7 +130,7 @@ test.describe('Auditor console', () => {
     page,
   }) => {
     await mockRpc(page, FIXTURE_EVENTS)
-    await page.goto('/auditor')
+    await page.goto('/audit')
 
     await page
       .getByRole('textbox', { name: 'View-key' })
@@ -153,7 +153,7 @@ test.describe('Auditor console', () => {
     page,
   }) => {
     await mockRpc(page, FIXTURE_EVENTS)
-    await page.goto('/auditor')
+    await page.goto('/audit')
 
     await page
       .getByRole('textbox', { name: 'View-key' })
@@ -173,7 +173,7 @@ test.describe('Auditor console', () => {
     page,
   }) => {
     await mockRpc(page, FIXTURE_EVENTS)
-    await page.goto('/auditor')
+    await page.goto('/audit')
 
     const textarea = page.getByRole('textbox', {
       name: 'View-key',
@@ -198,7 +198,7 @@ test.describe('Auditor console', () => {
     page,
   }) => {
     await mockRpc(page, FIXTURE_EVENTS)
-    await page.goto('/auditor')
+    await page.goto('/audit')
 
     const textarea = page.getByRole('textbox', {
       name: 'View-key',
@@ -221,7 +221,7 @@ test.describe('Auditor console', () => {
     page,
   }) => {
     await mockRpc(page, TWO_BATCH_EVENTS)
-    await page.goto('/auditor')
+    await page.goto('/audit')
 
     await page
       .getByRole('textbox', { name: 'View-key' })
@@ -236,7 +236,7 @@ test.describe('Auditor console', () => {
   // AUD-02: the txHash label appears in each batch group header.
   test('shows txHash for each batch group', async ({ page }) => {
     await mockRpc(page, TWO_BATCH_EVENTS)
-    await page.goto('/auditor')
+    await page.goto('/audit')
 
     await page
       .getByRole('textbox', { name: 'View-key' })
@@ -248,7 +248,7 @@ test.describe('Auditor console', () => {
 
   // AUD-03: clicking Generate keypair shows a base64 public key and Copy CTA.
   test('generates a keypair and shows the public key', async ({ page }) => {
-    await page.goto('/auditor')
+    await page.goto('/audit')
 
     await openKeygen(page)
     await page.getByRole('button', { name: 'Generate view-key' }).click()
@@ -300,7 +300,7 @@ test.describe('Auditor console', () => {
     page,
   }) => {
     await captureClipboard(page)
-    await page.goto('/auditor')
+    await page.goto('/audit')
 
     await openKeygen(page)
     await page.getByRole('button', { name: 'Generate view-key' }).click()
@@ -328,7 +328,7 @@ test.describe('Auditor console', () => {
   // once the button disables and prompts to regenerate; regenerating re-arms it.
   test('private key copies once then requires regenerate', async ({ page }) => {
     await captureClipboard(page)
-    await page.goto('/auditor')
+    await page.goto('/audit')
 
     await openKeygen(page)
     await page.getByRole('button', { name: 'Generate view-key' }).click()
@@ -359,7 +359,7 @@ test.describe('Auditor console', () => {
   // 06.3-04: generating persists ONLY the public key to localStorage, and the
   // page pre-fills it on a remount (no private key is ever stored).
   test('persists the public key and pre-fills it on remount', async ({ page }) => {
-    await page.goto('/auditor')
+    await page.goto('/audit')
     await openKeygen(page)
     await page.getByRole('button', { name: 'Generate view-key' }).click()
 
@@ -379,7 +379,7 @@ test.describe('Auditor console', () => {
 
     // Remount the page: the public key is pre-filled from storage, and the
     // private-key copy is NOT re-armed (private is never restored).
-    await page.goto('/auditor')
+    await page.goto('/audit')
     await openKeygen(page)
     await expect(page.getByTestId('keygen-pubkey')).toHaveText(pubText)
     await expect(page.getByTestId('keygen-copy-priv')).toBeDisabled()

@@ -18,13 +18,13 @@ const MotionLink = motion.create(Link)
 
 // The three demo surfaces, shown as a segmented control. The sliding pill
 // highlights the active one and fades out on the root/marketing page.
-// Employee points straight at the stable-key dashboard. The old per-token route
-// (/employee/[token]) was retired in 06.3 and only redirects here, so linking it
-// produced a long token URL that bounced to /employee — link /employee directly.
+// Receive points straight at the stable-key dashboard. The old per-token route
+// (/receive/[token]) was retired in 06.3 and only redirects here, so linking it
+// produced a long token URL that bounced to /receive — link /receive directly.
 const ROLES = [
-  { label: 'Pay', href: '/employer' },
-  { label: 'Receive', href: '/employee' },
-  { label: 'Audit', href: '/auditor' },
+  { label: 'Pay', href: '/pay' },
+  { label: 'Receive', href: '/receive' },
+  { label: 'Audit', href: '/audit' },
 ]
 
 /** The href of the role being "played", or null on the root/marketing page. */

@@ -19,6 +19,19 @@ const nextConfig: NextConfig = {
       },
     ]
   },
+
+  // Routes were renamed employer→pay, employee→receive, auditor→audit. Keep the
+  // old URLs working (bookmarks, the demo script) via temporary redirects.
+  // Temporary (307) on purpose: avoids browsers hard-caching the redirect while
+  // the surface naming is still settling.
+  async redirects() {
+    return [
+      { source: '/employer', destination: '/pay', permanent: false },
+      { source: '/employee', destination: '/receive', permanent: false },
+      { source: '/employee/:path*', destination: '/receive/:path*', permanent: false },
+      { source: '/auditor', destination: '/audit', permanent: false },
+    ]
+  },
 }
 
 export default nextConfig

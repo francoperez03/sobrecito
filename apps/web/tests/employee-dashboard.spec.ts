@@ -387,7 +387,7 @@ test.describe('Employee dashboard', () => {
   test('lists all employee payments', async ({ page }) => {
     await mockRpcEmployee(page, FIXTURE_EVENTS_EMPLOYEE)
     await injectProverStub(page)
-    await page.goto('/employee')
+    await page.goto('/receive')
 
     await page
       .getByLabel(/access key/i)
@@ -407,7 +407,7 @@ test.describe('Employee dashboard', () => {
   test('shows balance summary', async ({ page }) => {
     await mockRpcEmployee(page, FIXTURE_EVENTS_EMPLOYEE)
     await injectProverStub(page)
-    await page.goto('/employee')
+    await page.goto('/receive')
 
     await page
       .getByLabel(/access key/i)
@@ -425,7 +425,7 @@ test.describe('Employee dashboard', () => {
     await mockRpcEmployee(page, FIXTURE_EVENTS_EMPLOYEE)
     await injectProverStub(page)
     await injectFreighterStub(page)
-    await page.goto('/employee')
+    await page.goto('/receive')
 
     await page
       .getByLabel(/access key/i)
@@ -459,7 +459,7 @@ test.describe('Employee dashboard', () => {
     await mockRpcEmployee(page, FIXTURE_EVENTS_EMPLOYEE, false)
     await injectProverStub(page)
     await injectFreighterStub(page)
-    await page.goto('/employee')
+    await page.goto('/receive')
 
     await page
       .getByLabel(/access key/i)
@@ -479,7 +479,7 @@ test.describe('Employee dashboard', () => {
     // Sub-test A: empty pool.
     await mockRpcEmployee(page, [])
     await injectProverStub(page)
-    await page.goto('/employee')
+    await page.goto('/receive')
 
     await page
       .getByLabel(/access key/i)
@@ -489,7 +489,7 @@ test.describe('Employee dashboard', () => {
     await expect(page.getByTestId('employee-empty')).toBeVisible({ timeout: 15000 })
 
     // Sub-test B: invalid key -> amber ring.
-    await page.goto('/employee')
+    await page.goto('/receive')
     await page
       .getByLabel(/access key/i)
       .fill('not-a-valid-key')
@@ -502,7 +502,7 @@ test.describe('Employee dashboard', () => {
     await page.unrouteAll()
     await mockRpcEmployee(page, FIXTURE_EVENTS_EMPLOYEE, true)
     await injectProverStub(page)
-    await page.goto('/employee')
+    await page.goto('/receive')
     await page
       .getByLabel(/access key/i)
       .fill(EMPLOYEE_TEST_SEED_HEX)
@@ -519,7 +519,7 @@ test.describe('Employee dashboard', () => {
   test('disclosure', async ({ page }) => {
     await mockRpcEmployee(page, FIXTURE_EVENTS_EMPLOYEE, false)
     await injectProverStub(page)
-    await page.goto('/employee')
+    await page.goto('/receive')
 
     await page
       .getByLabel(/access key/i)
@@ -546,7 +546,7 @@ test.describe('Employee dashboard', () => {
     // deriveEmployeeKeys derives bn254Pub via the prover WASM, which the stub
     // resolves (derivePublicKey -> 32 zero bytes), so generation completes offline.
     await injectProverStub(page)
-    await page.goto('/employee')
+    await page.goto('/receive')
 
     // Before generating, neither value is present.
     await expect(page.getByTestId('keygen-seed')).toHaveCount(0)
@@ -581,7 +581,7 @@ test.describe('Employee dashboard', () => {
   test('masks the private key with a reveal toggle', async ({ page }) => {
     await mockRpcEmployee(page, FIXTURE_EVENTS_EMPLOYEE)
     await injectProverStub(page)
-    await page.goto('/employee')
+    await page.goto('/receive')
 
     const field = page.getByLabel(/access key/i)
     await field.fill(EMPLOYEE_TEST_SEED_HEX)

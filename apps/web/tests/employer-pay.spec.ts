@@ -296,7 +296,7 @@ test.describe('PayrollComposer employer pay flow', () => {
    */
   test('E2E-01: connect + import CSV → chips and budget meter visible', async ({ page }) => {
     await injectMocks(page)
-    await page.goto('/employer')
+    await page.goto('/pay')
 
     // PayrollComposer is on the page
     await expect(page.locator('[data-testid="payroll-composer"]')).toBeVisible()
@@ -330,7 +330,7 @@ test.describe('PayrollComposer employer pay flow', () => {
    */
   test('E2E-02: overflow batch → meter amber + Submit disabled', async ({ page }) => {
     await injectMocks(page)
-    await page.goto('/employer')
+    await page.goto('/pay')
 
     // Connect first
     await page.getByRole('button', { name: 'Connect Freighter' }).click()
@@ -362,7 +362,7 @@ test.describe('PayrollComposer employer pay flow', () => {
    */
   test.skip('E2E-03: valid batch + bb.js prover → stepper advances to done', async ({ page }) => {
     await injectMocks(page)
-    await page.goto('/employer')
+    await page.goto('/pay')
 
     // Connect
     await page.getByRole('button', { name: 'Connect Freighter' }).click()
@@ -404,7 +404,7 @@ test.describe('PayrollComposer employer pay flow', () => {
       window.localStorage.setItem('sobre.auditorPublicKey', pub as string)
     }, auditorPub)
 
-    await page.goto('/employer')
+    await page.goto('/pay')
     await expect(page.locator('[data-testid="payroll-composer"]')).toBeVisible()
 
     // Connect Freighter first — the audit toggle is only rendered once the

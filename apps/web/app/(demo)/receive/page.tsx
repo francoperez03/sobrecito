@@ -29,6 +29,7 @@ import { computeNullifier } from '@/lib/zk/proverClient'
 import { claimNote } from '@/lib/employee-claim'
 import { markStep } from '@/lib/progressStore'
 import { loadRoster } from '@/lib/employeeRoster'
+import { useWallet } from '@/lib/walletStore'
 import { type ScannedEvent } from 'viewkey'
 
 // ---------------------------------------------------------------------------
@@ -157,6 +158,9 @@ function StatePanel({
  * visible on-chain (amber-warned in NoteCard BEFORE the CTA, A1 / T-063-11).
  */
 export default function EmployeePage() {
+  // Shared wallet state: cashing out needs Freighter. The global navbar chip
+  // (top-right) does the connecting; here we only surface whether it is linked.
+  const { address: walletAddress } = useWallet()
   const [key, setKey] = useState('')
   const [state, setState] = useState<DashboardState>('idle')
   const [notes, setNotes] = useState<EmployeeNoteWithStatus[]>([])
@@ -439,7 +443,29 @@ export default function EmployeePage() {
                 </Reveal>
               )}
 
-              {/* ClaimStepper: shown when a claim is in progress */}
+              {/* Cashing out signs with Freighter. Surface whether the wallet is
+                  linked; connecting itself lives in the global navbar chip. */}
+              {!walletAddress && (
+                <Reveal delay={0.1}>
+                  <p className="text-sm text-ink-muted">
+                    Connect your wallet (top-right) to cash out.
+                  </p>
+                </Reveal>
+              )}
+
+              {/* Compact payments table (auditor-style): one row per payment, per-row
+                  Claim, amount revealed inline once the withdraw confirms. */}
+              <Reveal delay={0.12}>
+                <EmployeeNotesTable
+                  notes={notes}
+                  onClaim={handleClaim}
+                  claimingIndex={claimingIndex}
+                />
+              </Reveal>
+
+              {/* ClaimStepper: shown when a claim is in progress. Rendered BELOW the
+                  table (not between the address card and the table) so it never
+                  splits the layout — it reads as a continuation of the row action. */}
               {claimStep.phase !== 'idle' && (
                 <Reveal delay={0.06}>
                   <div>
@@ -459,16 +485,6 @@ export default function EmployeePage() {
                   </div>
                 </Reveal>
               )}
-
-              {/* Compact payments table (auditor-style): one row per payment, per-row
-                  Claim, amount revealed inline once the withdraw confirms. */}
-              <Reveal delay={0.12}>
-                <EmployeeNotesTable
-                  notes={notes}
-                  onClaim={handleClaim}
-                  claimingIndex={claimingIndex}
-                />
-              </Reveal>
             </div>
           )}
         </div>

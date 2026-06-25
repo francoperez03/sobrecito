@@ -39,7 +39,7 @@ const steps: {
   {
     action: 'Generate',
     role: 'Employee',
-    href: '/employee',
+    href: '/receive',
     icon: Key,
     headline: 'Create your key.',
     body: 'Generate it in the browser. Keep the private key, share only the public one.',
@@ -48,7 +48,7 @@ const steps: {
   {
     action: 'View-key',
     role: 'Auditor',
-    href: '/auditor',
+    href: '/audit',
     icon: ShieldCheck,
     headline: 'Mint the view-key.',
     body: 'The auditor generates a keypair and keeps the private view-key. The public key goes to the employer.',
@@ -57,7 +57,7 @@ const steps: {
   {
     action: 'Pay',
     role: 'Employer',
-    href: '/employer',
+    href: '/pay',
     icon: PaperPlaneTilt,
     headline: 'Send the payroll.',
     body: 'Paste each public key and amount, up to 8 notes per batch, optionally add the auditor’s key, and prove it in your browser.',
@@ -66,7 +66,7 @@ const steps: {
   {
     action: 'Claim',
     role: 'Employee',
-    href: '/employee',
+    href: '/receive',
     icon: HandCoins,
     headline: 'Claim your pay.',
     body: 'Paste your private key, find the one note that is yours, and withdraw it.',
@@ -75,7 +75,7 @@ const steps: {
   {
     action: 'Audit',
     role: 'Auditor',
-    href: '/auditor',
+    href: '/audit',
     icon: MagnifyingGlass,
     headline: 'Reconstruct the detail.',
     body: 'Paste the private view-key to rebuild every amount for that period. Nothing outside it.',

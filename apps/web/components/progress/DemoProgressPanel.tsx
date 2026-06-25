@@ -37,11 +37,11 @@ import { EASE_OUT } from '@/lib/motion'
 
 // `cta` names the exact button to click on the destination tab.
 const STEPS: { label: string; role: string; href: string; icon: Icon; cta: string }[] = [
-  { label: 'Generate', role: 'Employee', href: '/employee', icon: Key, cta: 'Generate a new key' },
-  { label: 'View-key', role: 'Auditor', href: '/auditor', icon: ShieldCheck, cta: 'Generate keypair' },
-  { label: 'Pay', role: 'Employer', href: '/employer', icon: PaperPlaneTilt, cta: 'Send payroll' },
-  { label: 'Claim', role: 'Employee', href: '/employee', icon: HandCoins, cta: 'Scan pool, then Claim' },
-  { label: 'Audit', role: 'Auditor', href: '/auditor', icon: MagnifyingGlass, cta: 'Reconstruct batch' },
+  { label: 'Generate', role: 'Receive', href: '/receive', icon: Key, cta: 'Generate a new key' },
+  { label: 'View-key', role: 'Audit', href: '/audit', icon: ShieldCheck, cta: 'Generate keypair' },
+  { label: 'Pay', role: 'Pay', href: '/pay', icon: PaperPlaneTilt, cta: 'Send payroll' },
+  { label: 'Claim', role: 'Receive', href: '/receive', icon: HandCoins, cta: 'Scan pool, then Claim' },
+  { label: 'Audit', role: 'Audit', href: '/audit', icon: MagnifyingGlass, cta: 'Reconstruct batch' },
 ]
 
 const AUTO_CLOSE_MS = 2800

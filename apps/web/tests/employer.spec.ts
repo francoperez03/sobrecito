@@ -44,7 +44,7 @@ async function mockRpc(page: Page, events: unknown[]) {
 test.describe('Employer dashboard', () => {
   test('page loads', async ({ page }) => {
     await mockRpc(page, [])
-    await page.goto('/employer')
+    await page.goto('/pay')
     // The (demo) layout wraps the route in FloatingNav + MotionConfig.
     await expect(page.locator('body')).toBeVisible()
   })
@@ -52,7 +52,7 @@ test.describe('Employer dashboard', () => {
   // 6-EMP-empty: RPC mocked to 0 events → empty-state copy is shown.
   test('shows empty-state copy when no payroll is on-chain', async ({ page }) => {
     await mockRpc(page, [])
-    await page.goto('/employer')
+    await page.goto('/pay')
     await expect(page.getByText('No payroll yet')).toBeVisible()
   })
 
@@ -60,7 +60,7 @@ test.describe('Employer dashboard', () => {
   // the public-lens framing (sealed + proven).
   test('renders the payroll record heading and sealed framing', async ({ page }) => {
     await mockRpc(page, [])
-    await page.goto('/employer')
+    await page.goto('/pay')
     await expect(
       page.getByRole('heading', { name: 'Payroll record' }),
     ).toBeVisible()
@@ -100,7 +100,7 @@ test.describe('Employer dashboard', () => {
       value: VALUE_XDR[i],
     }))
     await mockRpc(page, events)
-    await page.goto('/employer')
+    await page.goto('/pay')
 
     // The populated record renders the ready-state rail (proves we are exercising
     // the data path, not silently falling back to empty/error state). The proven
