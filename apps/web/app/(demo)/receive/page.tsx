@@ -29,7 +29,7 @@ import { computeNullifier } from '@/lib/zk/proverClient'
 import { claimNote } from '@/lib/employee-claim'
 import { markStep } from '@/lib/progressStore'
 import { loadRoster } from '@/lib/employeeRoster'
-import { useWallet } from '@/lib/walletStore'
+import { useWallet, refreshBalance } from '@/lib/walletStore'
 import { WalletBalance } from '@/components/wallet/WalletBalance'
 import { type ScannedEvent } from 'viewkey'
 
@@ -288,6 +288,9 @@ export default function EmployeePage() {
         ),
       )
       markStep('claim')
+      // Cashing out sends USDC to the employee's wallet — refetch the shared
+      // balance so the Receive-tab figure reflects the newly received funds.
+      void refreshBalance()
     } catch (err) {
       setClaimStep({
         phase: 'error',
