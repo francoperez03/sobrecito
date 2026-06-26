@@ -19,6 +19,7 @@
 import { useSyncExternalStore } from 'react'
 import { getChainAdapter } from '@/lib/chain'
 import { fetchUsdcBalance, formatUsdc } from '@/lib/rpc'
+import { TESTNET_PASSPHRASE } from '@/lib/chain/stellar/config'
 
 export interface WalletState {
   address: string | null
@@ -109,6 +110,37 @@ export async function refreshWallet(): Promise<void> {
  */
 export function disconnectWallet(): void {
   setState({ address: null, error: null, usdcBalance: null, usdcBalanceBase: null })
+}
+
+/**
+ * Watch Freighter for the active account/network changing while the app is open.
+ * Without this the store keeps showing a STALE account (and its balance) after the
+ * user switches accounts in the extension. Returns an unsubscribe.
+ *
+ *  - account switched → adopt the new address + refetch its balance.
+ *  - locked / access revoked (empty address) → drop the connection.
+ *  - switched off testnet → surface a guard message.
+ */
+export function startWalletWatch(): () => void {
+  try {
+    return getChainAdapter().wallet.watchChanges(({ address, networkPassphrase }) => {
+      if (networkPassphrase && networkPassphrase !== TESTNET_PASSPHRASE) {
+        setState({ error: 'Switch Freighter to Testnet to continue.' })
+        return
+      }
+      if (!address) {
+        if (state.address) disconnectWallet()
+        return
+      }
+      if (address !== state.address) {
+        setState({ address, error: null })
+        void refreshBalance()
+      }
+    })
+  } catch {
+    // No extension / watch unsupported — nothing to clean up.
+    return () => {}
+  }
 }
 
 function subscribe(cb: () => void): () => void {

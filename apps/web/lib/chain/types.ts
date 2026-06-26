@@ -166,6 +166,12 @@ export interface WalletAdapter {
   assertExpectedNetwork(): Promise<void>
   /** Sign an unsigned transaction (chain-native base64) for `address`. */
   signXdr(xdr: string, address: string): Promise<string>
+  /**
+   * Watch for the wallet's active account/network changing (user switches account
+   * or locks/unlocks). Calls `cb` with the new address ('' when locked / no
+   * access). Returns an unsubscribe to stop watching.
+   */
+  watchChanges(cb: (change: { address: string; networkPassphrase: string }) => void): () => void
 }
 
 /** Read-only on-chain state (Soroban simulations on Stellar). */

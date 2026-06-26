@@ -2,7 +2,13 @@
 
 import { useEffect } from 'react'
 import { usePathname } from 'next/navigation'
-import { useWallet, connectWallet, disconnectWallet, refreshWallet } from '@/lib/walletStore'
+import {
+  useWallet,
+  connectWallet,
+  disconnectWallet,
+  refreshWallet,
+  startWalletWatch,
+} from '@/lib/walletStore'
 
 /**
  * Global wallet chip, pinned top-right (symmetric to the demo-progress panel
@@ -20,10 +26,14 @@ export function WalletConnect() {
   const pathname = usePathname() ?? '/'
   const onWalletRoute = WALLET_ROUTES.some((r) => pathname.startsWith(r))
 
-  // Adopt an already-granted Freighter session on mount (no prompt) so the chip
-  // reflects a connection made on another surface or a previous visit.
+  // Adopt an already-granted Freighter session on mount (no prompt), then watch
+  // for the user switching accounts / locking the extension so the app never shows
+  // a stale account or its balance.
   useEffect(() => {
-    if (onWalletRoute) void refreshWallet()
+    if (!onWalletRoute) return
+    void refreshWallet()
+    const stop = startWalletWatch()
+    return stop
   }, [onWalletRoute])
 
   if (!onWalletRoute) return null

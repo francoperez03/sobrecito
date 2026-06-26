@@ -6,7 +6,13 @@
  * asserts testnet (the pool lives on testnet).
  */
 
-import { getAddress, getNetwork, requestAccess, signTransaction } from '@stellar/freighter-api'
+import {
+  getAddress,
+  getNetwork,
+  requestAccess,
+  signTransaction,
+  WatchWalletChanges,
+} from '@stellar/freighter-api'
 import type { ChainConfig, WalletAdapter } from '../types'
 
 /** Unwrap a Freighter v6 result: either a value field or an `error`. */
@@ -59,6 +65,17 @@ export function createFreighterWallet(config: ChainConfig): WalletAdapter {
         'signTransaction',
       )
       return signed.signedTxXdr
+    },
+
+    watchChanges(cb): () => void {
+      // Freighter polls every `timeout` ms and fires the callback only when the
+      // active account or network changes (it tracks the current values itself).
+      const watcher = new WatchWalletChanges(2000)
+      watcher.watch(({ address, networkPassphrase, error }) => {
+        if (error) return
+        cb({ address: address ?? '', networkPassphrase: networkPassphrase ?? '' })
+      })
+      return () => watcher.stop()
     },
   }
 }
