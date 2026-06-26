@@ -291,6 +291,19 @@ export default function EmployeePage() {
       // Cashing out sends USDC to the employee's wallet — refetch the shared
       // balance so the Receive-tab figure reflects the newly received funds.
       void refreshBalance()
+
+      // The withdraw appended new output commitments to the pool tree, changing
+      // the live root. Re-scan so the NEXT claim rebuilds its Merkle path against
+      // the CURRENT tree. Without this, the path is reconstructed from the stale
+      // event set (old tree) while the witness uses the live root, so the Merkle
+      // constraint can't be satisfied ("Cannot satisfy constraint") until a manual
+      // page refresh. Re-scanning here removes that refresh requirement.
+      try {
+        const freshEvents = await getChainAdapter().events.scanCommitments()
+        setScannedEvents(freshEvents)
+      } catch {
+        // best-effort: a manual refresh still recovers if the re-scan fails
+      }
     } catch (err) {
       setClaimStep({
         phase: 'error',
