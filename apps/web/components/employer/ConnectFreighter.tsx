@@ -37,11 +37,10 @@ export function ConnectFreighter({
     ? `${address.slice(0, 4)}…${address.slice(-4)}`
     : null
 
-  // Trim formatUsdc's trailing zeros for display: "3.0000000" → "3", "2.5000000" → "2.5".
+  // formatUsdc already trims fractional trailing zeros. Do NOT re-strip with
+  // /\.?0+$/ — that also eats the trailing zero of whole numbers ("20" → "2").
   const balanceLabel =
-    usdcBalance === null || usdcBalance === undefined
-      ? '…'
-      : usdcBalance.replace(/\.?0+$/, '') || '0'
+    usdcBalance === null || usdcBalance === undefined ? '…' : usdcBalance
 
   if (!isConnected) {
     return (

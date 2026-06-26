@@ -14,9 +14,10 @@ export function WalletBalance({ className }: { className?: string }) {
   const { address, usdcBalance } = useWallet()
   if (!address) return null
 
-  // Trim formatUsdc's trailing zeros: "3.0000000" → "3", "2.5000000" → "2.5".
-  const label =
-    usdcBalance === null ? '…' : usdcBalance.replace(/\.?0+$/, '') || '0'
+  // formatUsdc already trims fractional trailing zeros ("3.0000000" → "3",
+  // "2.5000000" → "2.5"). Do NOT re-strip with /\.?0+$/ — that also eats the
+  // trailing zero of whole numbers ("20" → "2", "100" → "1").
+  const label = usdcBalance ?? '…'
   const isZero = label === '0'
 
   return (
