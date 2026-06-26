@@ -55,7 +55,7 @@ export async function claimNote(
   recipientAddress: string,
   scannedEvents: ScannedEvent[],
   onStep: (s: ClaimStep) => void,
-): Promise<{ hash: string }> {
+): Promise<{ hash: string; recipient: string }> {
   // Step 0: resolve recipient via the wallet (access + testnet guard). The recipient
   // binds into the ext_data_hash the circuit verifies — must be the real address
   // before proving. connect() is idempotent, so an explicit recipientAddress still

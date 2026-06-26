@@ -29,7 +29,7 @@ import { computeNullifier } from '@/lib/zk/proverClient'
 import { claimNote } from '@/lib/employee-claim'
 import { markStep } from '@/lib/progressStore'
 import { loadRoster } from '@/lib/employeeRoster'
-import { useWallet, refreshBalance } from '@/lib/walletStore'
+import { useWallet, refreshBalanceFor } from '@/lib/walletStore'
 import { WalletBalance } from '@/components/wallet/WalletBalance'
 import { type ScannedEvent } from 'viewkey'
 
@@ -288,9 +288,10 @@ export default function EmployeePage() {
         ),
       )
       markStep('claim')
-      // Cashing out sends USDC to the employee's wallet — refetch the shared
-      // balance so the Receive-tab figure reflects the newly received funds.
-      void refreshBalance()
+      // Cashing out credited USDC to the recipient — adopt that account in the
+      // store and poll its balance until it reflects the new funds (handles the
+      // store not knowing the address yet and RPC balance-simulation lag).
+      void refreshBalanceFor(result.recipient)
 
       // The withdraw appended new output commitments to the pool tree, changing
       // the live root. Re-scan so the NEXT claim rebuilds its Merkle path against

@@ -70,6 +70,25 @@ export async function refreshBalance(): Promise<void> {
 }
 
 /**
+ * After an action that changes the balance (e.g. a cash-out crediting USDC to
+ * `address`), adopt that address into the store and refetch its balance, polling
+ * briefly until the value actually changes. This covers two cases the single
+ * refreshBalance() misses: the store not yet knowing the address (the claim flow
+ * connected Freighter directly), and the RPC's balance simulation lagging a beat
+ * behind the just-closed withdraw ledger.
+ */
+export async function refreshBalanceFor(address: string, attempts = 4): Promise<void> {
+  if (address && address !== state.address) setState({ address, error: null })
+  if (!state.address) return
+  const before = state.usdcBalanceBase
+  for (let i = 0; i < attempts; i++) {
+    await refreshBalance()
+    if (state.usdcBalanceBase !== before) return // changed → done
+    if (i < attempts - 1) await new Promise((r) => setTimeout(r, 1500))
+  }
+}
+
+/**
  * Connect via Freighter (prompts on first grant; idempotent afterwards). Sets the
  * shared address on success or a human message on failure, then loads the balance.
  */
